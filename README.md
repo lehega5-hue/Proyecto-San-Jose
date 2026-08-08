@@ -29,20 +29,20 @@ La aplicación es estática y compatible con GitHub Pages. No requiere cuenta, b
 - Dictado opcional controlado por el usuario, con transcripción intermedia y reinicio automático mientras siga escuchando.
 - Un único ejemplo visible de ventas para demostrar el análisis sin inventario.
 - Flujos parciales: ventas sin inventario e inventario sin ventas.
-- Revisión simple de cada columna con **Sí, está bien**, **Cambiar** y **No lo tengo**.
+- Revisión simple de cada columna con **Sí, está bien**, **Cambiar** y **No tengo ese dato**.
 - Al cambiar una selección, se muestran todas las columnas reales agrupadas por archivo y hoja, con ejemplos de la columna elegida.
 - Prevención de columnas duplicadas en datos principales y recálculo inmediato del alcance tras una corrección.
-- Separación visible entre identificación de la columna y calidad calculada de sus datos.
-- Confirmación obligatoria de cada dato principal; la calidad permanece oculta hasta que la persona confirma la columna.
-- Una sola plantilla visual para Fecha, Producto, Cantidad, Valor e Inventario, con progreso de revisión y bloqueo amable antes de analizar.
-- Opcionales limitados a Cliente, Comercial / vendedor y Utilidad, visibles únicamente cuando fueron encontrados.
+- Confianza visible como **Alta**, **Media** o **Baja** para explicar qué tan segura es la interpretación, sin llamarla calidad.
+- Una corrección manual queda **Confirmada por ti** y recalcula inmediatamente validación, calidad y alcance sin recargar el archivo.
+- Ventas requiere Fecha, Producto y al menos una medida: Cantidad vendida o Valor de la venta; no exige ambas.
+- Datos adicionales de ventas e inventario dentro de una sección cerrada y sin bloquear por su ausencia.
 - Medida de ventas flexible: cantidad, valor total o valor calculado como cantidad × precio.
 - Clasificación explícita de hojas como ventas, inventario, complementaria o desconocida.
 - Detección de caída reciente sostenida en ventas.
 - Priorización reproducible por impacto, urgencia, alcance y confianza.
 - Pregunta adaptativa solo cuando una caída prioritaria necesita contexto adicional.
 - Calidad respaldada por cantidades y porcentajes calculados.
-- Batería automatizada de 40 casos en `tests/run-tests.js`, incluidas las 18 comprobaciones obligatorias de la UX final de la Etapa 2.
+- Batería automatizada de 40 casos en `tests/run-tests.js`, incluida la corrección crítica de `IdDocumento` por `Cantidad` usando todas las columnas reales.
 
 ## Reglas de seguridad analítica
 

@@ -82,7 +82,7 @@ const semanticRoles = {
     fecha: { label: "Fecha de venta", group: "main", description: "Nos permite revisar cómo cambian las ventas en el tiempo.", terms: ["fecha", "fecha venta", "fecha factura", "día", "periodo"] },
     producto: { label: "Producto / referencia", group: "main", description: "Nos permite saber qué se vendió.", terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código producto", "mercancía"] },
     cantidad: { label: "Cantidad vendida", group: "main", measure: true, description: "Permite analizar el volumen vendido.", terms: ["cantidad", "unidades", "und", "cant", "qty", "despacho", "volumen"] },
-    valorTotal: { label: "Valor total de la venta", group: "main", measure: true, description: "Permite analizar ingresos.", terms: ["valor total", "total venta", "vr total", "vr tot fac", "vr neto", "valor neto", "importe", "subtotal", "ingreso"] },
+    valorTotal: { label: "Valor total", group: "main", measure: true, description: "Permite analizar ingresos.", terms: ["valor total", "total venta", "vr total", "vr tot fac", "vr neto", "valor neto", "importe", "subtotal", "ingreso"] },
     precio: { label: "Precio unitario", group: "additional", description: "Con cantidad, permite calcular el valor total de la venta.", terms: ["precio", "precio venta", "valor unitario", "vr unitario"] },
     costo: { label: "Costo unitario", group: "additional", description: "Ayuda a estimar rentabilidad cuando también hay valor de venta.", terms: ["costo", "coste", "valor costo", "costo unitario"] },
     cliente: { label: "Cliente", group: "additional", terms: ["cliente", "nombre cliente", "nit cliente"] },
@@ -301,12 +301,12 @@ function interpretationPanel() {
   const unknown = app.classified.filter(table => table.type === "unknown");
   return `<section class="panel interpretation-panel">
     <p class="eyebrow">Revisión de tus datos</p>
-    <h2>Esto es lo que encontramos</h2>
-    <p>Revisamos archivos, hojas, encabezados, tipos de datos y muestras de valores.</p>
+    <h2>Esto es lo que entendimos</h2>
+    <p>San José hizo una primera interpretación. Confirma o corrige cada dato principal.</p>
     <ul class="found-list">${found}</ul>
     ${additional.length ? `<p class="optional-note">También encontramos ${countText(additional.length, "una hoja", "hojas")} con información adicional. Esta versión de San José se concentra únicamente en ventas e inventario.</p>` : ""}
     ${unknown.length ? `<p class="optional-note">No logramos reconocer ${countText(unknown.length, "una hoja", "hojas")}. Puedes continuar si ya encontramos ventas o inventario.</p>` : ""}
-    <div class="review-progress"><div><h2>Revisa tus datos principales</h2><p>Cada tarjeta responde una sola pregunta: ¿esta es la columna correcta?</p></div><strong>✓ ${review.resolved} de ${review.total} listos</strong></div>
+    <div class="review-progress"><div><h2>Revisa tus datos principales</h2><p>San José propone. Tú confirmas o corriges.</p></div><strong>✓ ${review.resolved} de ${review.total} listos</strong></div>
     <div class="sheet-mappings">
       ${relevant.map(item => mappingCard(item.table, item.index)).join("")}
     </div>
@@ -323,34 +323,56 @@ function interpretationPanel() {
 
 function mappingCard(table, tableIndex) {
   const mainRoles = primaryRolesFor(table.type);
-  const optionalRoles = table.type === "sales" ? ["cliente", "vendedor", "utilidad"] : [];
-  const foundOptional = optionalRoles.filter(role => table.interpretation.assignments[role]);
+  const optionalRoles = additionalRolesFor(table.type);
   return `<article class="mapping-card">
     <header><div><span>${table.type === "sales" ? "Ventas" : "Inventario"}</span><h3>${safe(table.sheetName)}</h3></div><small>${safe(table.fileName)}</small></header>
-    <section class="needed-data"><h4>Datos principales</h4><p>Confirma cada columna o indícanos que no tienes ese dato.</p></section>
+    <section class="needed-data"><h4>Datos principales de ${table.type === "sales" ? "ventas" : "inventario"}</h4><p>${table.type === "sales" ? "Necesitamos fecha, producto y al menos una medida de la venta." : "Necesitamos producto y existencia actual."}</p></section>
     <div class="interpretation-rows">${mainRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}</div>
-    ${foundOptional.length ? `<details class="additional-data"><summary><span>Datos que pueden mejorar el análisis</span><b>Ver</b></summary><div class="optional-rows">${foundOptional.map(role => interpretationRow(table, tableIndex, role)).join("")}</div></details>` : ""}
+    ${table.type === "sales" ? `<section class="measure-section"><div><h4>Medida de la venta</h4><p>Debe existir al menos una: cantidad vendida o valor de la venta.</p></div><div class="interpretation-rows">${["cantidad", "valorTotal"].map(role => interpretationRow(table, tableIndex, role)).join("")}</div></section>` : ""}
+    <details class="additional-data"><summary><span>Datos que pueden mejorar el análisis</span><b>Ver datos adicionales</b></summary><p>Estos datos son opcionales y su ausencia no bloquea el análisis.${table.type === "sales" ? " Cantidad vendida y Valor total se revisan arriba como medidas de la venta." : ""}</p><div class="optional-rows">${optionalRoles.map(role => interpretationRow(table, tableIndex, role, { optional: true })).join("")}</div></details>
   </article>`;
 }
 
 function primaryRolesFor(type) {
-  return type === "sales" ? ["fecha", "producto", "cantidad", "valorTotal"] : type === "inventory" ? ["producto", "stock"] : [];
+  return type === "sales" ? ["fecha", "producto"] : type === "inventory" ? ["producto", "stock"] : [];
+}
+
+function additionalRolesFor(type) {
+  return type === "sales"
+    ? ["precio", "costo", "cliente", "canal", "categoria", "sede", "vendedor", "descuento"]
+    : type === "inventory"
+      ? ["fechaCorte", "costo", "ultimoMovimiento", "categoria", "bodega", "inventarioMinimo", "inventarioMaximo", "puntoReposicion", "proveedor", "vencimiento"]
+      : [];
 }
 
 function primaryReviewProgress() {
-  const items = app.classified.flatMap((table, tableIndex) => primaryRolesFor(table.type).map(role => ({ table, tableIndex, role })));
-  const resolved = items.filter(({ table, tableIndex, role }) => {
+  let resolved = 0;
+  let total = 0;
+  const isResolved = (table, tableIndex, role) => {
     const decision = roleDecision(tableIndex, role);
     return Boolean(table.interpretation.assignments[role]?.confirmed || ["missing", "ignored", "unknown"].includes(decision?.status));
-  }).length;
-  return { resolved, total: items.length, complete: items.length > 0 && resolved === items.length };
+  };
+  app.classified.forEach((table, tableIndex) => {
+    if (!['sales', 'inventory'].includes(table.type)) return;
+    primaryRolesFor(table.type).forEach(role => {
+      total += 1;
+      if (isResolved(table, tableIndex, role)) resolved += 1;
+    });
+    if (table.type === "sales") {
+      total += 1;
+      const hasConfirmedMeasure = ["cantidad", "valorTotal"].some(role => table.interpretation.assignments[role]?.confirmed);
+      const bothUnavailable = ["cantidad", "valorTotal"].every(role => ["missing", "ignored", "unknown"].includes(roleDecision(tableIndex, role)?.status));
+      if (hasConfirmedMeasure || bothUnavailable) resolved += 1;
+    }
+  });
+  return { resolved, total, complete: total > 0 && resolved === total };
 }
 
 function roleDecision(tableIndex, role) {
   return app.clarifications[`${tableIndex}:${role}`] || null;
 }
 
-function interpretationRow(table, tableIndex, role) {
+function interpretationRow(table, tableIndex, role, options = {}) {
   const config = semanticRoles[table.type][role];
   const assignment = table.interpretation.assignments[role];
   const decision = roleDecision(tableIndex, role);
@@ -366,20 +388,21 @@ function interpretationRow(table, tableIndex, role) {
     : assignment?.confirmed && !editing
       ? { label: "✓ Confirmado por ti", className: "confirmed" }
       : columnIdentification(visibleAssignment);
-  const showQuality = Boolean(assignment?.confirmed && !editing && !unavailable);
-  const quality = showQuality ? columnDataQuality(sourceTable, assignment.header, role) : null;
+  const confidence = visibleAssignment?.confidence || "";
+  const missingImpact = unavailable && !options.optional ? missingImpactText(table.type, role, table, tableIndex) : "";
   return `<article class="interpretation-item data-question ${ambiguity || duplicate ? "needs-review" : ""}">
     ${duplicate ? `<p class="duplicate-warning">Encontramos dos columnas que podrían representar ${safe(config.label)}. ¿Cuál quieres utilizar?</p>` : ""}
     <div class="interpretation-main">
       <div class="needed-column"><h5>${safe(roleDisplayLabel(table.type, role))}</h5></div>
       <div class="found-column"><span>Encontramos:</span><strong>${visibleAssignment ? safe(visibleAssignment.header) : "No encontramos una columna"}</strong>${visibleAssignment && sourceTable !== table ? `<small>Hoja: ${safe(sourceTable.sheetName)}</small>` : ""}</div>
+      ${confidence ? `<span class="confidence ${confidence.toLowerCase()}">Confianza ${safe(confidence)}</span>` : ""}
       <strong class="identification-state ${identification.className}">${identification.label}</strong>
-      ${showQuality ? `<div class="column-data-quality ${quality.className}"><strong>Calidad de los datos: ${quality.level}</strong><p>${safe(quality.explanation)}</p></div>` : ""}
+      ${missingImpact ? `<p class="missing-impact">${safe(missingImpact)}</p>` : ""}
     </div>
     ${editing || duplicate ? columnChooser(table, tableIndex, role, assignment) : ""}
-    ${assignment && !editing && !duplicate && !unavailable && !assignment.confirmed ? `<div class="interpretation-actions"><button class="button mini interpretation-action" type="button" data-action="confirm" data-table="${tableIndex}" data-role="${role}">Sí, está bien</button><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="button mini quiet interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No lo tengo</button></div>` : ""}
+    ${assignment && !editing && !duplicate && !unavailable && !assignment.confirmed ? `<div class="interpretation-actions"><button class="button mini interpretation-action" type="button" data-action="confirm" data-table="${tableIndex}" data-role="${role}">Sí, está bien</button><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="button mini quiet interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No tengo ese dato</button></div>` : ""}
     ${assignment?.confirmed && !editing && !unavailable ? `<div class="interpretation-actions"><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button></div>` : ""}
-    ${!assignment && !editing && !unavailable ? `<div class="interpretation-actions"><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="button mini quiet interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No lo tengo</button></div>` : ""}
+    ${!assignment && !editing && !unavailable ? `<div class="interpretation-actions"><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="button mini quiet interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No tengo ese dato</button></div>` : ""}
   </article>`;
 }
 
@@ -391,9 +414,23 @@ function roleDisplayLabel(type, role) {
 }
 
 function columnIdentification(assignment) {
-  if (!assignment?.header) return { label: "⚪ No la encontramos", className: "not-found" };
-  if (assignment.confirmed || assignment.confidence === "Alta") return { label: "🟢 Parece correcto", className: "looks-correct" };
-  return { label: "🟠 Revisa este dato", className: "review" };
+  if (!assignment?.header) return { label: "○ No encontramos esta columna", className: "not-found" };
+  if (assignment.confirmed) return { label: "✓ Confirmado por ti", className: "confirmed" };
+  if (assignment.confidence === "Alta") return { label: "✓ Identificada por San José", className: "looks-correct" };
+  return { label: "⚠ Necesita revisión", className: "review" };
+}
+
+function missingImpactText(type, role, table, tableIndex) {
+  if (type === "sales" && role === "fecha") return "Sin fecha no podremos analizar cómo cambian las ventas en el tiempo.";
+  if (type === "sales" && role === "producto") return "Sin producto no podremos mostrar qué referencias aportan más.";
+  if (type === "sales" && ["cantidad", "valorTotal"].includes(role)) {
+    const otherRole = role === "cantidad" ? "valorTotal" : "cantidad";
+    return table.interpretation.assignments[otherRole]?.confirmed
+      ? "Puedes continuar: ya confirmaste otra medida válida de la venta."
+      : "Necesitamos cantidad vendida o valor de la venta para analizar ventas.";
+  }
+  if (type === "inventory") return "Sin este dato no podremos analizar las existencias por producto.";
+  return "Puedes continuar; este dato no es obligatorio.";
 }
 
 function columnDataQuality(table, header, role) {
@@ -465,7 +502,7 @@ function columnChooser(table, tableIndex, role, assignment) {
   return `<div class="column-chooser"><label>¿Qué columna contiene ${safe(roleDisplayLabel(table.type, role).toLowerCase())}?
     <select class="role-column-select" data-table="${tableIndex}" data-role="${role}"><option value="">Seleccionar columna</option>${groups}</select>
     ${decision?.error ? `<small class="duplicate-warning" role="alert">${safe(decision.error)}</small>` : ""}
-  </label><div class="column-examples">${examples}</div><button class="button mini quiet interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No lo tengo</button></div>`;
+  </label><div class="column-examples">${examples}</div><button class="button mini quiet interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No tengo ese dato</button></div>`;
 }
 
 function columnOptionValue(sourceTableIndex, header) {
@@ -530,13 +567,13 @@ function analysisScopePanel(scope) {
   const has = (type, role) => roleAvailability(type, role) === "available";
   const salesMeasure = has("sales", "cantidad") || has("sales", "valorTotal");
   const revenue = has("sales", "valorTotal") || (has("sales", "cantidad") && has("sales", "precio"));
-  if (scope.hasSales && salesMeasure) available.push("cómo han cambiado tus ventas", "qué deberías atender primero");
-  if (scope.hasSales && has("sales", "cantidad")) available.push("qué productos venden más");
-  if (scope.hasSales && revenue) available.push("qué productos generan más ingresos");
-  if (scope.hasInventory) available.push("cuántas existencias tienes registradas por producto");
-  if (has("sales", "utilidad") || (revenue && has("sales", "costo"))) available.push("una aproximación inicial a la rentabilidad");
-  else unavailable.push("Rentabilidad — no encontramos utilidad suficiente.");
-  if (!(scope.hasSales && scope.hasInventory && has("sales", "cantidad"))) unavailable.push("Productos acumulados — necesitamos ventas por cantidad e inventario.");
+  if (scope.hasSales && salesMeasure) available.push("Cómo han cambiado tus ventas.", "Qué productos aportan más.");
+  if (scope.hasSales || scope.hasInventory) available.push("Qué deberías atender primero.");
+  if (scope.hasInventory) available.push("Cuántas existencias tienes registradas por producto.");
+  if (has("sales", "utilidad") || (revenue && has("sales", "costo"))) available.push("Una aproximación inicial a la rentabilidad.");
+  else unavailable.push("Rentabilidad — no encontramos costos.");
+  if (!scope.hasInventory) unavailable.push("Productos acumulados — no encontramos inventario.");
+  else if (!(scope.hasSales && has("sales", "cantidad"))) unavailable.push("Productos acumulados — necesitamos cantidad vendida para compararla con el inventario.");
   if (!revenue && scope.hasSales) unavailable.push("Ingresos — necesitamos valor total o cantidad con precio unitario.");
   return `<section class="analysis-scope"><div><h3>Con esta información podemos analizar:</h3><ul>${available.length ? available.map(text => `<li>✓ ${safe(text)}</li>`).join("") : "<li>! Primero necesitamos completar los datos principales.</li>"}</ul></div><div><h3>Todavía no podemos analizar:</h3><ul>${unavailable.map(text => `<li>○ ${safe(text)}</li>`).join("") || "<li>✓ No identificamos limitaciones adicionales para este alcance.</li>"}</ul></div></section>`;
 }
@@ -1129,7 +1166,14 @@ function buildClassifiedTable(table, local, interpreted) {
 function requiredMappingIssues() {
   const issues = [];
   const relevant = type => app.classified.filter(table => table.type === type);
-  const conflicts = app.classified.flatMap(table => table.interpretation ? Object.entries(table.interpretation.assignments).filter(([, assignment]) => assignment?.duplicates?.length > 1 && !assignment.confirmed) : []);
+  const conflicts = app.classified.flatMap(table => {
+    if (!table.interpretation || !["sales", "inventory"].includes(table.type)) return [];
+    const roles = table.type === "sales" ? ["fecha", "producto", "cantidad", "valorTotal"] : ["producto", "stock"];
+    const hasConfirmedSalesMeasure = table.type === "sales" && ["cantidad", "valorTotal"].some(role => table.interpretation.assignments[role]?.confirmed);
+    return roles.filter(role => !(hasConfirmedSalesMeasure && ["cantidad", "valorTotal"].includes(role)))
+      .map(role => [role, table.interpretation.assignments[role]])
+      .filter(([, assignment]) => assignment?.duplicates?.length > 1 && !assignment.confirmed);
+  });
   if (conflicts.length) issues.push({
     title: "Necesitamos revisar una columna",
     message: "Encontramos dos columnas posibles para el mismo dato.",
@@ -1236,13 +1280,13 @@ function selectRoleColumn(event) {
     header,
     sourceTableIndex,
     confidence: "Alta",
-    confirmed: false,
+    confirmed: true,
     userSelected: true,
     duplicates: [],
     score: 10,
     sample: sourceTable.profiles?.[header]?.sample || "Sin muestra"
   };
-  app.clarifications[`${tableIndex}:${role}`] = { status: "selected" };
+  app.clarifications[`${tableIndex}:${role}`] = { status: "confirmed" };
   refreshInterpretationAnalysis();
   render();
 }
@@ -1271,13 +1315,14 @@ function selectAmbiguousMeaning(event) {
       header,
       sourceTableIndex: tableIndex,
       confidence: "Alta",
-      confirmed: false,
+      confirmed: true,
       userSelected: true,
       duplicates: [],
       score: 10,
       sample: table.profiles[header]?.sample || "Sin muestra"
     };
-    app.clarifications[`${tableIndex}:${selectedRole}`] = { status: "selected" };
+    app.clarifications[`${tableIndex}:${selectedRole}`] = { status: "confirmed" };
+    refreshInterpretationAnalysis();
   } else app.clarifications[`${tableIndex}:${currentRole}`] = { status: selectedRole === "other" ? "ignored" : "unknown", header };
   render();
 }
