@@ -33,13 +33,16 @@ La aplicación es estática y compatible con GitHub Pages. No requiere cuenta, b
 - Al cambiar una selección, se muestran todas las columnas reales agrupadas por archivo y hoja, con ejemplos de la columna elegida.
 - Prevención de columnas duplicadas en datos principales y recálculo inmediato del alcance tras una corrección.
 - Separación visible entre identificación de la columna y calidad calculada de sus datos.
+- Confirmación obligatoria de cada dato principal; la calidad permanece oculta hasta que la persona confirma la columna.
+- Una sola plantilla visual para Fecha, Producto, Cantidad, Valor e Inventario, con progreso de revisión y bloqueo amable antes de analizar.
+- Opcionales limitados a Cliente, Comercial / vendedor y Utilidad, visibles únicamente cuando fueron encontrados.
 - Medida de ventas flexible: cantidad, valor total o valor calculado como cantidad × precio.
 - Clasificación explícita de hojas como ventas, inventario, complementaria o desconocida.
 - Detección de caída reciente sostenida en ventas.
 - Priorización reproducible por impacto, urgencia, alcance y confianza.
 - Pregunta adaptativa solo cuando una caída prioritaria necesita contexto adicional.
 - Calidad respaldada por cantidades y porcentajes calculados.
-- Batería automatizada de 34 casos en `tests/run-tests.js`, incluidos los seis datos principales, los estados de identificación, la calidad por columna y el recorrido crítico `IdDocumento → Cantidad`.
+- Batería automatizada de 40 casos en `tests/run-tests.js`, incluidas las 18 comprobaciones obligatorias de la UX final de la Etapa 2.
 
 ## Reglas de seguridad analítica
 
@@ -81,7 +84,7 @@ Archivos principales:
 - `ai-interpreter.js`: adaptador remoto opcional y fallback local.
 - `overrides.css`: identidad visual y diseño adaptable.
 - `assets/logo-san-jose-v3.png`: logo oficial proporcionado.
-- `tests/run-tests.js`: diez pruebas reproducibles.
+- `tests/run-tests.js`: cuarenta pruebas reproducibles.
 - `RESULTADOS_PRUEBAS.md`: evidencia consolidada de QA.
 
 ## Limitaciones actuales
