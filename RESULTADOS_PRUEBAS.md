@@ -6,7 +6,7 @@ Entorno: Node.js 24 incluido en Codex, navegador Chromium integrado y servidor H
 
 ## Resultado
 
-**26 de 26 pruebas automatizadas aprobadas:** 13 del ajuste analítico, 3 validaciones de medidas flexibles y 10 regresiones del dictado, demostración, calidad parcial y priorización.
+**29 de 29 pruebas automatizadas aprobadas:** 16 de interpretación, mapeo y alcance; 3 validaciones de medidas flexibles; y 10 regresiones del dictado, demostración, calidad parcial y priorización.
 
 ```powershell
 node tests/run-tests.js
@@ -19,10 +19,13 @@ node tests/run-tests.js
 | 1 | Interpretación correcta con confianza Alta | Fecha y producto con nombres normales se identifican correctamente. |
 | 2 | Interpretación incorrecta con confianza Alta | La fila conserva siempre la acción **Cambiar**. |
 | 3 | Usuario corrige interpretación | La nueva columna se aplica inmediatamente y queda **Confirmada por ti**. |
+| UX crítica | `IdDocumento` fue asociado a Cantidad vendida | **Cambiar** muestra todas las columnas de todas las hojas, permite elegir `Cantidad`, confirma la selección y recalcula el análisis. |
+| UX multioja | Catálogo de columnas y procedencia | Las opciones se agrupan por hoja y cada asignación conserva internamente hoja + columna. |
+| UX duplicados | Una columna intenta cubrir dos datos principales | La segunda asignación se rechaza con una advertencia que identifica el dato que ya usa la columna. |
 | 4 | Confianza Media | No se usa como dato principal hasta que el usuario la confirma o corrige. |
 | 5 | Confianza Baja | No se usa como dato principal hasta que el usuario la confirma o corrige. |
 | 6 | “No tengo ese dato” | La decisión permanece durante la sesión y la pantalla no vuelve a preguntarlo. |
-| 7 | “No usar esta columna” | La interpretación se ignora sin alterar la fila ni el archivo original. |
+| 7 | Decisión de no usar un dato | La interpretación se omite sin alterar la fila ni el archivo original. |
 | 8 | Falta un dato opcional | El análisis puede continuar. |
 | 9 | Falta un dato necesario | El avance queda bloqueado y se explica qué hace falta. |
 | 10 | Dos columnas posibles para el mismo dato | Se exige elegir una antes de continuar. |
@@ -56,11 +59,13 @@ Validaciones adicionales: fecha + producto + cantidad permite analizar volumen; 
 
 ## Comportamiento visible verificado por estructura
 
-- Cada dato muestra qué se busca, la columna encontrada, ejemplos, interpretación, confianza y estado.
-- Una interpretación Alta también ofrece **Confirmar**, **Cambiar** y **No usar esta columna**.
+- Cada dato muestra: dato necesario, columna encontrada, confianza y estado. La confianza del mapeo nunca se presenta como calidad de datos.
+- Una interpretación ofrece **Sí, está bien**, **Cambiar** y **No tengo ese dato**; después de confirmar no vuelve a mostrar el botón de confirmación.
 - Las interpretaciones Media y Baja muestran “Necesitamos tu ayuda para entender este dato”.
 - Una columna ambigua permite elegir qué representa, **Otra información** o **No sé**.
+- **Cambiar** presenta todas las columnas reales, agrupadas por hoja, y muestra ejemplos de la selección.
 - Si no se encuentra un dato principal, permite seleccionar otra columna o indicar **No tengo ese dato**.
+- Ventas requiere fecha, producto y al menos una medida (cantidad o valor); inventario requiere producto y existencia.
 - Los datos adicionales aparecen dentro de una sección colapsable.
 - El resumen usa la leyenda ✓ Disponible, ! Necesita revisión y ○ No disponible.
 - El alcance no promete rentabilidad sin costos ni productos acumulados sin ventas por cantidad e inventario.

@@ -170,7 +170,7 @@ p { text-wrap: pretty; }
 .interpretation-item span { display: block; margin-bottom: 4px; color: var(--muted); font-size: .67rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .interpretation-item h5 { margin: 3px 0; color: var(--navy); font: 600 1.05rem/1.3 system-ui, sans-serif; }
 .interpretation-item small { color: var(--muted); }
-.interpretation-main { display: grid; grid-template-columns: 1.05fr 1.15fr 1fr .9fr; gap: 18px; align-items: start; }
+.interpretation-main { display: grid; grid-template-columns: 1.05fr 1.35fr .65fr .9fr; gap: 18px; align-items: start; }
 .interpretation-main strong { color: var(--navy); }
 .interpretation-main .confidence { display: inline-block; margin-top: 7px; }
 .interpretation-actions { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; margin-top: 15px; }
@@ -181,6 +181,15 @@ p { text-wrap: pretty; }
 .column-chooser { display: flex; align-items: end; gap: 16px; margin-top: 15px; padding: 14px; border: 1px solid var(--line); background: var(--white); }
 .column-chooser label { flex: 1; margin: 0; }
 .column-chooser select { margin-top: 6px; }
+.column-preview { display: block; margin-top: 9px; padding: 9px 11px; border-radius: 5px; background: #f6f7f9; line-height: 1.45; }
+.column-chooser .duplicate-warning { display: block; margin: 9px 0 0; color: #8a3d00; }
+.measure-group { margin-top: 14px; border: 1px solid #e7dcc3; border-radius: 7px; background: #fffdf8; }
+.measure-group-title { padding: 16px 18px 8px; }
+.measure-group-title span { display: block; color: var(--muted); font-size: .67rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.measure-group-title h4 { margin: 4px 0; color: var(--navy); }
+.measure-group-title small { color: var(--muted); }
+.measure-group .interpretation-item { padding-right: 18px; padding-left: 18px; }
+.measure-group .interpretation-item.needs-review { margin: 0; }
 .additional-data { padding: 16px 20px; border-top: 1px solid var(--line); background: #f9fafb; }
 .additional-data summary { cursor: pointer; color: var(--navy); font-weight: 850; }
 .additional-data > p { color: var(--muted); }

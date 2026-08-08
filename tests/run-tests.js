@@ -45,7 +45,8 @@ const source = fs.readFileSync(appPath, "utf8") + `
   app, datasets, analyze, priorityScore, requiredMappingIssues,
   setupSpeechRecognition, voiceState: () => ({ isListening }), semanticRoles,
   inferInterpretation, buildCanonicalDataset, interpretedScope,
-  handleInterpretationAction, selectRoleColumn, interpretationRow
+  handleInterpretationAction, selectRoleColumn, interpretationRow,
+  columnChooser, columnOptionValue
 };
 `;
 vm.createContext(sandbox);
@@ -55,7 +56,7 @@ const {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
   setupSpeechRecognition, voiceState, semanticRoles, inferInterpretation,
   buildCanonicalDataset, interpretedScope, handleInterpretationAction,
-  selectRoleColumn, interpretationRow
+  selectRoleColumn, interpretationRow, columnChooser, columnOptionValue
 } = sandbox.__test;
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -254,7 +255,7 @@ test("ANALÍTICA 2: una interpretación alta incorrecta sigue mostrando Cambiar"
   });
   resetInterpretation([table]);
   const html = interpretationRow(table, 0, "producto");
-  assert.ok(html.includes("Confianza Alta"));
+  assert.ok(html.includes("<span>Confianza</span><strong>Alta</strong>"));
   assert.ok(html.includes(">Cambiar<"));
 });
 
@@ -266,6 +267,49 @@ test("ANALÍTICA 3: el usuario corrige una interpretación sin recargar", () => 
   selectRoleColumn({ target: { dataset: { table: "0", role: "producto" }, value: "Cod Art" } });
   assert.equal(table.interpretation.assignments.producto.header, "Cod Art");
   assert.equal(table.interpretation.assignments.producto.confirmed, true);
+});
+
+test("UX CRÍTICA: Cambiar muestra todas las columnas y corrige IdDocumento por Cantidad", () => {
+  const sales = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", IdDocumento: "F-1", Cantidad: 4, Total: 80000 }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("IdDocumento")
+  });
+  const inventory = makeTable("inventory", [{ SKU: "A", Existencia: 8, Bodega: "Norte" }], {
+    producto: assignment("SKU"), stock: assignment("Existencia")
+  });
+  resetInterpretation([sales, inventory]);
+  app.clarifications["0:cantidad"] = { status: "editing" };
+  const selector = columnChooser(sales, 0, "cantidad", sales.interpretation.assignments.cantidad);
+  assert.ok(selector.includes("Cantidad"));
+  assert.ok(selector.includes("Bodega"));
+  assert.ok(selector.includes("Ventas · sales.csv"));
+  assert.ok(selector.includes("Inventario · inventory.csv"));
+  selectRoleColumn({ target: { dataset: { table: "0", role: "cantidad" }, value: columnOptionValue(0, "Cantidad") } });
+  assert.equal(sales.interpretation.assignments.cantidad.header, "Cantidad");
+  assert.equal(sales.interpretation.assignments.cantidad.sourceTableIndex, 0);
+  assert.equal(sales.interpretation.assignments.cantidad.confirmed, true);
+  assert.equal(app.analysis.metrics.quantityRows, 1);
+  assert.ok(interpretationRow(sales, 0, "cantidad").includes("✓ Confirmado por ti"));
+});
+
+test("UX: una columna principal no puede asignarse a dos datos", () => {
+  const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 2 }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad")
+  });
+  resetInterpretation([table]);
+  selectRoleColumn({ target: { dataset: { table: "0", role: "valorTotal" }, value: columnOptionValue(0, "Cantidad") } });
+  assert.equal(table.interpretation.assignments.valorTotal, null);
+  assert.ok(app.clarifications["0:valorTotal"].error.includes("ya está siendo utilizada como Cantidad vendida"));
+});
+
+test("UX: datos principales de hojas distintas no se combinan silenciosamente", () => {
+  const sales = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 2 }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad", "Alta", { sourceTableIndex: 1 })
+  });
+  const other = makeTable("sales", [{ Cantidad: 9 }], {});
+  resetInterpretation([sales, other]);
+  assert.equal(interpretedScope().hasSales, false);
+  assert.ok(requiredMappingIssues().some(issue => issue.title.includes("hojas distintas")));
+  assert.equal(buildCanonicalDataset().sales.length, 0);
 });
 
 test("ANALÍTICA 4: confianza media necesita confirmación", () => {

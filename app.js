@@ -98,7 +98,7 @@ const semanticRoles = {
   inventory: {
     producto: { label: "Producto / referencia", group: "main", description: "Nos permite identificar cada artículo.", terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código producto", "mercancía"] },
     stock: { label: "Existencia actual", group: "main", description: "Nos permite saber cuántas unidades hay disponibles.", terms: ["existencia", "existencias", "stock", "inventario", "saldo", "disponible", "cantidad actual"] },
-    fechaCorte: { label: "Fecha de corte del inventario", group: "main", recommended: true, description: "Es muy recomendable para saber a qué momento corresponden las existencias.", terms: ["fecha corte", "fecha inventario", "fecha saldo", "corte"] },
+    fechaCorte: { label: "Fecha de inventario", group: "additional", recommended: true, description: "Ayuda a saber a qué momento corresponden las existencias.", terms: ["fecha corte", "fecha inventario", "fecha saldo", "corte"] },
     costo: { label: "Costo unitario", group: "additional", terms: ["costo", "coste", "valor costo", "costo unitario"] },
     ultimoMovimiento: { label: "Fecha del último movimiento", group: "additional", terms: ["ultimo movimiento", "fecha movimiento", "última salida", "ultima entrada"] },
     inventarioMinimo: { label: "Inventario mínimo", group: "additional", terms: ["inventario minimo", "stock minimo", "mínimo"] },
@@ -305,7 +305,7 @@ function interpretationPanel() {
     ${additional.length ? `<p class="optional-note">También encontramos ${countText(additional.length, "una hoja", "hojas")} con información adicional. Esta versión de San José se concentra únicamente en ventas e inventario.</p>` : ""}
     ${unknown.length ? `<p class="optional-note">No logramos reconocer ${countText(unknown.length, "una hoja", "hojas")}. Puedes continuar si ya encontramos ventas o inventario.</p>` : ""}
     <h2>Esto es lo que entendimos</h2>
-    <p>Revisa qué identificó San José. Puedes confirmar, cambiar o decidir no usar cualquier interpretación.</p>
+    <p>Revisa qué identificó San José. Puedes confirmar, cambiar o indicar que no tienes un dato.</p>
     <div class="interpretation-key"><span><b>Confianza de interpretación</b>: qué tan seguros estamos del significado de una columna.</span><span>La calidad de los datos se evaluará después de tu confirmación.</span></div>
     <div class="sheet-mappings">
       ${relevant.map(item => mappingCard(item.table, item.index)).join("")}
@@ -323,14 +323,18 @@ function interpretationPanel() {
 }
 
 function mappingCard(table, tableIndex) {
-  const roles = Object.entries(semanticRoles[table.type]);
-  const main = roles.filter(([, config]) => config.group === "main");
-  const additional = roles.filter(([role, config]) => config.group === "additional" && (table.interpretation.assignments[role] || roleDecision(tableIndex, role)));
+  const mainRoles = table.type === "sales" ? ["fecha", "producto"] : ["producto", "stock"];
+  const additionalRoles = table.type === "sales"
+    ? ["cantidad", "valorTotal", "precio", "costo", "cliente", "canal", "categoria", "sede", "vendedor", "descuento"]
+    : ["fechaCorte", "costo", "ultimoMovimiento", "categoria", "bodega", "inventarioMinimo", "inventarioMaximo", "puntoReposicion", "proveedor", "vencimiento"];
   return `<article class="mapping-card">
     <header><div><span>${table.type === "sales" ? "Ventas" : "Inventario"}</span><h3>${safe(table.sheetName)}</h3></div><small>${safe(table.fileName)}</small></header>
-    <section class="needed-data"><h4>Datos que necesitamos para este análisis</h4>${table.type === "sales" ? '<p>Necesitamos fecha, producto y al menos una medida de la venta: cantidad, valor total o cantidad con precio unitario.</p>' : '<p>Necesitamos producto y existencia actual. La fecha de corte es muy recomendable, pero no bloquea.</p>'}</section>
-    <div class="interpretation-rows">${main.map(([role]) => interpretationRow(table, tableIndex, role)).join("")}</div>
-    <details class="additional-data"><summary>Ver datos adicionales encontrados (${additional.length})</summary><p>Estos datos pueden ayudarnos a hacer un análisis más completo.</p>${additional.length ? additional.map(([role]) => interpretationRow(table, tableIndex, role)).join("") : "<p>No identificamos datos adicionales en esta hoja.</p>"}</details>
+    <section class="needed-data"><h4>Datos principales</h4>${table.type === "sales" ? '<p>Necesitamos fecha, producto y al menos una medida: cantidad vendida o valor total.</p>' : '<p>Necesitamos producto y existencia actual.</p>'}</section>
+    <div class="interpretation-rows">
+      ${mainRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}
+      ${table.type === "sales" ? `<section class="measure-group"><div class="measure-group-title"><span>Dato que necesitamos</span><h4>Medida de la venta</h4><small>Al menos una: cantidad vendida o valor total.</small></div>${["cantidad", "valorTotal"].map(role => interpretationRow(table, tableIndex, role, true)).join("")}</section>` : ""}
+    </div>
+    <details class="additional-data"><summary>Ver datos adicionales (${additionalRoles.length})</summary><p>Son opcionales y pueden ampliar el análisis.</p>${additionalRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}</details>
   </article>`;
 }
 
@@ -338,31 +342,33 @@ function roleDecision(tableIndex, role) {
   return app.clarifications[`${tableIndex}:${role}`] || null;
 }
 
-function interpretationRow(table, tableIndex, role) {
+function interpretationRow(table, tableIndex, role, measureOption = false) {
   const config = semanticRoles[table.type][role];
   const assignment = table.interpretation.assignments[role];
   const decision = roleDecision(tableIndex, role);
   const editing = decision?.status === "editing";
   const unavailable = ["missing", "ignored", "unknown"].includes(decision?.status);
-  const samples = assignment?.header ? (table.profiles[assignment.header]?.sample || assignment.sample || "Sin muestra") : "";
+  const sourceIndex = assignmentSourceIndex(assignment, tableIndex);
+  const sourceTable = app.classified[sourceIndex] || table;
+  const samples = assignment?.header ? (sourceTable.profiles?.[assignment.header]?.sample || assignment.sample || "Sin muestra") : "";
   if (unavailable && !editing) return `<article class="interpretation-item unavailable">
-    <div><span>Dato que buscamos</span><h5>${safe(config.label)}</h5><small>${decision.status === "ignored" ? `Decidiste no usar “${safe(decision.header || "esta columna")}”.` : decision.status === "unknown" ? "Indicaste que no sabes qué representa esta columna." : "Indicaste que este dato no existe en el archivo."}</small></div>
+    <div><span>Dato que necesitamos</span><h5>${safe(config.label)}</h5><small>Indicaste que este dato no está disponible.</small></div>
     <div class="interpretation-status"><b>○ No disponible</b><button class="text-link interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar decisión</button></div>
   </article>`;
   const ambiguity = assignment && assignment.confidence !== "Alta" && !assignment.confirmed;
   const duplicate = assignment?.duplicates?.length > 1 && !assignment.confirmed;
-  return `<article class="interpretation-item ${ambiguity || duplicate || !assignment ? "needs-review" : ""}">
+  return `<article class="interpretation-item ${ambiguity || duplicate || !assignment ? "needs-review" : ""} ${measureOption ? "measure-option" : ""}">
     ${ambiguity ? '<p class="human-help">Necesitamos tu ayuda para entender este dato.</p>' : ""}
     ${duplicate ? `<p class="duplicate-warning">Encontramos dos columnas que podrían representar ${safe(config.label)}. ¿Cuál quieres utilizar?</p>` : ""}
     <div class="interpretation-main">
-      <div><span>Dato que buscamos</span><h5>${safe(config.label)}</h5><small>${safe(config.description || "Puede mejorar el análisis.")}</small></div>
-      <div><span>Columna que encontramos</span><strong>${assignment ? `“${safe(assignment.header)}”` : "No encontramos este dato."}</strong>${assignment ? `<small>Ejemplos: ${safe(samples)}</small>` : ""}</div>
-      <div><span>Lo entendimos como</span><strong>${assignment ? safe(config.label) : "Pendiente"}</strong>${assignment ? `<small class="confidence ${assignment.confidence.toLowerCase()}">Confianza ${safe(assignment.confidence)}</small>` : ""}</div>
-      <div><span>Estado</span><strong>${assignment?.confirmed ? "✓ Confirmado por ti" : assignment ? "✓ Identificado por San José" : "! Necesita revisión"}</strong></div>
+      <div><span>${measureOption ? "Opción de medida" : "Dato que necesitamos"}</span><h5>${safe(config.label)}</h5></div>
+      <div><span>Columna encontrada</span><strong>${assignment ? `“${safe(assignment.header)}”` : "No encontrada"}</strong>${assignment && sourceTable !== table ? `<small>Hoja: ${safe(sourceTable.sheetName)}</small>` : ""}${assignment ? `<small>Ejemplos: ${safe(samples)}</small>` : ""}</div>
+      <div><span>Confianza</span><strong>${assignment ? safe(assignment.confidence) : "—"}</strong></div>
+      <div><span>Estado</span><strong>${assignment?.confirmed ? "✓ Confirmado por ti" : assignment ? "✓ Identificada por San José" : "⚠ Necesita revisión"}</strong></div>
     </div>
     ${ambiguity ? ambiguousMeaningChooser(table, tableIndex, role, assignment) : ""}
     ${editing || !assignment || duplicate ? columnChooser(table, tableIndex, role, assignment) : ""}
-    ${assignment && !editing && !duplicate ? `<div class="interpretation-actions"><button class="button mini interpretation-action" type="button" data-action="confirm" data-table="${tableIndex}" data-role="${role}">Confirmar</button><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="text-link interpretation-action" type="button" data-action="ignore" data-table="${tableIndex}" data-role="${role}">No usar esta columna</button></div>` : ""}
+    ${assignment && !editing && !duplicate ? `<div class="interpretation-actions">${assignment.confirmed ? "" : `<button class="button mini interpretation-action" type="button" data-action="confirm" data-table="${tableIndex}" data-role="${role}">Sí, está bien</button>`}<button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="text-link interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No tengo ese dato</button></div>` : ""}
   </article>`;
 }
 
@@ -375,15 +381,53 @@ function ambiguousMeaningChooser(table, tableIndex, role, assignment) {
 
 function columnChooser(table, tableIndex, role, assignment) {
   const config = semanticRoles[table.type][role];
-  const candidates = assignment?.duplicates?.length ? assignment.duplicates : table.headers;
+  const selectedSource = assignmentSourceIndex(assignment, tableIndex);
+  const selectedValue = assignment?.header ? columnOptionValue(selectedSource, assignment.header) : "";
+  const decision = roleDecision(tableIndex, role);
+  const groups = app.classified.map((sourceTable, sourceIndex) => `<optgroup label="${safe(sourceTable.sheetName)} · ${safe(sourceTable.fileName)}">${sourceTable.headers.map(header => {
+    const value = columnOptionValue(sourceIndex, header);
+    return `<option value="${safe(value)}" ${value === selectedValue ? "selected" : ""}>${safe(header)}</option>`;
+  }).join("")}</optgroup>`).join("");
+  const sourceTable = app.classified[selectedSource] || table;
+  const sample = assignment?.header ? sourceTable.profiles?.[assignment.header]?.sample : "";
   return `<div class="column-chooser"><label>¿Qué columna contiene ${safe(config.label.toLowerCase())}?
-    <select class="role-column-select" data-table="${tableIndex}" data-role="${role}"><option value="">Seleccionar columna</option>${candidates.map(header => `<option value="${safe(header)}" ${assignment?.header === header ? "selected" : ""}>${safe(header)}</option>`).join("")}</select>
+    <select class="role-column-select" data-table="${tableIndex}" data-role="${role}"><option value="">Seleccionar columna</option>${groups}</select>
+    ${assignment?.header ? `<small class="column-preview"><b>${safe(sourceTable.sheetName)} · ${safe(assignment.header)}</b><br>Ejemplos: ${safe(sample || "Sin muestra")}</small>` : ""}
+    ${decision?.error ? `<small class="duplicate-warning" role="alert">${safe(decision.error)}</small>` : ""}
   </label><button class="text-link interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No tengo ese dato</button></div>`;
 }
 
+function columnOptionValue(sourceTableIndex, header) {
+  return `${sourceTableIndex}::${encodeURIComponent(header)}`;
+}
+
+function parseColumnOption(value, fallbackTableIndex) {
+  if (!String(value).includes("::")) return { sourceTableIndex: fallbackTableIndex, header: value };
+  const separator = String(value).indexOf("::");
+  return {
+    sourceTableIndex: Number(String(value).slice(0, separator)),
+    header: decodeURIComponent(String(value).slice(separator + 2))
+  };
+}
+
+function assignmentSourceIndex(assignment, fallbackTableIndex) {
+  return Number.isInteger(assignment?.sourceTableIndex) ? assignment.sourceTableIndex : fallbackTableIndex;
+}
+
+function coherentSourceIndex(tableIndex, assignments, roles) {
+  const usable = roles.map(role => assignments[role]).filter(isUsableAssignment);
+  if (!usable.length || usable.length !== roles.length) return null;
+  const sources = new Set(usable.map(assignment => assignmentSourceIndex(assignment, tableIndex)));
+  return sources.size === 1 ? [...sources][0] : null;
+}
+
 function interpretedScope() {
-  const hasSales = app.classified.some(table => table.type === "sales" && isUsableAssignment(table.interpretation.assignments.fecha) && isUsableAssignment(table.interpretation.assignments.producto) && (isUsableAssignment(table.interpretation.assignments.cantidad) || isUsableAssignment(table.interpretation.assignments.valorTotal)));
-  const hasInventory = app.classified.some(table => table.type === "inventory" && isUsableAssignment(table.interpretation.assignments.producto) && isUsableAssignment(table.interpretation.assignments.stock));
+  const hasSales = app.classified.some((table, tableIndex) => {
+    if (table.type !== "sales") return false;
+    const assignments = table.interpretation.assignments;
+    return ["cantidad", "valorTotal"].some(measure => coherentSourceIndex(tableIndex, assignments, ["fecha", "producto", measure]) !== null);
+  });
+  const hasInventory = app.classified.some((table, tableIndex) => table.type === "inventory" && coherentSourceIndex(tableIndex, table.interpretation.assignments, ["producto", "stock"]) !== null);
   return { hasSales, hasInventory };
 }
 
@@ -865,7 +909,12 @@ async function readUploads(fileList) {
       const local = localClassifyTable(table);
       const interpreted = await window.AIDataInterpreter.interpret(table, () => local.remote);
       if (interpreted.mode === "remote-ai") usedRemote = true;
-      app.classified.push(buildClassifiedTable(table, local, interpreted));
+      const classifiedTable = buildClassifiedTable(table, local, interpreted);
+      const sourceTableIndex = app.classified.length;
+      if (classifiedTable.interpretation) Object.values(classifiedTable.interpretation.assignments).forEach(assignment => {
+        if (assignment) assignment.sourceTableIndex = sourceTableIndex;
+      });
+      app.classified.push(classifiedTable);
     }
     app.semanticMode = usedRemote ? "remote-ai" : "local-fallback";
     app.semanticPending = true;
@@ -1013,6 +1062,35 @@ function requiredMappingIssues() {
     message: "Encontramos dos columnas posibles para el mismo dato.",
     help: "Elige cuál quieres utilizar antes de continuar."
   });
+  const principalRoles = { sales: ["fecha", "producto", "cantidad", "valorTotal"], inventory: ["producto", "stock"] };
+  const repeatedColumns = app.classified.flatMap((table, tableIndex) => {
+    if (!principalRoles[table.type]) return [];
+    const seen = new Map();
+    return principalRoles[table.type].flatMap(role => {
+      const assignment = table.interpretation.assignments[role];
+      if (!assignment?.header) return [];
+      const key = `${assignmentSourceIndex(assignment, tableIndex)}::${assignment.header}`;
+      if (seen.has(key)) return [[seen.get(key), role]];
+      seen.set(key, role);
+      return [];
+    });
+  });
+  if (repeatedColumns.length) issues.push({
+    title: "Una columna está asignada a dos datos principales",
+    message: "Cada dato principal debe usar una columna distinta.",
+    help: "Pulsa Cambiar y elige otra columna para una de las asignaciones."
+  });
+  const incoherent = app.classified.some((table, tableIndex) => {
+    if (!table.interpretation || !["sales", "inventory"].includes(table.type)) return false;
+    const assignments = table.interpretation.assignments;
+    const roleSets = table.type === "sales" ? [["fecha", "producto", "cantidad"], ["fecha", "producto", "valorTotal"]] : [["producto", "stock"]];
+    return roleSets.some(roles => roles.every(role => isUsableAssignment(assignments[role])) && coherentSourceIndex(tableIndex, assignments, roles) === null);
+  });
+  if (incoherent) issues.push({
+    title: "Los datos principales quedaron en hojas distintas",
+    message: "Esta versión necesita que los datos principales de cada análisis estén en la misma hoja.",
+    help: "Así evitamos combinar filas equivocadas. Cambia la asignación y selecciona columnas de una misma hoja."
+  });
   const scope = interpretedScope();
   if (!scope.hasSales && !scope.hasInventory) {
     if (relevant("sales").length) issues.push({
@@ -1053,26 +1131,56 @@ function handleInterpretationAction(event) {
     app.clarifications[key] = { status: "missing" };
     table.interpretation.assignments[role] = null;
   }
+  refreshInterpretationAnalysis();
   render();
 }
 
 function selectRoleColumn(event) {
   const tableIndex = Number(event.target.dataset.table);
   const role = event.target.dataset.role;
-  const header = event.target.value;
+  const { sourceTableIndex, header } = parseColumnOption(event.target.value, tableIndex);
   if (!header) return;
   const table = app.classified[tableIndex];
+  const sourceTable = app.classified[sourceTableIndex];
+  if (!sourceTable?.headers.includes(header)) return;
+  const importantRoles = table.type === "sales" ? ["fecha", "producto", "cantidad", "valorTotal"] : ["producto", "stock"];
+  const usedBy = importantRoles.find(otherRole => {
+    if (otherRole === role) return false;
+    const other = table.interpretation.assignments[otherRole];
+    return other?.header === header && assignmentSourceIndex(other, tableIndex) === sourceTableIndex;
+  });
+  if (usedBy) {
+    app.clarifications[`${tableIndex}:${role}`] = {
+      status: "editing",
+      error: `Esta columna ya está siendo utilizada como ${semanticRoles[table.type][usedBy].label}. Elige otra columna.`
+    };
+    render();
+    return;
+  }
   table.interpretation.assignments[role] = {
     header,
+    sourceTableIndex,
     confidence: "Alta",
     confirmed: true,
     userSelected: true,
     duplicates: [],
     score: 10,
-    sample: table.profiles[header]?.sample || "Sin muestra"
+    sample: sourceTable.profiles?.[header]?.sample || "Sin muestra"
   };
   app.clarifications[`${tableIndex}:${role}`] = { status: "confirmed" };
+  refreshInterpretationAnalysis();
   render();
+}
+
+function refreshInterpretationAnalysis() {
+  const scope = interpretedScope();
+  if (!scope.hasSales && !scope.hasInventory) {
+    app.dataset = null;
+    app.analysis = null;
+    return;
+  }
+  app.dataset = buildCanonicalDataset();
+  app.analysis = analyze(app.dataset);
 }
 
 function selectAmbiguousMeaning(event) {
@@ -1086,6 +1194,7 @@ function selectAmbiguousMeaning(event) {
   if (semanticRoles[table.type][selectedRole]) {
     table.interpretation.assignments[selectedRole] = {
       header,
+      sourceTableIndex: tableIndex,
       confidence: "Alta",
       confirmed: true,
       userSelected: true,
@@ -1111,13 +1220,18 @@ function confirmInterpretation() {
 
 function buildCanonicalDataset() {
   const sales = [], inventory = [];
-  for (const table of app.classified) {
+  const processed = new Set();
+  for (const [tableIndex, table] of app.classified.entries()) {
     if (!["sales", "inventory"].includes(table.type) || !table.interpretation) continue;
     const assignments = table.interpretation.assignments;
-    const value = (row, role) => isUsableAssignment(assignments[role]) ? row[assignments[role].header] : "";
     if (table.type === "sales") {
-      if (!(isUsableAssignment(assignments.fecha) && isUsableAssignment(assignments.producto) && (isUsableAssignment(assignments.cantidad) || isUsableAssignment(assignments.valorTotal)))) continue;
-      table.rows.forEach(row => {
+      const sourceIndex = coherentSourceIndex(tableIndex, assignments, ["fecha", "producto", "cantidad"])
+        ?? coherentSourceIndex(tableIndex, assignments, ["fecha", "producto", "valorTotal"]);
+      if (sourceIndex === null || processed.has(`sales:${sourceIndex}`)) continue;
+      const sourceTable = app.classified[sourceIndex];
+      const value = (row, role) => isUsableAssignment(assignments[role]) && assignmentSourceIndex(assignments[role], tableIndex) === sourceIndex ? row[assignments[role].header] : "";
+      processed.add(`sales:${sourceIndex}`);
+      sourceTable.rows.forEach(row => {
         const record = Object.fromEntries(Object.keys(semanticRoles.sales).map(role => [role, value(row, role)]));
         if (!record.valorTotal && Number.isFinite(numericValue(record.cantidad)) && Number.isFinite(numericValue(record.precio))) {
           record.valorTotal = numericValue(record.cantidad) * numericValue(record.precio);
@@ -1126,8 +1240,12 @@ function buildCanonicalDataset() {
         sales.push(record);
       });
     } else {
-      if (!(isUsableAssignment(assignments.producto) && isUsableAssignment(assignments.stock))) continue;
-      table.rows.forEach(row => inventory.push(Object.fromEntries(Object.keys(semanticRoles.inventory).map(role => [role, value(row, role)]))));
+      const sourceIndex = coherentSourceIndex(tableIndex, assignments, ["producto", "stock"]);
+      if (sourceIndex === null || processed.has(`inventory:${sourceIndex}`)) continue;
+      const sourceTable = app.classified[sourceIndex];
+      const value = (row, role) => isUsableAssignment(assignments[role]) && assignmentSourceIndex(assignments[role], tableIndex) === sourceIndex ? row[assignments[role].header] : "";
+      processed.add(`inventory:${sourceIndex}`);
+      sourceTable.rows.forEach(row => inventory.push(Object.fromEntries(Object.keys(semanticRoles.inventory).map(role => [role, value(row, role)]))));
     }
   }
   return { sales, inventory };

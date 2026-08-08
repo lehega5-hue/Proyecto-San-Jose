@@ -30,7 +30,9 @@ La aplicación es estática y compatible con GitHub Pages. No requiere cuenta, b
 - Un único ejemplo visible de ventas para demostrar el análisis sin inventario.
 - Flujos parciales: ventas sin inventario e inventario sin ventas.
 - Aclaraciones humanas de columnas, una por una, con muestras y la opción **No sé**.
-- Revisión completa de cada interpretación: confirmar, cambiar, no usar o indicar que el dato no existe.
+- Revisión compacta de cada interpretación con **Sí, está bien**, **Cambiar** y **No tengo ese dato**.
+- Al cambiar una asociación, el selector muestra todas las columnas reales agrupadas por archivo y hoja, con ejemplos de la columna elegida.
+- Prevención de columnas duplicadas en datos principales y recálculo inmediato del alcance tras una corrección.
 - Separación visible entre confianza de interpretación, calidad de los datos y alcance del análisis.
 - Medida de ventas flexible: cantidad, valor total o valor calculado como cantidad × precio.
 - Clasificación explícita de hojas como ventas, inventario, complementaria o desconocida.
@@ -38,7 +40,7 @@ La aplicación es estática y compatible con GitHub Pages. No requiere cuenta, b
 - Priorización reproducible por impacto, urgencia, alcance y confianza.
 - Pregunta adaptativa solo cuando una caída prioritaria necesita contexto adicional.
 - Calidad respaldada por cantidades y porcentajes calculados.
-- Batería automatizada de 26 casos en `tests/run-tests.js`, incluidos los 13 escenarios de interpretación y alcance.
+- Batería automatizada de 29 casos en `tests/run-tests.js`, incluido el recorrido crítico `IdDocumento → Cantidad` y validaciones multioja.
 
 ## Reglas de seguridad analítica
 
