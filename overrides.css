@@ -170,9 +170,21 @@ p { text-wrap: pretty; }
 .interpretation-item span { display: block; margin-bottom: 4px; color: var(--muted); font-size: .67rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .interpretation-item h5 { margin: 3px 0; color: var(--navy); font: 600 1.05rem/1.3 system-ui, sans-serif; }
 .interpretation-item small { color: var(--muted); }
-.interpretation-main { display: grid; grid-template-columns: 1.05fr 1.35fr .65fr .9fr; gap: 18px; align-items: start; }
+.interpretation-main { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(220px, 1fr) minmax(190px, .8fr); gap: 14px 22px; align-items: start; }
 .interpretation-main strong { color: var(--navy); }
-.interpretation-main .confidence { display: inline-block; margin-top: 7px; }
+.needed-column { grid-row: span 2; }
+.found-column strong, .found-column small { display: block; }
+.found-column small { margin-top: 5px; }
+.identification-state { align-self: center; padding: 8px 11px; border-radius: 999px; font-size: .86rem; }
+.identification-state.looks-correct { color: #17643a; background: #e8f5ed; }
+.identification-state.review { color: #875000; background: #fff1d6; }
+.identification-state.not-found { color: #5f6875; background: #eef0f3; }
+.column-data-quality { grid-column: 2 / -1; padding: 12px 14px; border-left: 4px solid var(--line); background: #f7f8fa; }
+.column-data-quality.high { border-left-color: #2f855a; }
+.column-data-quality.medium { border-left-color: #d28a17; }
+.column-data-quality.low { border-left-color: #bd4545; }
+.column-data-quality strong { display: block; }
+.column-data-quality p { margin: 4px 0 0; color: var(--muted); font-size: .86rem; }
 .interpretation-actions { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; margin-top: 15px; }
 .button.mini { padding: 8px 12px; font-size: .78rem; }
 .human-help, .duplicate-warning { margin: 0 0 14px; color: #7a4b00; font-weight: 750; }
@@ -321,6 +333,8 @@ p { text-wrap: pretty; }
   .consulting-grid, .secondary-priorities .priority-grid, .mapping-row, .secondary-findings, .test-evidence { grid-template-columns: 1fr; }
   .free-context, .understood-list { grid-template-columns: 1fr; }
   .interpretation-main, .availability-summary > div, .analysis-scope { grid-template-columns: 1fr; }
+  .needed-column { grid-row: auto; }
+  .column-data-quality { grid-column: auto; }
   .interpretation-key, .interpretation-item.unavailable, .column-chooser { align-items: stretch; flex-direction: column; }
   .interpretation-status { text-align: left; }
   .single-example { align-items: stretch; flex-direction: column; }

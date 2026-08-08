@@ -46,7 +46,8 @@ const source = fs.readFileSync(appPath, "utf8") + `
   setupSpeechRecognition, voiceState: () => ({ isListening }), semanticRoles,
   inferInterpretation, buildCanonicalDataset, interpretedScope,
   handleInterpretationAction, selectRoleColumn, interpretationRow,
-  columnChooser, columnOptionValue
+  columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
+  roleDisplayLabel
 };
 `;
 vm.createContext(sandbox);
@@ -56,7 +57,8 @@ const {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
   setupSpeechRecognition, voiceState, semanticRoles, inferInterpretation,
   buildCanonicalDataset, interpretedScope, handleInterpretationAction,
-  selectRoleColumn, interpretationRow, columnChooser, columnOptionValue
+  selectRoleColumn, interpretationRow, columnChooser, columnOptionValue,
+  columnDataQuality, columnIdentification, roleDisplayLabel
 } = sandbox.__test;
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -255,8 +257,10 @@ test("ANALÍTICA 2: una interpretación alta incorrecta sigue mostrando Cambiar"
   });
   resetInterpretation([table]);
   const html = interpretationRow(table, 0, "producto");
-  assert.ok(html.includes("<span>Confianza</span><strong>Alta</strong>"));
+  assert.ok(html.includes("🟢 Parece correcto"));
+  assert.ok(html.includes("Calidad de los datos: Alta"));
   assert.ok(html.includes(">Cambiar<"));
+  assert.ok(!html.includes("Confianza"));
 });
 
 test("ANALÍTICA 3: el usuario corrige una interpretación sin recargar", () => {
@@ -288,7 +292,7 @@ test("UX CRÍTICA: Cambiar muestra todas las columnas y corrige IdDocumento por 
   assert.equal(sales.interpretation.assignments.cantidad.sourceTableIndex, 0);
   assert.equal(sales.interpretation.assignments.cantidad.confirmed, true);
   assert.equal(app.analysis.metrics.quantityRows, 1);
-  assert.ok(interpretationRow(sales, 0, "cantidad").includes("✓ Confirmado por ti"));
+  assert.ok(interpretationRow(sales, 0, "cantidad").includes("🟢 Parece correcto"));
 });
 
 test("UX: una columna principal no puede asignarse a dos datos", () => {
@@ -339,7 +343,58 @@ test("ANALÍTICA 6: No tengo ese dato guarda la decisión durante la sesión", (
   resetInterpretation([table]);
   handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "valorTotal", action: "missing" } } });
   assert.equal(app.clarifications["0:valorTotal"].status, "missing");
-  assert.ok(interpretationRow(table, 0, "valorTotal").includes("No disponible"));
+  assert.ok(interpretationRow(table, 0, "valorTotal").includes("⚪ No la encontramos"));
+});
+
+test("LENGUAJE 1: identificación dudosa y calidad alta se muestran por separado", () => {
+  const rows = Array.from({ length: 20 }, (_, index) => ({ Cliente: `Cliente ${index + 1}` }));
+  const table = makeTable("sales", rows, { producto: assignment("Cliente", "Media") });
+  resetInterpretation([table]);
+  const html = interpretationRow(table, 0, "producto");
+  assert.ok(html.includes("🟠 Revisa este dato"));
+  assert.ok(html.includes("Calidad de los datos: Alta"));
+  assert.ok(html.includes("100 % de los registros tiene información."));
+});
+
+test("LENGUAJE 2: identificación correcta y calidad baja se muestran por separado", () => {
+  const rows = Array.from({ length: 10 }, (_, index) => ({ Cantidad: index < 6 ? index + 1 : "" }));
+  const table = makeTable("sales", rows, { cantidad: assignment("Cantidad") });
+  resetInterpretation([table]);
+  const html = interpretationRow(table, 0, "cantidad");
+  assert.ok(html.includes("🟢 Parece correcto"));
+  assert.ok(html.includes("Calidad de los datos: Baja"));
+  assert.ok(html.includes("40 % de registros vacíos"));
+});
+
+test("LENGUAJE 3: la calidad de fechas usa cálculos reales", () => {
+  const rows = Array.from({ length: 100 }, (_, index) => ({ Fecha: index < 98 ? `2026-01-${String(index % 28 + 1).padStart(2, "0")}` : "" }));
+  const quality = columnDataQuality({ rows }, "Fecha", "fecha");
+  assert.equal(quality.level, "Alta");
+  assert.equal(quality.usableRate, .98);
+  assert.equal(quality.explanation, "98 % de los registros tiene una fecha válida.");
+});
+
+test("LENGUAJE 4: niveles medio y bajo explican el porcentaje calculado", () => {
+  const mediumRows = Array.from({ length: 100 }, (_, index) => ({ Cantidad: index < 86 ? index + 1 : "" }));
+  const lowRows = Array.from({ length: 100 }, (_, index) => ({ Cantidad: index < 69 ? index + 1 : "sin dato" }));
+  const medium = columnDataQuality({ rows: mediumRows }, "Cantidad", "cantidad");
+  const low = columnDataQuality({ rows: lowRows }, "Cantidad", "cantidad");
+  assert.equal(medium.level, "Media");
+  assert.equal(medium.explanation, "Encontramos 14 % de registros vacíos.");
+  assert.equal(low.level, "Baja");
+  assert.equal(low.explanation, "31 % de los valores no se pueden utilizar.");
+});
+
+test("LENGUAJE 5: los seis datos principales usan los nombres y estados acordados", () => {
+  assert.equal(roleDisplayLabel("sales", "fecha"), "Fecha de venta");
+  assert.equal(roleDisplayLabel("sales", "producto"), "Producto / referencia");
+  assert.equal(roleDisplayLabel("sales", "cantidad"), "Cantidad vendida");
+  assert.equal(roleDisplayLabel("sales", "valorTotal"), "Valor de la venta");
+  assert.equal(roleDisplayLabel("inventory", "producto"), "Producto / referencia de inventario");
+  assert.equal(roleDisplayLabel("inventory", "stock"), "Existencia actual");
+  assert.equal(columnIdentification(assignment("Fecha")).label, "🟢 Parece correcto");
+  assert.equal(columnIdentification(assignment("Fecha", "Media")).label, "🟠 Revisa este dato");
+  assert.equal(columnIdentification(null).label, "⚪ No la encontramos");
 });
 
 test("ANALÍTICA 7: No usar ignora la columna sin borrar el archivo", () => {
@@ -374,7 +429,7 @@ test("ANALÍTICA 10: dos columnas posibles deben resolverse", () => {
     valorTotal: assignment("Total 1", "Media", { duplicates: ["Total 1", "Total 2"] })
   });
   resetInterpretation([table]);
-  assert.ok(requiredMappingIssues().some(issue => issue.title.includes("duplicada")));
+  assert.ok(requiredMappingIssues().some(issue => issue.title.includes("revisar una columna")));
   selectRoleColumn({ target: { dataset: { table: "0", role: "valorTotal" }, value: "Total 2" } });
   assert.equal(table.interpretation.assignments.valorTotal.header, "Total 2");
   assert.equal(requiredMappingIssues().length, 0);

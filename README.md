@@ -29,18 +29,17 @@ La aplicación es estática y compatible con GitHub Pages. No requiere cuenta, b
 - Dictado opcional controlado por el usuario, con transcripción intermedia y reinicio automático mientras siga escuchando.
 - Un único ejemplo visible de ventas para demostrar el análisis sin inventario.
 - Flujos parciales: ventas sin inventario e inventario sin ventas.
-- Aclaraciones humanas de columnas, una por una, con muestras y la opción **No sé**.
-- Revisión compacta de cada interpretación con **Sí, está bien**, **Cambiar** y **No tengo ese dato**.
-- Al cambiar una asociación, el selector muestra todas las columnas reales agrupadas por archivo y hoja, con ejemplos de la columna elegida.
+- Revisión simple de cada columna con **Sí, está bien**, **Cambiar** y **No lo tengo**.
+- Al cambiar una selección, se muestran todas las columnas reales agrupadas por archivo y hoja, con ejemplos de la columna elegida.
 - Prevención de columnas duplicadas en datos principales y recálculo inmediato del alcance tras una corrección.
-- Separación visible entre confianza de interpretación, calidad de los datos y alcance del análisis.
+- Separación visible entre identificación de la columna y calidad calculada de sus datos.
 - Medida de ventas flexible: cantidad, valor total o valor calculado como cantidad × precio.
 - Clasificación explícita de hojas como ventas, inventario, complementaria o desconocida.
 - Detección de caída reciente sostenida en ventas.
 - Priorización reproducible por impacto, urgencia, alcance y confianza.
 - Pregunta adaptativa solo cuando una caída prioritaria necesita contexto adicional.
 - Calidad respaldada por cantidades y porcentajes calculados.
-- Batería automatizada de 29 casos en `tests/run-tests.js`, incluido el recorrido crítico `IdDocumento → Cantidad` y validaciones multioja.
+- Batería automatizada de 34 casos en `tests/run-tests.js`, incluidos los seis datos principales, los estados de identificación, la calidad por columna y el recorrido crítico `IdDocumento → Cantidad`.
 
 ## Reglas de seguridad analítica
 

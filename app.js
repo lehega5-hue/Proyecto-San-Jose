@@ -289,7 +289,7 @@ function interpretationPanel() {
     const typeLabel = table.type === "sales" ? "Parece contener ventas" : table.type === "inventory" ? "Parece contener inventario" : table.type === "additional" ? "Información complementaria. No la necesitamos en esta versión" : "No estamos seguros de qué contiene";
     return `<li class="found-sheet ${table.type}">
       <div><strong>${safe(table.fileName)}</strong><span>Hoja: ${safe(table.sheetName)}</span></div>
-      <div><b>${typeLabel}</b><small>Confianza: ${safe(table.typeConfidence)}</small></div>
+      <div><b>${typeLabel}</b></div>
     </li>`;
   }).join("");
   const relevant = app.classified
@@ -298,15 +298,14 @@ function interpretationPanel() {
   const additional = app.classified.filter(table => table.type === "additional");
   const unknown = app.classified.filter(table => table.type === "unknown");
   return `<section class="panel interpretation-panel">
-    <p class="eyebrow">Analista San José · ${app.semanticMode === "remote-ai" ? "interpretación remota" : "motor local de respaldo"}</p>
+    <p class="eyebrow">Revisión de tus datos</p>
     <h2>Esto es lo que encontramos</h2>
     <p>Revisamos archivos, hojas, encabezados, tipos de datos y muestras de valores.</p>
     <ul class="found-list">${found}</ul>
     ${additional.length ? `<p class="optional-note">También encontramos ${countText(additional.length, "una hoja", "hojas")} con información adicional. Esta versión de San José se concentra únicamente en ventas e inventario.</p>` : ""}
     ${unknown.length ? `<p class="optional-note">No logramos reconocer ${countText(unknown.length, "una hoja", "hojas")}. Puedes continuar si ya encontramos ventas o inventario.</p>` : ""}
-    <h2>Esto es lo que entendimos</h2>
-    <p>Revisa qué identificó San José. Puedes confirmar, cambiar o indicar que no tienes un dato.</p>
-    <div class="interpretation-key"><span><b>Confianza de interpretación</b>: qué tan seguros estamos del significado de una columna.</span><span>La calidad de los datos se evaluará después de tu confirmación.</span></div>
+    <h2>Estas son las columnas que identificamos</h2>
+    <p>San José te muestra qué columna encontró y qué tan completos y consistentes están sus datos.</p>
     <div class="sheet-mappings">
       ${relevant.map(item => mappingCard(item.table, item.index)).join("")}
     </div>
@@ -350,26 +349,80 @@ function interpretationRow(table, tableIndex, role, measureOption = false) {
   const unavailable = ["missing", "ignored", "unknown"].includes(decision?.status);
   const sourceIndex = assignmentSourceIndex(assignment, tableIndex);
   const sourceTable = app.classified[sourceIndex] || table;
-  const samples = assignment?.header ? (sourceTable.profiles?.[assignment.header]?.sample || assignment.sample || "Sin muestra") : "";
-  if (unavailable && !editing) return `<article class="interpretation-item unavailable">
-    <div><span>Dato que necesitamos</span><h5>${safe(config.label)}</h5><small>Indicaste que este dato no está disponible.</small></div>
-    <div class="interpretation-status"><b>○ No disponible</b><button class="text-link interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar decisión</button></div>
-  </article>`;
   const ambiguity = assignment && assignment.confidence !== "Alta" && !assignment.confirmed;
   const duplicate = assignment?.duplicates?.length > 1 && !assignment.confirmed;
-  return `<article class="interpretation-item ${ambiguity || duplicate || !assignment ? "needs-review" : ""} ${measureOption ? "measure-option" : ""}">
-    ${ambiguity ? '<p class="human-help">Necesitamos tu ayuda para entender este dato.</p>' : ""}
+  const visibleAssignment = unavailable && !editing ? null : assignment;
+  const identification = columnIdentification(visibleAssignment);
+  const quality = columnDataQuality(sourceTable, visibleAssignment?.header, role);
+  return `<article class="interpretation-item ${ambiguity || duplicate ? "needs-review" : ""} ${measureOption ? "measure-option" : ""}">
     ${duplicate ? `<p class="duplicate-warning">Encontramos dos columnas que podrían representar ${safe(config.label)}. ¿Cuál quieres utilizar?</p>` : ""}
     <div class="interpretation-main">
-      <div><span>${measureOption ? "Opción de medida" : "Dato que necesitamos"}</span><h5>${safe(config.label)}</h5></div>
-      <div><span>Columna encontrada</span><strong>${assignment ? `“${safe(assignment.header)}”` : "No encontrada"}</strong>${assignment && sourceTable !== table ? `<small>Hoja: ${safe(sourceTable.sheetName)}</small>` : ""}${assignment ? `<small>Ejemplos: ${safe(samples)}</small>` : ""}</div>
-      <div><span>Confianza</span><strong>${assignment ? safe(assignment.confidence) : "—"}</strong></div>
-      <div><span>Estado</span><strong>${assignment?.confirmed ? "✓ Confirmado por ti" : assignment ? "✓ Identificada por San José" : "⚠ Necesita revisión"}</strong></div>
+      <div class="needed-column"><span>Necesitamos:</span><h5>${safe(roleDisplayLabel(table.type, role))}</h5></div>
+      <div class="found-column"><span>Encontramos:</span><strong>${visibleAssignment ? safe(visibleAssignment.header) : "No encontramos una columna"}</strong>${visibleAssignment && sourceTable !== table ? `<small>Hoja: ${safe(sourceTable.sheetName)}</small>` : ""}</div>
+      <strong class="identification-state ${identification.className}">${identification.label}</strong>
+      <div class="column-data-quality ${quality.className}"><strong>Calidad de los datos: ${quality.level}</strong><p>${safe(quality.explanation)}</p></div>
     </div>
-    ${ambiguity ? ambiguousMeaningChooser(table, tableIndex, role, assignment) : ""}
-    ${editing || !assignment || duplicate ? columnChooser(table, tableIndex, role, assignment) : ""}
-    ${assignment && !editing && !duplicate ? `<div class="interpretation-actions">${assignment.confirmed ? "" : `<button class="button mini interpretation-action" type="button" data-action="confirm" data-table="${tableIndex}" data-role="${role}">Sí, está bien</button>`}<button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="text-link interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No tengo ese dato</button></div>` : ""}
+    ${editing || (!assignment && !unavailable) || duplicate ? columnChooser(table, tableIndex, role, assignment) : ""}
+    ${assignment && !editing && !duplicate && !unavailable ? `<div class="interpretation-actions">${assignment.confirmed ? "" : `<button class="button mini interpretation-action" type="button" data-action="confirm" data-table="${tableIndex}" data-role="${role}">Sí, está bien</button>`}<button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="text-link interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No lo tengo</button></div>` : ""}
+    ${unavailable && !editing ? `<div class="interpretation-actions"><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button></div>` : ""}
   </article>`;
+}
+
+function roleDisplayLabel(type, role) {
+  if (type === "inventory" && role === "producto") return "Producto / referencia de inventario";
+  if (type === "sales" && role === "valorTotal") return "Valor de la venta";
+  return semanticRoles[type][role].label;
+}
+
+function columnIdentification(assignment) {
+  if (!assignment?.header) return { label: "⚪ No la encontramos", className: "not-found" };
+  if (assignment.confirmed || assignment.confidence === "Alta") return { label: "🟢 Parece correcto", className: "looks-correct" };
+  return { label: "🟠 Revisa este dato", className: "review" };
+}
+
+function columnDataQuality(table, header, role) {
+  const rows = table?.rows || [];
+  if (!header || !rows.length) return {
+    level: "Baja",
+    className: "low",
+    explanation: header ? "No hay registros para evaluar esta columna." : "No hay una columna disponible para evaluar."
+  };
+  const values = rows.map(row => row[header]);
+  const empty = values.filter(value => String(value ?? "").trim() === "").length;
+  const dateRoles = ["fecha", "fechaCorte", "ultimoMovimiento", "vencimiento"];
+  const numericRoles = ["cantidad", "precio", "valorTotal", "costo", "stock", "inventarioMinimo", "inventarioMaximo", "puntoReposicion", "reservada", "disponible", "pendienteRecibir", "tiempoEntrega", "descuento"];
+  const usable = values.filter(value => {
+    if (String(value ?? "").trim() === "") return false;
+    if (dateRoles.includes(role)) return isValidDateValue(value);
+    if (numericRoles.includes(role)) return Number.isFinite(numericValue(value)) && numericValue(value) >= 0;
+    return true;
+  }).length;
+  const usableRate = usable / rows.length;
+  const unusableRate = 1 - usableRate;
+  const level = usableRate >= .95 ? "Alta" : usableRate >= .75 ? "Media" : "Baja";
+  const className = level === "Alta" ? "high" : level === "Media" ? "medium" : "low";
+  let explanation;
+  if (level === "Alta") {
+    explanation = dateRoles.includes(role)
+      ? `${percent(usableRate)} de los registros tiene una fecha válida.`
+      : numericRoles.includes(role)
+        ? `${percent(usableRate)} de los registros tiene un valor utilizable.`
+        : `${percent(usableRate)} de los registros tiene información.`;
+  } else if (empty === rows.length - usable) explanation = `Encontramos ${percent(empty / rows.length)} de registros vacíos.`;
+  else explanation = `${percent(unusableRate)} de los valores no se pueden utilizar.`;
+  return { level, className, explanation, usableRate, empty, unusable: rows.length - usable };
+}
+
+function isValidDateValue(value) {
+  const text = String(value ?? "").trim();
+  if (/^\d{4}-\d{1,2}-\d{1,2}/.test(text)) return !Number.isNaN(new Date(text).getTime());
+  const localDate = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (localDate) {
+    const [, day, month, year] = localDate.map(Number);
+    const parsed = new Date(year, month - 1, day);
+    return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+  }
+  return !Number.isNaN(new Date(text).getTime());
 }
 
 function ambiguousMeaningChooser(table, tableIndex, role, assignment) {
@@ -394,7 +447,7 @@ function columnChooser(table, tableIndex, role, assignment) {
     <select class="role-column-select" data-table="${tableIndex}" data-role="${role}"><option value="">Seleccionar columna</option>${groups}</select>
     ${assignment?.header ? `<small class="column-preview"><b>${safe(sourceTable.sheetName)} · ${safe(assignment.header)}</b><br>Ejemplos: ${safe(sample || "Sin muestra")}</small>` : ""}
     ${decision?.error ? `<small class="duplicate-warning" role="alert">${safe(decision.error)}</small>` : ""}
-  </label><button class="text-link interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No tengo ese dato</button></div>`;
+  </label><button class="text-link interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No lo tengo</button></div>`;
 }
 
 function columnOptionValue(sourceTableIndex, header) {
@@ -476,7 +529,7 @@ function qualityScreen() {
     <h1 class="screen-title">¿Podemos decirte qué atender primero?</h1>
     <div class="quality-layout">
       <article class="quality-card">
-        <span class="level ${quality.level.toLowerCase()}">Calidad ${quality.level}</span>
+        <span class="level ${quality.level.toLowerCase()}">Calidad de los datos: ${quality.level[0]}${quality.level.slice(1).toLowerCase()}</span>
         <h2>${quality.score}/100</h2>
         <p>${safe(quality.summary)}</p>
         <small>Fuente: ${safe(app.datasetName)}</small>
@@ -1058,7 +1111,7 @@ function requiredMappingIssues() {
   const relevant = type => app.classified.filter(table => table.type === type);
   const conflicts = app.classified.flatMap(table => table.interpretation ? Object.entries(table.interpretation.assignments).filter(([, assignment]) => assignment?.duplicates?.length > 1 && !assignment.confirmed) : []);
   if (conflicts.length) issues.push({
-    title: "Necesitamos resolver una interpretación duplicada",
+    title: "Necesitamos revisar una columna",
     message: "Encontramos dos columnas posibles para el mismo dato.",
     help: "Elige cuál quieres utilizar antes de continuar."
   });
@@ -1578,7 +1631,7 @@ function showTestSummary() {
       <div><dt>Dataset</dt><dd>${safe(app.datasetName || "Sin elegir")}</dd></div>
       <div><dt>Resultado esperado</dt><dd>${safe(app.expected || "Sin definir")}</dd></div>
       <div><dt>Resultado obtenido</dt><dd>${safe(obtained)}</dd></div>
-      <div><dt>Calidad</dt><dd>${safe(app.analysis?.quality.level || "—")}</dd></div>
+      <div><dt>Evaluación</dt><dd>${app.analysis?.quality.level ? `Calidad de los datos: ${safe(app.analysis.quality.level[0] + app.analysis.quality.level.slice(1).toLowerCase())}` : "Calidad de los datos: No evaluada"}</dd></div>
       <div><dt>Prioridad</dt><dd>${safe(app.analysis?.priorities[0]?.title || "No generada")}</dd></div>
       <div><dt>Tiempo</dt><dd>${elapsed} min</dd></div>
     </dl>`;
@@ -1591,8 +1644,10 @@ function downloadExecutiveSummary() {
   const plan = getPlan();
   const context = Object.entries(app.context).filter(([, value]) => value).map(([key, value]) => `<li><strong>${safe(key)}:</strong> ${safe(value)}</li>`).join("");
   const actions = plan.map(item => `<tr><td>${safe(item.when)}</td><td>${safe(item.action)}</td><td>${safe(finding.indicator)}</td></tr>`).join("");
-  const reportHtml = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Resumen ejecutivo · San José</title><style>body{font-family:Arial,sans-serif;color:#1f2937;max-width:900px;margin:40px auto;padding:0 20px;line-height:1.5}h1,h2{font-family:Georgia,serif;color:#011235}header{border-bottom:4px solid #D8A63A;padding-bottom:18px}.tag{color:#9a6500;font-weight:700;text-transform:uppercase;letter-spacing:.08em}section{margin:28px 0}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid #E5E7EB;padding:10px;text-align:left;vertical-align:top}.priority{background:#f8f2e4;border-left:5px solid #D8A63A;padding:20px}button{background:#011235;color:#fff;border:0;padding:12px 18px}@media print{button{display:none}body{margin:15mm;padding:0}}</style></head><body><header><p class="tag">San José · Transformación Estratégica</p><h1>Resumen ejecutivo</h1><p>Tus datos te muestran qué atender primero.</p><small>${new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date())}</small></header><section><h2>Contexto</h2><ul>${context}</ul></section><section><h2>Calidad de la información</h2><p><strong>${app.analysis.quality.level} · ${app.analysis.quality.score}/100</strong></p><p>${safe(app.analysis.quality.summary)}</p></section><section class="priority"><p class="tag">Atiende esto primero</p><h2>${safe(finding.title)}</h2><p>${safe(finding.evidence)}</p><p><strong>Por qué importa:</strong> ${safe(finding.meaning)}</p></section><section><h2>Plan de 3 acciones</h2><table><thead><tr><th>Momento</th><th>Acción</th><th>Qué observar</th></tr></thead><tbody>${actions}</tbody></table></section><section><h2>Limitaciones</h2><ul><li>El análisis se concentra en ventas e inventario.</li><li>Las cifras dependen de la calidad y cobertura de los archivos.</li><li>La IA, cuando está disponible, interpreta; el código determinístico calcula.</li><li>La decisión final corresponde al empresario.</li></ul></section><button onclick="window.print()">Imprimir o guardar como PDF</button></body></html>`;
-  const blob = new Blob([reportHtml], { type: "text/html;charset=utf-8" });
+  const reportQualityLevel = app.analysis.quality.level[0] + app.analysis.quality.level.slice(1).toLowerCase();
+  const reportHtml = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Resumen ejecutivo · San José</title><style>body{font-family:Arial,sans-serif;color:#1f2937;max-width:900px;margin:40px auto;padding:0 20px;line-height:1.5}h1,h2{font-family:Georgia,serif;color:#011235}header{border-bottom:4px solid #D8A63A;padding-bottom:18px}.tag{color:#9a6500;font-weight:700;text-transform:uppercase;letter-spacing:.08em}section{margin:28px 0}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid #E5E7EB;padding:10px;text-align:left;vertical-align:top}.priority{background:#f8f2e4;border-left:5px solid #D8A63A;padding:20px}button{background:#011235;color:#fff;border:0;padding:12px 18px}@media print{button{display:none}body{margin:15mm;padding:0}}</style></head><body><header><p class="tag">San José · Transformación Estratégica</p><h1>Resumen ejecutivo</h1><p>Tus datos te muestran qué atender primero.</p><small>${new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date())}</small></header><section><h2>Calidad de la información</h2><p><strong>Calidad de los datos: ${reportQualityLevel} · ${app.analysis.quality.score}/100</strong></p><p>${safe(app.analysis.quality.summary)}</p></section><section class="priority"><p class="tag">Atiende esto primero</p><h2>${safe(finding.title)}</h2><p>${safe(finding.evidence)}</p><p><strong>Por qué importa:</strong> ${safe(finding.meaning)}</p></section><section><h2>Plan de 3 acciones</h2><table><thead><tr><th>Momento</th><th>Acción</th><th>Qué observar</th></tr></thead><tbody>${actions}</tbody></table></section><section><h2>Limitaciones</h2><ul><li>El análisis se concentra en ventas e inventario.</li><li>Las cifras dependen de la calidad y cobertura de los archivos.</li><li>La IA, cuando está disponible, interpreta; el código determinístico calcula.</li><li>La decisión final corresponde al empresario.</li></ul></section><button onclick="window.print()">Imprimir o guardar como PDF</button></body></html>`;
+  const reportHtmlWithContext = reportHtml.replace("</header>", `</header><section><h2>Contexto</h2><ul>${context}</ul></section>`);
+  const blob = new Blob([reportHtmlWithContext], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

@@ -6,25 +6,25 @@ Entorno: Node.js 24 incluido en Codex, navegador Chromium integrado y servidor H
 
 ## Resultado
 
-**29 de 29 pruebas automatizadas aprobadas:** 16 de interpretación, mapeo y alcance; 3 validaciones de medidas flexibles; y 10 regresiones del dictado, demostración, calidad parcial y priorización.
+**34 de 34 pruebas automatizadas aprobadas:** 21 de identificación, calidad por columna y alcance; 3 validaciones de medidas flexibles; y 10 regresiones del dictado, demostración, calidad parcial y priorización.
 
 ```powershell
 node tests/run-tests.js
 ```
 
-## Pruebas de interpretación y alcance
+## Pruebas de identificación, calidad y alcance
 
 | # | Escenario | Resultado verificado |
 |---:|---|---|
-| 1 | Interpretación correcta con confianza Alta | Fecha y producto con nombres normales se identifican correctamente. |
-| 2 | Interpretación incorrecta con confianza Alta | La fila conserva siempre la acción **Cambiar**. |
-| 3 | Usuario corrige interpretación | La nueva columna se aplica inmediatamente y queda **Confirmada por ti**. |
+| 1 | Columna identificada con claridad | Fecha y producto con nombres normales muestran **🟢 Parece correcto**. |
+| 2 | Identificación que el usuario puede corregir | La tarjeta conserva siempre la acción **Cambiar**. |
+| 3 | Usuario corrige la columna | La nueva selección se aplica inmediatamente y muestra **🟢 Parece correcto**. |
 | UX crítica | `IdDocumento` fue asociado a Cantidad vendida | **Cambiar** muestra todas las columnas de todas las hojas, permite elegir `Cantidad`, confirma la selección y recalcula el análisis. |
 | UX multioja | Catálogo de columnas y procedencia | Las opciones se agrupan por hoja y cada asignación conserva internamente hoja + columna. |
 | UX duplicados | Una columna intenta cubrir dos datos principales | La segunda asignación se rechaza con una advertencia que identifica el dato que ya usa la columna. |
-| 4 | Confianza Media | No se usa como dato principal hasta que el usuario la confirma o corrige. |
-| 5 | Confianza Baja | No se usa como dato principal hasta que el usuario la confirma o corrige. |
-| 6 | “No tengo ese dato” | La decisión permanece durante la sesión y la pantalla no vuelve a preguntarlo. |
+| 4 | **🟠 Revisa este dato** | No se usa como dato principal hasta que el usuario confirma o corrige la columna. |
+| 5 | Identificación dudosa | La tarjeta no confunde la identificación con la calidad de sus registros. |
+| 6 | “No lo tengo” | La decisión permanece durante la sesión y la pantalla no vuelve a preguntarlo. |
 | 7 | Decisión de no usar un dato | La interpretación se omite sin alterar la fila ni el archivo original. |
 | 8 | Falta un dato opcional | El análisis puede continuar. |
 | 9 | Falta un dato necesario | El avance queda bloqueado y se explica qué hace falta. |
@@ -51,25 +51,26 @@ Validaciones adicionales: fecha + producto + cantidad permite analizar volumen; 
 - Fecha de corte es muy recomendable y genera una limitación si falta, pero no bloquea.
 - Costos, movimientos, mínimos, máximos, reposición, reservas, pedidos, proveedor, entrega, bodega, categoría, lote y vencimiento son adicionales.
 
-### Tres conceptos separados
+### Dos conceptos separados
 
-1. **Confianza de interpretación:** Alta, Media o Baja; indica qué tan segura es la identificación de una columna.
-2. **Calidad de datos:** se calcula después de confirmar, usando vacíos, fechas y números válidos, duplicados, cobertura y consistencia.
-3. **Alcance del análisis:** enumera dinámicamente qué puede y qué no puede analizar San José.
+1. **Identificación de la columna:** usa únicamente **🟢 Parece correcto**, **🟠 Revisa este dato** o **⚪ No la encontramos**.
+2. **Calidad de los datos:** siempre muestra la etiqueta completa y un porcentaje calculado sobre vacíos, fechas válidas o valores utilizables.
+
+El alcance del análisis se actualiza aparte, después de cada corrección.
 
 ## Comportamiento visible verificado por estructura
 
-- Cada dato muestra: dato necesario, columna encontrada, confianza y estado. La confianza del mapeo nunca se presenta como calidad de datos.
-- Una interpretación ofrece **Sí, está bien**, **Cambiar** y **No tengo ese dato**; después de confirmar no vuelve a mostrar el botón de confirmación.
-- Las interpretaciones Media y Baja muestran “Necesitamos tu ayuda para entender este dato”.
-- Una columna ambigua permite elegir qué representa, **Otra información** o **No sé**.
+- Cada tarjeta muestra solo el dato necesario, la columna encontrada, el estado de identificación y la calidad calculada.
+- La tarjeta ofrece **Sí, está bien**, **Cambiar** y **No lo tengo**; después de confirmar no vuelve a mostrar el botón de confirmación.
+- Los niveles siempre se escriben como **Calidad de los datos: Alta**, **Calidad de los datos: Media** o **Calidad de los datos: Baja**.
+- Una identificación dudosa puede tener calidad Alta, y una identificación correcta puede tener calidad Baja.
 - **Cambiar** presenta todas las columnas reales, agrupadas por hoja, y muestra ejemplos de la selección.
-- Si no se encuentra un dato principal, permite seleccionar otra columna o indicar **No tengo ese dato**.
+- Si no se encuentra un dato principal, permite seleccionar otra columna o indicar **No lo tengo**.
 - Ventas requiere fecha, producto y al menos una medida (cantidad o valor); inventario requiere producto y existencia.
 - Los datos adicionales aparecen dentro de una sección colapsable.
 - El resumen usa la leyenda ✓ Disponible, ! Necesita revisión y ○ No disponible.
 - El alcance no promete rentabilidad sin costos ni productos acumulados sin ventas por cantidad e inventario.
-- La pantalla usa “interpretación” e “identificación”; no usa “correlación” como sinónimo.
+- La Etapa 2 usa lenguaje de identificación y calidad, sin términos técnicos para la persona usuaria.
 
 ## Calidad de datos
 
