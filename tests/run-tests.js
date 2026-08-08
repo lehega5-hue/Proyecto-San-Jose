@@ -138,6 +138,7 @@ function makeTable(type, rows, assignments) {
 function resetInterpretation(tables) {
   app.classified = tables;
   app.clarifications = {};
+  app.additionalSections = {};
   app.semanticPending = true;
   app.step = 3;
 }
@@ -258,9 +259,10 @@ test("ANALÍTICA 2: una interpretación alta incorrecta sigue mostrando Cambiar"
   });
   resetInterpretation([table]);
   const html = interpretationRow(table, 0, "producto");
-  assert.ok(html.includes("Confianza Alta"));
-  assert.ok(html.includes("✓ Identificada por San José"));
+  assert.ok(html.includes("🟢 Parece correcto"));
   assert.ok(!html.includes("Calidad de los datos:"));
+  assert.ok(html.includes("¿Qué columna contiene producto / referencia?"));
+  assert.ok(html.includes("role-column-select"));
   assert.ok(html.includes(">Cambiar<"));
 });
 
@@ -271,7 +273,9 @@ test("ANALÍTICA 3: el usuario corrige una interpretación sin recargar", () => 
   resetInterpretation([table]);
   selectRoleColumn({ target: { dataset: { table: "0", role: "producto" }, value: "Cod Art" } });
   assert.equal(table.interpretation.assignments.producto.header, "Cod Art");
-  assert.equal(table.interpretation.assignments.producto.confirmed, true);
+  assert.equal(table.interpretation.assignments.producto.confirmed, false);
+  assert.equal(app.dataset, null);
+  handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "producto", action: "confirm" } } });
   assert.ok(interpretationRow(table, 0, "producto").includes("✓ Confirmado por ti"));
   assert.equal(app.dataset.sales.length, 1);
 });
@@ -293,10 +297,12 @@ test("UX CRÍTICA: Cambiar muestra todas las columnas y corrige IdDocumento por 
   selectRoleColumn({ target: { dataset: { table: "0", role: "cantidad" }, value: columnOptionValue(0, "Cantidad") } });
   assert.equal(sales.interpretation.assignments.cantidad.header, "Cantidad");
   assert.equal(sales.interpretation.assignments.cantidad.sourceTableIndex, 0);
-  assert.equal(sales.interpretation.assignments.cantidad.confirmed, true);
-  assert.ok(interpretationRow(sales, 0, "cantidad").includes("✓ Confirmado por ti"));
+  assert.equal(sales.interpretation.assignments.cantidad.confirmed, false);
+  assert.ok(interpretationRow(sales, 0, "cantidad").includes("🟢 Parece correcto"));
   assert.ok(!interpretationRow(sales, 0, "cantidad").includes("Calidad de los datos:"));
+  handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "cantidad", action: "confirm" } } });
   assert.equal(app.analysis.metrics.quantityRows, 1);
+  assert.ok(interpretationRow(sales, 0, "cantidad").includes("Calidad de los datos: Alta"));
 });
 
 test("UX: una columna principal no puede asignarse a dos datos", () => {
@@ -347,32 +353,32 @@ test("ANALÍTICA 6: No tengo ese dato guarda la decisión durante la sesión", (
   resetInterpretation([table]);
   handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "valorTotal", action: "missing" } } });
   assert.equal(app.clarifications["0:valorTotal"].status, "missing");
-  assert.ok(interpretationRow(table, 0, "valorTotal").includes("Nos indicaste que no tienes este dato"));
+  assert.ok(interpretationRow(table, 0, "valorTotal").includes("⚪ No la encontramos"));
   assert.ok(!interpretationRow(table, 0, "valorTotal").includes("Calidad de los datos:"));
 });
 
-test("LENGUAJE 1: una identificación dudosa muestra confianza y pide revisión", () => {
+test("LENGUAJE 1: una identificación dudosa usa el estado simple acordado", () => {
   const rows = Array.from({ length: 20 }, (_, index) => ({ Cliente: `Cliente ${index + 1}` }));
   const table = makeTable("sales", rows, { producto: assignment("Cliente", "Media", { confirmed: false }) });
   resetInterpretation([table]);
   const html = interpretationRow(table, 0, "producto");
-  assert.ok(html.includes("Confianza Media"));
-  assert.ok(html.includes("⚠ Necesita revisión"));
+  assert.ok(html.includes("🟠 Revisa este dato"));
+  assert.ok(!html.includes("Confianza"));
   assert.ok(!html.includes("Calidad de los datos:"));
 });
 
-test("LENGUAJE 2: la calidad se calcula después y no alarga la tarjeta", () => {
+test("LENGUAJE 2: la calidad aparece únicamente después de confirmar", () => {
   const rows = Array.from({ length: 10 }, (_, index) => ({ Cantidad: index < 6 ? index + 1 : "" }));
   const table = makeTable("sales", rows, { cantidad: assignment("Cantidad", "Alta", { confirmed: false }) });
   resetInterpretation([table]);
   const html = interpretationRow(table, 0, "cantidad");
-  assert.ok(html.includes("Confianza Alta"));
-  assert.ok(html.includes("✓ Identificada por San José"));
+  assert.ok(html.includes("🟢 Parece correcto"));
   assert.ok(!html.includes("Calidad de los datos:"));
   handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "cantidad", action: "confirm" } } });
   const confirmedHtml = interpretationRow(table, 0, "cantidad");
   assert.ok(confirmedHtml.includes("✓ Confirmado por ti"));
-  assert.ok(!confirmedHtml.includes("Calidad de los datos:"));
+  assert.ok(confirmedHtml.includes("Calidad de los datos: Baja"));
+  assert.ok(confirmedHtml.includes("40 % de registros sin cantidad"));
   assert.equal(columnDataQuality(table, "Cantidad", "cantidad").level, "Baja");
 });
 
@@ -403,30 +409,31 @@ test("LENGUAJE 5: los seis datos principales usan los nombres y estados acordado
   assert.equal(roleDisplayLabel("inventory", "producto"), "Producto / referencia");
   assert.equal(roleDisplayLabel("inventory", "stock"), "Existencia actual");
   assert.equal(columnIdentification(assignment("Fecha")).label, "✓ Confirmado por ti");
-  assert.equal(columnIdentification(assignment("Fecha", "Alta", { confirmed: false })).label, "✓ Identificada por San José");
-  assert.equal(columnIdentification(assignment("Fecha", "Media", { confirmed: false })).label, "⚠ Necesita revisión");
-  assert.equal(columnIdentification(null).label, "○ No encontramos esta columna");
+  assert.equal(columnIdentification(assignment("Fecha", "Alta", { confirmed: false })).label, "🟢 Parece correcto");
+  assert.equal(columnIdentification(assignment("Fecha", "Media", { confirmed: false })).label, "🟠 Revisa este dato");
+  assert.equal(columnIdentification(null).label, "⚪ No la encontramos");
 });
 
-test("UX: confirmar conserva la confianza separada de la calidad posterior", () => {
+test("UX: todas las tarjetas conservan selector y muestran calidad tras confirmar", () => {
   const table = makeTable("sales", [{ FechaFactura: "2026-01-01" }], {
     fecha: assignment("FechaFactura", "Alta", { confirmed: false })
   });
   resetInterpretation([table]);
   const before = interpretationRow(table, 0, "fecha");
   assert.ok(before.includes("FechaFactura"));
-  assert.ok(before.includes("Confianza Alta"));
-  assert.ok(before.includes("✓ Identificada por San José"));
+  assert.ok(before.includes("🟢 Parece correcto"));
+  assert.ok(before.includes("role-column-select"));
   assert.ok(!before.includes("Calidad de los datos:"));
   handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "fecha", action: "confirm" } } });
   const after = interpretationRow(table, 0, "fecha");
   assert.ok(after.includes("✓ Confirmado por ti"));
-  assert.ok(!after.includes("Calidad de los datos:"));
+  assert.ok(after.includes("Calidad de los datos: Alta"));
+  assert.ok(after.includes("role-column-select"));
   assert.ok(!after.includes("Sí, está bien"));
   assert.ok(after.includes(">Cambiar<"));
 });
 
-test("UX CRÍTICA: cambiar confirma y recalcula inmediatamente", () => {
+test("UX CRÍTICA: cambiar no muestra ejemplos y exige confirmar la nueva columna", () => {
   const sales = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", IdDocumento: 23794, Cantidad: 3 }], {
     fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("IdDocumento", "Alta", { confirmed: false })
   });
@@ -439,14 +446,15 @@ test("UX CRÍTICA: cambiar confirma y recalcula inmediatamente", () => {
   assert.ok(chooser.includes("Cantidad"));
   assert.ok(chooser.includes("CodigoProducto"));
   assert.ok(chooser.includes("Hoja: Productos"));
-  assert.ok(chooser.includes("Ejemplos: 3"));
-  assert.ok(chooser.includes("Ejemplos: Café 500 g"));
+  assert.ok(!chooser.includes("Ejemplos:"));
   selectRoleColumn({ target: { dataset: { table: "0", role: "cantidad" }, value: columnOptionValue(0, "Cantidad") } });
   const selected = interpretationRow(sales, 0, "cantidad");
   assert.ok(selected.includes("Encontramos:</span><strong>Cantidad"));
-  assert.ok(selected.includes("✓ Confirmado por ti"));
+  assert.ok(selected.includes("🟢 Parece correcto"));
   assert.ok(!selected.includes("Calidad de los datos:"));
-  assert.equal(sales.interpretation.assignments.cantidad.confirmed, true);
+  assert.equal(sales.interpretation.assignments.cantidad.confirmed, false);
+  handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "cantidad", action: "confirm" } } });
+  assert.ok(interpretationRow(sales, 0, "cantidad").includes("Calidad de los datos: Alta"));
   assert.equal(app.analysis.metrics.quantityRows, 1);
 });
 
@@ -456,11 +464,12 @@ test("UX FINAL 11-14: no lo tengo y no encontrada nunca muestran calidad", () =>
   });
   resetInterpretation([table]);
   const notFound = interpretationRow(table, 0, "cantidad");
-  assert.ok(notFound.includes("○ No encontramos esta columna"));
+  assert.ok(notFound.includes("⚪ No la encontramos"));
+  assert.ok(notFound.includes("disabled"));
   assert.ok(!notFound.includes("Calidad de los datos:"));
   handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "cantidad", action: "missing" } } });
   const declaredMissing = interpretationRow(table, 0, "cantidad");
-  assert.ok(declaredMissing.includes("Nos indicaste que no tienes este dato"));
+  assert.ok(declaredMissing.includes("⚪ No la encontramos"));
   assert.ok(!declaredMissing.includes("Calidad de los datos:"));
 });
 
@@ -479,27 +488,31 @@ test("UX: la pantalla separa principales, medida y datos adicionales", () => {
   assert.ok(salesHtml.includes("Medida de la venta"));
   assert.ok(inventoryHtml.includes("Datos principales de inventario"));
   assert.ok(salesHtml.includes("Ver datos adicionales"));
-  assert.ok(inventoryHtml.includes("Ver datos adicionales"));
+  assert.ok(!inventoryHtml.includes("Ver datos adicionales"));
 });
 
-test("UX: ventas exige fecha, producto y al menos una medida", () => {
+test("UX: el contador incluye los cuatro datos principales de ventas", () => {
   const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 2, Total: 20000 }], {
     fecha: assignment("Fecha", "Alta", { confirmed: false }), producto: assignment("Producto"), cantidad: assignment("Cantidad"),
     valorTotal: assignment("Total", "Alta", { confirmed: false })
   });
   resetInterpretation([table]);
   assert.equal(primaryReviewProgress().resolved, 2);
-  assert.equal(primaryReviewProgress().total, 3);
+  assert.equal(primaryReviewProgress().total, 4);
+  assert.ok(interpretationPanel().includes("Te faltan 2 datos por revisar."));
   const pendingButton = interpretationPanel().match(/<button id="confirm-mapping"[^>]*>/)[0];
   assert.ok(pendingButton.includes("disabled"));
   handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "fecha", action: "confirm" } } });
+  assert.ok(interpretationPanel().includes("Te falta 1 dato por revisar."));
+  handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "valorTotal", action: "missing" } } });
   assert.equal(primaryReviewProgress().complete, true);
   const readyButton = interpretationPanel().match(/<button id="confirm-mapping"[^>]*>/)[0];
   assert.ok(!readyButton.includes("disabled"));
   assert.ok(interpretationPanel().includes("Listo. Ya sabemos qué información podemos utilizar."));
+  assert.ok(interpretationPanel().includes("✓ Listo. Revisamos todos los datos principales."));
 });
 
-test("UX: las listas adicionales de ventas e inventario están completas y no bloquean", () => {
+test("UX: Cliente, Comercial y Utilidad usan la misma plantilla y la sección conserva su estado", () => {
   const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 2, Total: 20000, Cliente: "Ana", Asesor: "Luis", Utilidad: 4000, Canal: "Tienda" }], {
     fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad"), valorTotal: assignment("Total"),
     cliente: assignment("Cliente", "Alta", { confirmed: false }), vendedor: assignment("Asesor", "Alta", { confirmed: false }),
@@ -508,11 +521,15 @@ test("UX: las listas adicionales de ventas e inventario están completas y no bl
   resetInterpretation([table]);
   const html = mappingCard(table, 0);
   assert.ok(html.includes("Datos que pueden mejorar el análisis"));
-  for (const label of ["Cantidad vendida", "Valor de la venta", "Precio unitario", "Costo unitario", "Cliente", "Canal de venta", "Categoría de producto", "Sede / punto de venta", "Comercial / vendedor", "Descuento"]) assert.ok(html.includes(label), label);
+  for (const label of ["Cliente", "Comercial / vendedor", "Utilidad"]) assert.ok(html.includes(label), label);
+  assert.ok(!html.includes("Precio unitario"));
+  assert.equal((html.match(/role-column-select/g) || []).length, 7);
+  app.additionalSections["0:sales"] = true;
+  assert.ok(mappingCard(table, 0).includes('data-additional-key="0:sales" open'));
   const inventory = makeTable("inventory", [{ Producto: "A", Existencia: 2 }], { producto: assignment("Producto"), stock: assignment("Existencia") });
   resetInterpretation([inventory]);
   const inventoryHtml = mappingCard(inventory, 0);
-  for (const label of ["Fecha de inventario", "Costo unitario", "Fecha del último movimiento", "Categoría", "Bodega / sede", "Inventario mínimo", "Inventario máximo", "Punto de reposición", "Proveedor", "Fecha de vencimiento"]) assert.ok(inventoryHtml.includes(label), label);
+  assert.ok(!inventoryHtml.includes("Datos que pueden mejorar el análisis"));
 });
 
 test("ANALÍTICA 7: No usar ignora la columna sin borrar el archivo", () => {

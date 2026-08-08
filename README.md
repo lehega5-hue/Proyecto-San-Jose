@@ -29,13 +29,14 @@ La aplicación es estática y compatible con GitHub Pages. No requiere cuenta, b
 - Dictado opcional controlado por el usuario, con transcripción intermedia y reinicio automático mientras siga escuchando.
 - Un único ejemplo visible de ventas para demostrar el análisis sin inventario.
 - Flujos parciales: ventas sin inventario e inventario sin ventas.
-- Revisión simple de cada columna con **Sí, está bien**, **Cambiar** y **No tengo ese dato**.
-- Al cambiar una selección, se muestran todas las columnas reales agrupadas por archivo y hoja, con ejemplos de la columna elegida.
+- Revisión simple de cada columna con **Sí, está bien**, **Cambiar** y **No lo tengo**.
+- Todas las tarjetas muestran siempre el selector con las columnas reales agrupadas por archivo y hoja, sin valores de muestra.
 - Prevención de columnas duplicadas en datos principales y recálculo inmediato del alcance tras una corrección.
-- Confianza visible como **Alta**, **Media** o **Baja** para explicar qué tan segura es la interpretación, sin llamarla calidad.
-- Una corrección manual queda **Confirmada por ti** y recalcula inmediatamente validación, calidad y alcance sin recargar el archivo.
+- Estados simples y uniformes: **🟢 Parece correcto**, **🟠 Revisa este dato**, **⚪ No la encontramos** y **✓ Confirmado por ti**.
+- Una corrección manual vuelve a requerir **Sí, está bien**; la calidad aparece solo después de esa confirmación.
 - Ventas requiere Fecha, Producto y al menos una medida: Cantidad vendida o Valor de la venta; no exige ambas.
-- Datos adicionales de ventas e inventario dentro de una sección cerrada y sin bloquear por su ausencia.
+- Cliente, Comercial / vendedor y Utilidad usan la misma tarjeta y su sección conserva el estado abierto hasta que la persona la cierre.
+- Contador dinámico de datos principales pendientes.
 - Medida de ventas flexible: cantidad, valor total o valor calculado como cantidad × precio.
 - Clasificación explícita de hojas como ventas, inventario, complementaria o desconocida.
 - Detección de caída reciente sostenida en ventas.

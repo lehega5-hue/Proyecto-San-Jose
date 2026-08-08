@@ -6,7 +6,7 @@ Entorno: Node.js 24 incluido en Codex y servidor HTTP estático local.
 
 ## Resultado
 
-**40 de 40 pruebas automatizadas aprobadas.** La batería cubre interpretación de columnas, confianza, confirmación y corrección, archivos con varias hojas, medidas flexibles, calidad calculada, alcance dinámico, dictado, demostración y priorización.
+**40 de 40 pruebas automatizadas aprobadas.** La batería cubre tarjetas uniformes, selector permanente, confirmación, archivos con varias hojas, medidas flexibles, calidad calculada, alcance dinámico, dictado, demostración y priorización.
 
 ```powershell
 node tests/run-tests.js
@@ -15,14 +15,17 @@ node tests/run-tests.js
 ## Ajuste de experiencia verificado
 
 - La Etapa 2 usa el título **Esto es lo que entendimos**.
-- Cada tarjeta muestra únicamente el dato necesario, la columna encontrada, **Confianza Alta/Media/Baja**, estado y acciones.
-- La confianza describe la interpretación de la columna; no se presenta como calidad de los datos.
-- Una propuesta sin confirmar muestra **✓ Identificada por San José** o **⚠ Necesita revisión**.
+- Cada tarjeta conserva el mismo orden: dato, columna encontrada, estado, pregunta, selector y acciones.
+- Los únicos estados previos son **🟢 Parece correcto**, **🟠 Revisa este dato** y **⚪ No la encontramos**.
+- El selector permanece visible en todas las tarjetas y muestra solo hojas y nombres de columnas.
+- No se muestran ejemplos ni mensajes especiales por encima del dato.
 - **Sí, está bien** cambia el estado a **✓ Confirmado por ti** y no vuelve a solicitar confirmación durante la sesión.
 - **Cambiar** está disponible incluso cuando San José asignó confianza alta.
-- Una corrección manual queda **✓ Confirmado por ti**, vuelve a validar los datos y recalcula inmediatamente el análisis posible.
-- **No tengo ese dato** conserva la decisión durante la sesión y explica el análisis que deja de ser posible cuando el dato es necesario.
-- La calidad se calcula posteriormente con los datos reales; no alarga las tarjetas de identificación.
+- Una corrección manual queda pendiente hasta pulsar nuevamente **Sí, está bien**.
+- **No lo tengo** conserva la decisión durante la sesión.
+- La calidad aparece dentro de la misma plantilla únicamente después de confirmar y usa cálculos reales.
+- El contador informa cuántos datos principales faltan y muestra el mensaje final al resolver los seis.
+- La sección adicional permanece abierta durante confirmaciones, cambios y selecciones hasta que la persona la cierre.
 
 ## Prueba crítica documentada
 
@@ -33,9 +36,9 @@ Escenario reproducible:
 3. El selector muestra todas las columnas reales, no solo las candidatas del reconocimiento automático.
 4. La lista incluye `Cantidad` y también las columnas de las demás hojas del archivo.
 5. Las opciones están agrupadas por hoja y la selección se conserva internamente como **Hoja + Columna**.
-6. El selector muestra ejemplos de valores reales para facilitar el reconocimiento.
-7. La persona selecciona `Cantidad`.
-8. La tarjeta se actualiza a **Cantidad vendida → Cantidad** con estado **✓ Confirmado por ti**.
+6. El selector no muestra ejemplos ni valores de muestra.
+7. La persona selecciona `Cantidad` y la tarjeta queda pendiente de confirmación.
+8. La persona pulsa **Sí, está bien** y la tarjeta cambia a **Cantidad vendida → Cantidad** con estado **✓ Confirmado por ti**.
 9. Sin recargar el archivo, el análisis se recalcula y reconoce una fila con cantidad utilizable.
 
 **Resultado: aprobado.**
@@ -58,21 +61,21 @@ Escenario reproducible:
 
 ### Datos adicionales
 
-La sección **Datos que pueden mejorar el análisis** permanece cerrada inicialmente y no bloquea por ausencias.
+La sección **Datos que pueden mejorar el análisis** permanece cerrada inicialmente, no bloquea por ausencias y conserva su estado abierto durante cualquier interacción.
 
-- Ventas: Cantidad vendida, Valor total, Precio unitario, Costo, Cliente, Canal, Categoría, Sede, Vendedor y Descuento.
-- Inventario: Fecha del inventario, Costo, Último movimiento, Categoría, Bodega, Inventario mínimo, Inventario máximo, Punto de reposición, Proveedor y Fecha de vencimiento.
+- Adicionales: Cliente, Comercial / vendedor y Utilidad.
 
 ## Comportamientos analíticos comprobados
 
 | Escenario | Resultado |
 |---|---|
-| Confianza alta equivocada | Conserva **Cambiar** y permite corregirla. |
-| Confianza media o baja | No se usa como dato principal hasta confirmar o corregir. |
+| Asociación que parece correcta | Muestra **🟢 Parece correcto**, selector y las tres acciones. |
+| Asociación dudosa | Muestra **🟠 Revisa este dato** sin mensajes especiales. |
+| Columna ausente | Muestra **⚪ No la encontramos** y deshabilita **Sí, está bien**. |
 | Todas las columnas | El selector enumera encabezados reales de todas las hojas. |
 | Nombres repetidos | La selección conserva hoja y columna para evitar ambigüedad. |
 | Columna principal duplicada | Se rechaza la segunda selección y se indica qué dato ya la utiliza. |
-| Corrección en tiempo real | Actualiza asociación, validación, calidad y alcance sin recargar. |
+| Corrección en tiempo real | Actualiza la columna, exige confirmación y recalcula al confirmar sin recargar. |
 | Falta un dato adicional | El análisis puede continuar. |
 | Falta una medida de venta | Se explica qué análisis deja de ser posible. |
 | Solo ventas | No afirma inventario acumulado ni faltantes. |

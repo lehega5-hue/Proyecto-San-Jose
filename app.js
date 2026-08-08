@@ -22,6 +22,7 @@ const app = {
   semanticMode: "local-fallback",
   semanticPending: false,
   clarifications: {},
+  additionalSections: {},
   tasks: [false, false, false],
   activePriority: 0,
   feedback: {},
@@ -306,7 +307,7 @@ function interpretationPanel() {
     <ul class="found-list">${found}</ul>
     ${additional.length ? `<p class="optional-note">También encontramos ${countText(additional.length, "una hoja", "hojas")} con información adicional. Esta versión de San José se concentra únicamente en ventas e inventario.</p>` : ""}
     ${unknown.length ? `<p class="optional-note">No logramos reconocer ${countText(unknown.length, "una hoja", "hojas")}. Puedes continuar si ya encontramos ventas o inventario.</p>` : ""}
-    <div class="review-progress"><div><h2>Revisa tus datos principales</h2><p>San José propone. Tú confirmas o corriges.</p></div><strong>✓ ${review.resolved} de ${review.total} listos</strong></div>
+    <div class="review-progress"><div><h2>Revisa tus datos principales</h2><p>San José propone. Tú confirmas o corriges.</p></div><strong>${reviewProgressText(review)}</strong></div>
     <div class="sheet-mappings">
       ${relevant.map(item => mappingCard(item.table, item.index)).join("")}
     </div>
@@ -324,12 +325,14 @@ function interpretationPanel() {
 function mappingCard(table, tableIndex) {
   const mainRoles = primaryRolesFor(table.type);
   const optionalRoles = additionalRolesFor(table.type);
+  const additionalKey = `${tableIndex}:${table.type}`;
+  const additionalOpen = Boolean(app.additionalSections[additionalKey]);
   return `<article class="mapping-card">
     <header><div><span>${table.type === "sales" ? "Ventas" : "Inventario"}</span><h3>${safe(table.sheetName)}</h3></div><small>${safe(table.fileName)}</small></header>
     <section class="needed-data"><h4>Datos principales de ${table.type === "sales" ? "ventas" : "inventario"}</h4><p>${table.type === "sales" ? "Necesitamos fecha, producto y al menos una medida de la venta." : "Necesitamos producto y existencia actual."}</p></section>
     <div class="interpretation-rows">${mainRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}</div>
     ${table.type === "sales" ? `<section class="measure-section"><div><h4>Medida de la venta</h4><p>Debe existir al menos una: cantidad vendida o valor de la venta.</p></div><div class="interpretation-rows">${["cantidad", "valorTotal"].map(role => interpretationRow(table, tableIndex, role)).join("")}</div></section>` : ""}
-    <details class="additional-data"><summary><span>Datos que pueden mejorar el análisis</span><b>Ver datos adicionales</b></summary><p>Estos datos son opcionales y su ausencia no bloquea el análisis.${table.type === "sales" ? " Cantidad vendida y Valor total se revisan arriba como medidas de la venta." : ""}</p><div class="optional-rows">${optionalRoles.map(role => interpretationRow(table, tableIndex, role, { optional: true })).join("")}</div></details>
+    ${optionalRoles.length ? `<details class="additional-data" data-additional-key="${additionalKey}" ${additionalOpen ? "open" : ""}><summary><span>Datos que pueden mejorar el análisis</span><b>Ver datos adicionales</b></summary><div class="optional-rows">${optionalRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}</div></details>` : ""}
   </article>`;
 }
 
@@ -338,71 +341,55 @@ function primaryRolesFor(type) {
 }
 
 function additionalRolesFor(type) {
-  return type === "sales"
-    ? ["precio", "costo", "cliente", "canal", "categoria", "sede", "vendedor", "descuento"]
-    : type === "inventory"
-      ? ["fechaCorte", "costo", "ultimoMovimiento", "categoria", "bodega", "inventarioMinimo", "inventarioMaximo", "puntoReposicion", "proveedor", "vencimiento"]
-      : [];
+  return type === "sales" ? ["cliente", "vendedor", "utilidad"] : [];
 }
 
 function primaryReviewProgress() {
-  let resolved = 0;
-  let total = 0;
-  const isResolved = (table, tableIndex, role) => {
+  const items = app.classified.flatMap((table, tableIndex) => {
+    const roles = table.type === "sales" ? ["fecha", "producto", "cantidad", "valorTotal"] : table.type === "inventory" ? ["producto", "stock"] : [];
+    return roles.map(role => ({ table, tableIndex, role }));
+  });
+  const resolved = items.filter(({ table, tableIndex, role }) => {
     const decision = roleDecision(tableIndex, role);
     return Boolean(table.interpretation.assignments[role]?.confirmed || ["missing", "ignored", "unknown"].includes(decision?.status));
-  };
-  app.classified.forEach((table, tableIndex) => {
-    if (!['sales', 'inventory'].includes(table.type)) return;
-    primaryRolesFor(table.type).forEach(role => {
-      total += 1;
-      if (isResolved(table, tableIndex, role)) resolved += 1;
-    });
-    if (table.type === "sales") {
-      total += 1;
-      const hasConfirmedMeasure = ["cantidad", "valorTotal"].some(role => table.interpretation.assignments[role]?.confirmed);
-      const bothUnavailable = ["cantidad", "valorTotal"].every(role => ["missing", "ignored", "unknown"].includes(roleDecision(tableIndex, role)?.status));
-      if (hasConfirmedMeasure || bothUnavailable) resolved += 1;
-    }
-  });
-  return { resolved, total, complete: total > 0 && resolved === total };
+  }).length;
+  return { resolved, total: items.length, complete: items.length > 0 && resolved === items.length };
+}
+
+function reviewProgressText(review) {
+  const pending = Math.max(0, review.total - review.resolved);
+  if (!pending) return "✓ Listo. Revisamos todos los datos principales.";
+  return pending === 1 ? "Te falta 1 dato por revisar." : `Te faltan ${pending} datos por revisar.`;
 }
 
 function roleDecision(tableIndex, role) {
   return app.clarifications[`${tableIndex}:${role}`] || null;
 }
 
-function interpretationRow(table, tableIndex, role, options = {}) {
-  const config = semanticRoles[table.type][role];
+function interpretationRow(table, tableIndex, role) {
   const assignment = table.interpretation.assignments[role];
   const decision = roleDecision(tableIndex, role);
-  const editing = decision?.status === "editing";
   const unavailable = ["missing", "ignored", "unknown"].includes(decision?.status);
   const sourceIndex = assignmentSourceIndex(assignment, tableIndex);
   const sourceTable = app.classified[sourceIndex] || table;
   const ambiguity = assignment && assignment.confidence !== "Alta" && !assignment.confirmed;
-  const duplicate = assignment?.duplicates?.length > 1 && !assignment.confirmed;
-  const visibleAssignment = unavailable && !editing ? null : assignment;
-  const identification = unavailable && !editing
-    ? { label: "○ Nos indicaste que no tienes este dato.", className: "user-missing" }
-    : assignment?.confirmed && !editing
+  const visibleAssignment = unavailable ? null : assignment;
+  const identification = unavailable
+    ? { label: "⚪ No la encontramos", className: "user-missing" }
+    : assignment?.confirmed
       ? { label: "✓ Confirmado por ti", className: "confirmed" }
       : columnIdentification(visibleAssignment);
-  const confidence = visibleAssignment?.confidence || "";
-  const missingImpact = unavailable && !options.optional ? missingImpactText(table.type, role, table, tableIndex) : "";
-  return `<article class="interpretation-item data-question ${ambiguity || duplicate ? "needs-review" : ""}">
-    ${duplicate ? `<p class="duplicate-warning">Encontramos dos columnas que podrían representar ${safe(config.label)}. ¿Cuál quieres utilizar?</p>` : ""}
+  const showQuality = Boolean(assignment?.confirmed && !unavailable);
+  const quality = showQuality ? columnDataQuality(sourceTable, assignment.header, role) : null;
+  return `<article class="interpretation-item data-question ${ambiguity ? "needs-review" : ""}">
     <div class="interpretation-main">
       <div class="needed-column"><h5>${safe(roleDisplayLabel(table.type, role))}</h5></div>
       <div class="found-column"><span>Encontramos:</span><strong>${visibleAssignment ? safe(visibleAssignment.header) : "No encontramos una columna"}</strong>${visibleAssignment && sourceTable !== table ? `<small>Hoja: ${safe(sourceTable.sheetName)}</small>` : ""}</div>
-      ${confidence ? `<span class="confidence ${confidence.toLowerCase()}">Confianza ${safe(confidence)}</span>` : ""}
       <strong class="identification-state ${identification.className}">${identification.label}</strong>
-      ${missingImpact ? `<p class="missing-impact">${safe(missingImpact)}</p>` : ""}
     </div>
-    ${editing || duplicate ? columnChooser(table, tableIndex, role, assignment) : ""}
-    ${assignment && !editing && !duplicate && !unavailable && !assignment.confirmed ? `<div class="interpretation-actions"><button class="button mini interpretation-action" type="button" data-action="confirm" data-table="${tableIndex}" data-role="${role}">Sí, está bien</button><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="button mini quiet interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No tengo ese dato</button></div>` : ""}
-    ${assignment?.confirmed && !editing && !unavailable ? `<div class="interpretation-actions"><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button></div>` : ""}
-    ${!assignment && !editing && !unavailable ? `<div class="interpretation-actions"><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="button mini quiet interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No tengo ese dato</button></div>` : ""}
+    ${columnChooser(table, tableIndex, role, assignment)}
+    ${showQuality ? `<div class="column-data-quality ${quality.className}"><strong>Calidad de los datos: ${quality.level}</strong><p>${safe(quality.explanation)}</p></div>` : ""}
+    ${assignment?.confirmed && !unavailable ? `<div class="interpretation-actions"><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button></div>` : unavailable ? `<div class="interpretation-actions"><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button></div>` : `<div class="interpretation-actions"><button class="button mini interpretation-action" type="button" data-action="confirm" data-table="${tableIndex}" data-role="${role}" ${assignment ? "" : "disabled"}>Sí, está bien</button><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="button mini quiet interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No lo tengo</button></div>`}
   </article>`;
 }
 
@@ -414,23 +401,10 @@ function roleDisplayLabel(type, role) {
 }
 
 function columnIdentification(assignment) {
-  if (!assignment?.header) return { label: "○ No encontramos esta columna", className: "not-found" };
+  if (!assignment?.header) return { label: "⚪ No la encontramos", className: "not-found" };
   if (assignment.confirmed) return { label: "✓ Confirmado por ti", className: "confirmed" };
-  if (assignment.confidence === "Alta") return { label: "✓ Identificada por San José", className: "looks-correct" };
-  return { label: "⚠ Necesita revisión", className: "review" };
-}
-
-function missingImpactText(type, role, table, tableIndex) {
-  if (type === "sales" && role === "fecha") return "Sin fecha no podremos analizar cómo cambian las ventas en el tiempo.";
-  if (type === "sales" && role === "producto") return "Sin producto no podremos mostrar qué referencias aportan más.";
-  if (type === "sales" && ["cantidad", "valorTotal"].includes(role)) {
-    const otherRole = role === "cantidad" ? "valorTotal" : "cantidad";
-    return table.interpretation.assignments[otherRole]?.confirmed
-      ? "Puedes continuar: ya confirmaste otra medida válida de la venta."
-      : "Necesitamos cantidad vendida o valor de la venta para analizar ventas.";
-  }
-  if (type === "inventory") return "Sin este dato no podremos analizar las existencias por producto.";
-  return "Puedes continuar; este dato no es obligatorio.";
+  if (assignment.confidence === "Alta") return { label: "🟢 Parece correcto", className: "looks-correct" };
+  return { label: "🟠 Revisa este dato", className: "review" };
 }
 
 function columnDataQuality(table, header, role) {
@@ -462,7 +436,7 @@ function columnDataQuality(table, header, role) {
       ? `${percent(usableRate)} de los registros tiene una fecha válida.`
       : numericRoles.includes(role)
         ? `${percent(usableRate)} de los registros tiene ${usableName}.`
-        : `${percent(usableRate)} de los registros tiene información.`;
+        : `${percent(usableRate)} de los registros tiene información utilizable.`;
   } else if (empty === rows.length - usable) explanation = `Encontramos ${percent(empty / rows.length)} de registros ${missingName}.`;
   else explanation = `${percent(unusableRate)} de los valores no se pueden utilizar.`;
   return { level, className, explanation, usableRate, empty, unusable: rows.length - usable };
@@ -491,18 +465,14 @@ function columnChooser(table, tableIndex, role, assignment) {
   const selectedSource = assignmentSourceIndex(assignment, tableIndex);
   const selectedValue = assignment?.header ? columnOptionValue(selectedSource, assignment.header) : "";
   const decision = roleDecision(tableIndex, role);
-  const groups = app.classified.map((sourceTable, sourceIndex) => `<optgroup label="${safe(sourceTable.sheetName)} · ${safe(sourceTable.fileName)}">${sourceTable.headers.map(header => {
+  const groups = app.classified.map((sourceTable, sourceIndex) => `<optgroup label="Hoja: ${safe(sourceTable.sheetName)} · ${safe(sourceTable.fileName)}">${sourceTable.headers.map(header => {
     const value = columnOptionValue(sourceIndex, header);
     return `<option value="${safe(value)}" ${value === selectedValue ? "selected" : ""}>${safe(header)}</option>`;
   }).join("")}</optgroup>`).join("");
-  const examples = app.classified.map(sourceTable => `<section><strong>Hoja: ${safe(sourceTable.sheetName)}</strong><ul>${sourceTable.headers.map(header => {
-    const values = sourceTable.rows.map(row => row[header]).filter(value => String(value ?? "").trim() !== "").slice(0, 3);
-    return `<li><b>${safe(header)}</b><small>Ejemplos: ${safe(values.join(" · ") || "Sin valores para mostrar")}</small></li>`;
-  }).join("")}</ul></section>`).join("");
   return `<div class="column-chooser"><label>¿Qué columna contiene ${safe(roleDisplayLabel(table.type, role).toLowerCase())}?
     <select class="role-column-select" data-table="${tableIndex}" data-role="${role}"><option value="">Seleccionar columna</option>${groups}</select>
     ${decision?.error ? `<small class="duplicate-warning" role="alert">${safe(decision.error)}</small>` : ""}
-  </label><div class="column-examples">${examples}</div><button class="button mini quiet interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No tengo ese dato</button></div>`;
+  </label></div>`;
 }
 
 function columnOptionValue(sourceTableIndex, header) {
@@ -771,6 +741,9 @@ function bindScreen() {
     document.querySelectorAll(".interpretation-action").forEach(button => button.addEventListener("click", handleInterpretationAction));
     document.querySelectorAll(".role-column-select").forEach(select => select.addEventListener("change", selectRoleColumn));
     document.querySelectorAll(".ambiguous-role-select").forEach(select => select.addEventListener("change", selectAmbiguousMeaning));
+    document.querySelectorAll(".additional-data[data-additional-key]").forEach(details => details.addEventListener("toggle", () => {
+      app.additionalSections[details.dataset.additionalKey] = details.open;
+    }));
     $("#confirm-mapping")?.addEventListener("click", confirmInterpretation);
     $("#clear-files")?.addEventListener("click", resetUploads);
     document.querySelectorAll("[data-focus-upload]").forEach(button => button.addEventListener("click", () => $("#business-files")?.click()));
@@ -916,6 +889,8 @@ function resetUploads() {
   app.tables = [];
   app.classified = [];
   app.semanticPending = false;
+  app.clarifications = {};
+  app.additionalSections = {};
   app.analysis = null;
   app.source = "";
   render();
@@ -1176,7 +1151,7 @@ function requiredMappingIssues() {
   });
   if (conflicts.length) issues.push({
     title: "Necesitamos revisar una columna",
-    message: "Encontramos dos columnas posibles para el mismo dato.",
+    message: "Este dato todavía necesita tu confirmación.",
     help: "Elige cuál quieres utilizar antes de continuar."
   });
   const principalRoles = { sales: ["fecha", "producto", "cantidad", "valorTotal"], inventory: ["producto", "stock"] };
@@ -1242,7 +1217,10 @@ function handleInterpretationAction(event) {
     assignment.confirmed = true;
     assignment.duplicates = [];
     app.clarifications[key] = { status: "confirmed" };
-  } else if (action === "edit") app.clarifications[key] = { status: "editing" };
+  } else if (action === "edit") {
+    if (assignment) assignment.confirmed = false;
+    app.clarifications[key] = { status: "editing" };
+  }
   else if (action === "ignore") {
     app.clarifications[key] = { status: "ignored", header: assignment?.header || "" };
     table.interpretation.assignments[role] = null;
@@ -1280,13 +1258,13 @@ function selectRoleColumn(event) {
     header,
     sourceTableIndex,
     confidence: "Alta",
-    confirmed: true,
+    confirmed: false,
     userSelected: true,
     duplicates: [],
     score: 10,
     sample: sourceTable.profiles?.[header]?.sample || "Sin muestra"
   };
-  app.clarifications[`${tableIndex}:${role}`] = { status: "confirmed" };
+  app.clarifications[`${tableIndex}:${role}`] = { status: "selected" };
   refreshInterpretationAnalysis();
   render();
 }
@@ -1315,13 +1293,13 @@ function selectAmbiguousMeaning(event) {
       header,
       sourceTableIndex: tableIndex,
       confidence: "Alta",
-      confirmed: true,
+      confirmed: false,
       userSelected: true,
       duplicates: [],
       score: 10,
       sample: table.profiles[header]?.sample || "Sin muestra"
     };
-    app.clarifications[`${tableIndex}:${selectedRole}`] = { status: "confirmed" };
+    app.clarifications[`${tableIndex}:${selectedRole}`] = { status: "selected" };
     refreshInterpretationAnalysis();
   } else app.clarifications[`${tableIndex}:${currentRole}`] = { status: selectedRole === "other" ? "ignored" : "unknown", header };
   render();
