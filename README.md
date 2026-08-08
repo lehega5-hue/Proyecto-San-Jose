@@ -20,7 +20,7 @@ La aplicación es estática y compatible con GitHub Pages. No requiere cuenta, b
 3. Sube uno o varios XLS, XLSX o CSV en una única entrada. Se leen todas las hojas.
 4. Revisa cómo se interpretaron las hojas y responde una pregunta sencilla si una columna es ambigua.
 5. Continúa con ventas, inventario o ambos. La aplicación limita sus conclusiones según la información disponible.
-6. Revisa calidad, tres hallazgos ordenados, una prioridad principal y un plan de exactamente tres acciones.
+6. Revisa cuatro cifras principales, calidad calculada, dos gráficos sencillos, una prioridad y hasta dos hallazgos adicionales.
 7. Marca avances, registra comentarios y consulta el resumen de prueba.
 
 ## Qué cambió en V4
@@ -43,13 +43,25 @@ La aplicación es estática y compatible con GitHub Pages. No requiere cuenta, b
 - Priorización reproducible por impacto, urgencia, alcance y confianza.
 - Pregunta adaptativa solo cuando una caída prioritaria necesita contexto adicional.
 - Calidad respaldada por cantidades y porcentajes calculados.
-- Batería automatizada de 40 casos en `tests/run-tests.js`, incluida la corrección crítica de `IdDocumento` por `Cantidad` usando todas las columnas reales.
+- La pantalla **Esto muestran tus datos** explica cifras, gráficos y prioridad con unidades y lenguaje cotidiano.
+- Batería automatizada de 50 casos en `tests/run-tests.js`, incluidos los diez escenarios obligatorios de la Etapa 3.
+
+## Calidad de la información en la Etapa 3
+
+El porcentaje es determinístico y reproducible:
+
+- 35 % completitud: información necesaria disponible para el alcance completo.
+- 30 % validez: fechas, cantidades, valores y existencias que pueden utilizarse.
+- 20 % consistencia: registros repetidos, valores imposibles y relación entre ventas e inventario.
+- 15 % cobertura: cantidad de registros, periodo observado y meses con información.
+
+Los niveles son **Alta** entre 85 % y 100 %, **Media** entre 65 % y 84 %, y **Baja** entre 0 % y 64 %. Los gráficos monetarios solo se muestran cuando al menos 70 % de los registros tiene un valor utilizable; si no, la aplicación usa cantidades cuando alcanzan ese mismo nivel. Un mes sin registros nunca se convierte automáticamente en ventas iguales a cero.
 
 ## Reglas de seguridad analítica
 
 - Solo ventas: puede analizar cambios y concentración; no afirma inventario acumulado ni faltantes.
 - Solo inventario: informa existencias y cobertura de costo; no afirma ventas, rotación ni productos de bajo movimiento.
-- Información parcial: la calidad nunca puede ser Alta.
+- Información parcial: reduce la completitud y limita el alcance de las conclusiones.
 - Información insuficiente: detiene la recomendación y explica qué falta.
 - La interpretación semántica no calcula cifras; los cálculos y la priorización son determinísticos.
 - La decisión final corresponde al empresario.
@@ -85,7 +97,7 @@ Archivos principales:
 - `ai-interpreter.js`: adaptador remoto opcional y fallback local.
 - `overrides.css`: identidad visual y diseño adaptable.
 - `assets/logo-san-jose-v3.png`: logo oficial proporcionado.
-- `tests/run-tests.js`: cuarenta pruebas reproducibles.
+- `tests/run-tests.js`: cincuenta pruebas reproducibles.
 - `RESULTADOS_PRUEBAS.md`: evidencia consolidada de QA.
 
 ## Limitaciones actuales

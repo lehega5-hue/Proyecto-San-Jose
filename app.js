@@ -6,6 +6,18 @@ const money = new Intl.NumberFormat("es-CO", {
 });
 const percent = value => `${Math.round(value * 100)} %`;
 const countText = (value, singular, plural) => `${value} ${value === 1 ? singular : plural}`;
+const wholeNumber = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 });
+const monthLabel = new Intl.DateTimeFormat("es-CO", { month: "short", year: "2-digit", timeZone: "UTC" });
+
+function readablePercent(value) {
+  const percentage = Math.max(0, value * 100);
+  const digits = percentage > 0 && percentage < .1 ? 2 : Number.isInteger(percentage) ? 0 : 1;
+  return `${new Intl.NumberFormat("es-CO", { maximumFractionDigits: digits }).format(percentage)} %`;
+}
+
+function readableNumber(value) {
+  return wholeNumber.format(Math.round(Number(value) || 0));
+}
 
 const app = {
   step: 2,
@@ -594,40 +606,190 @@ function adaptiveQuestionPanel() {
   </form>`;
 }
 
-function resultsScreen() {
-  if (!app.analysis || app.analysis.quality.level === "BAJA") return missingState();
-  app.completed.priority = true;
-  const [main, second, third] = app.analysis.priorities;
-  return `<p class="eyebrow">Lo más importante que encontramos</p>
-    <div class="priority-heading">
-      <div><h1 class="screen-title">Atiende esto primero</h1><p class="screen-intro">La conclusión aparece primero. Las cifras que la respaldan están justo debajo.</p></div>
-      <button id="download-summary" class="button secondary" type="button">Descargar resumen ejecutivo</button>
-    </div>
-    <article class="main-priority">
-      <span class="rank">ATIENDE ESTO PRIMERO</span>
-      <h2>${safe(main.title)}</h2>
-      <div class="consulting-grid">
-        <section><span>Qué ocurrió</span><p>${safe(main.reason)}</p></section>
-        <section><span>En qué dato se basa</span><p><strong>${safe(main.evidence)}</strong></p></section>
-        <section><span>Por qué importa</span><p>${safe(main.meaning)}</p></section>
-        <section><span>Qué puedes hacer</span><p>${safe(main.action)}</p></section>
-      </div>
-      <div class="priority-actions">
-        <button class="button secondary light" type="button" data-priority="0" data-go="6">Ver evidencia</button>
-        <button class="button gold" type="button" data-go="7">Crear plan de 3 acciones</button>
-      </div>
-    </article>
-    <div class="secondary-findings">
-      ${secondaryFinding("También encontramos", second, 1)}
-      ${secondaryFinding("Mantén esto en observación", third, 2)}
-    </div>
-    <details class="evidence-details"><summary>Ver cifras generales del análisis</summary><div class="stats-grid">${metricCards()}</div></details>
-    ${nav(4, null)}`;
+function resultQualityCopy(quality) {
+  if (quality.level === "ALTA") return "Tus datos están en buenas condiciones para hacer este análisis.";
+  if (quality.level === "MEDIA") return "Podemos hacer el análisis, pero encontramos algunos datos incompletos.";
+  return "Hay información incompleta que puede cambiar algunas conclusiones.";
 }
 
-function secondaryFinding(label, finding, index) {
-  if (!finding) return "";
-  return `<article class="secondary-finding"><span>${label}</span><h3>${safe(finding.title)}</h3><p>${safe(finding.evidence)}</p><button class="text-link" type="button" data-priority="${index}" data-go="6">Ver detalle →</button></article>`;
+function stageThreeSummaryCards() {
+  const { metrics, resultQuality } = app.analysis;
+  const salesExist = app.dataset?.sales?.length || metrics.quantityRows || metrics.valueRows;
+  if (!salesExist) return [
+    { value: `${readableNumber(metrics.inventoryUnits)} unidades`, label: "Disponibles en el inventario" },
+    { value: `${readableNumber(metrics.products)} productos`, label: "Con existencias registradas" },
+    { value: "No pudimos calcularlo", label: "Valor de las ventas", note: "No encontramos información de ventas." },
+    { value: "No pudimos calcularlo", label: "Unidades vendidas", note: "No encontramos información de ventas." }
+  ];
+  const revenue = metrics.valueRate >= .7
+    ? { value: money.format(metrics.revenue), label: "Vendidos en el periodo" }
+    : { value: "No pudimos calcularlo", label: "Valor de las ventas", note: metrics.valueUnavailableReason };
+  const units = metrics.quantityRate >= .7
+    ? { value: `${readableNumber(metrics.units)} unidades`, label: "Vendidas en el periodo" }
+    : { value: "No pudimos calcularlo", label: "Unidades vendidas", note: metrics.quantityUnavailableReason };
+  const period = resultQuality.periodDays
+    ? { value: `${readableNumber(resultQuality.periodDays)} días`, label: "Información revisada" }
+    : { value: "No pudimos calcularlo", label: "Periodo analizado", note: "No encontramos fechas de venta que podamos utilizar." };
+  return [revenue, units, { value: `${readableNumber(metrics.salesProducts)} productos`, label: "Con ventas registradas" }, period];
+}
+
+function summaryCardsHtml() {
+  return stageThreeSummaryCards().map(card => `<article class="result-stat"><strong>${safe(card.value)}</strong><span>${safe(card.label)}</span>${card.note ? `<small>${safe(card.note)}</small>` : ""}</article>`).join("");
+}
+
+function resultQualityHtml() {
+  const quality = app.analysis.resultQuality;
+  const reasons = quality.reasons.length ? quality.reasons.map(reason => `<li>${safe(reason)}</li>`).join("") : "<li>No encontramos una limitación importante en los datos utilizados.</li>";
+  const details = quality.details.map(item => `<li><span>${safe(item.label)}</span><strong>${readablePercent(item.rate)} utilizable</strong></li>`).join("");
+  return `<section class="result-quality" aria-labelledby="result-quality-title">
+    <div><p class="section-kicker">Calidad de la información</p><h2 id="result-quality-title">${quality.score} % · ${safe(quality.level[0] + quality.level.slice(1).toLowerCase())}</h2><p>${safe(resultQualityCopy(quality))}</p></div>
+    <details><summary>¿Por qué?</summary><p>Encontramos:</p><ul>${reasons}</ul><h3>Información que pudimos utilizar</h3><ul class="quality-detail-list">${details}</ul></details>
+  </section>`;
+}
+
+function monthName(key) {
+  return monthLabel.format(new Date(`${key}-01T00:00:00Z`)).replace(" de ", " ");
+}
+
+function consecutiveMonths(items) {
+  return items.every((item, index) => {
+    if (!index) return true;
+    const previous = new Date(`${items[index - 1].month}-01T00:00:00Z`);
+    previous.setUTCMonth(previous.getUTCMonth() + 1);
+    return previous.toISOString().slice(0, 7) === item.month;
+  });
+}
+
+function trendMeaning(monthly, basis) {
+  if (monthly.length < 2) return "No tenemos suficientes meses con información para explicar un cambio.";
+  const window = monthly.slice(-Math.min(4, monthly.length));
+  if (!consecutiveMonths(window)) return "Hay meses sin registros dentro del periodo. No los interpretamos como meses con ventas en cero.";
+  const latest = window.at(-1), previous = window.slice(0, -1);
+  const average = previous.reduce((sum, item) => sum + item.value, 0) / previous.length;
+  const latestText = basis === "value" ? money.format(latest.value) : `${readableNumber(latest.value)} unidades`;
+  if (!average) return latest.value
+    ? `En ${monthName(latest.month)} registraste ${latestText}; los ${previous.length === 1 ? "datos del mes anterior" : `${previous.length} meses anteriores`} tenían valor cero.`
+    : `En ${monthName(latest.month)} y en los meses anteriores con registros, el valor fue cero.`;
+  const change = (latest.value - average) / average;
+  if (Math.abs(change) < .05) return `En ${monthName(latest.month)} registraste ${latestText}; el resultado se mantuvo cerca del promedio de los ${previous.length} meses anteriores.`;
+  return `En ${monthName(latest.month)} registraste ${latestText}, ${readablePercent(Math.abs(change))} ${change < 0 ? "menos" : "más"} que el promedio de los ${previous.length} meses anteriores.`;
+}
+
+function trendChartHtml() {
+  const metrics = app.analysis.metrics;
+  if (!metrics.chartBasis) {
+    const reason = metrics.valueRate >= metrics.quantityRate ? metrics.valueUnavailableReason : metrics.quantityUnavailableReason;
+    return `<article class="result-chart chart-unavailable"><h3>Así se han movido tus ventas</h3><p>No mostramos este gráfico porque ${safe(reason.charAt(0).toLowerCase() + reason.slice(1))}</p></article>`;
+  }
+  const data = metrics.monthly.slice(-12);
+  if (data.length < 2) return `<article class="result-chart chart-unavailable"><h3>Así se han movido tus ventas</h3><p>No mostramos una tendencia porque encontramos información utilizable en menos de dos meses.</p></article>`;
+  const maximum = Math.max(...data.map(item => item.value), 1);
+  const unit = metrics.chartBasis === "value" ? "pesos vendidos por mes" : "unidades vendidas por mes";
+  const bars = data.map(item => {
+    const label = metrics.chartBasis === "value" ? money.format(item.value) : `${readableNumber(item.value)} unidades`;
+    return `<div class="month-bar"><span class="bar-value">${safe(label)}</span><i style="--bar-height:${Math.max(3, item.value / maximum * 100)}%" aria-hidden="true"></i><b>${safe(monthName(item.month))}</b></div>`;
+  }).join("");
+  return `<article class="result-chart"><h3>Así se han movido tus ventas</h3><p class="chart-subtitle">${safe(unit)} · últimos ${data.length} meses con registros</p><div class="monthly-bars" role="img" aria-label="${safe(unit)}">${bars}</div><p class="chart-meaning"><strong>Esto significa:</strong> ${safe(trendMeaning(data, metrics.chartBasis))}</p></article>`;
+}
+
+function productChartHtml() {
+  const metrics = app.analysis.metrics;
+  if (!metrics.chartBasis) return `<article class="result-chart chart-unavailable"><h3>Productos que más aportan a tus ventas</h3><p>No mostramos este gráfico porque no encontramos una medida de ventas suficientemente completa.</p></article>`;
+  const valueOf = item => metrics.chartBasis === "value" ? item[1].revenue : item[1].units;
+  const ranked = [...metrics.ranked].sort((a, b) => valueOf(b) - valueOf(a));
+  const total = metrics.chartBasis === "value" ? metrics.revenue : metrics.units;
+  if (!total || !ranked.length) return `<article class="result-chart chart-unavailable"><h3>Productos que más aportan a tus ventas</h3><p>No mostramos este gráfico porque el total registrado para esta medida es cero.</p></article>`;
+  const visible = ranked.slice(0, 4).map(([label, item]) => ({ label, value: valueOf([label, item]) }));
+  const other = Math.max(0, total - visible.reduce((sum, item) => sum + item.value, 0));
+  if (other > 0) visible.push({ label: "Otros", value: other });
+  const rows = visible.map((item, index) => `<div class="product-bar-row"><span>${safe(item.label)}</span><div><i style="--bar-width:${item.value / total * 100}%" class="${index === 0 ? "highlight" : ""}"></i></div><strong>${readablePercent(item.value / total)}</strong></div>`).join("");
+  const topThree = ranked.slice(0, 3).reduce((sum, item) => sum + valueOf(item), 0) / total;
+  const measure = metrics.chartBasis === "value" ? "valor vendido" : "unidades vendidas";
+  return `<article class="result-chart"><h3>Productos que más aportan a tus ventas</h3><p class="chart-subtitle">Participación sobre el ${safe(measure)}</p><div class="product-bars" role="img" aria-label="Participación de los productos sobre el ${safe(measure)}">${rows}</div><p class="chart-meaning"><strong>Esto significa:</strong> Los ${Math.min(3, ranked.length)} productos principales representan ${readablePercent(topThree)} del ${safe(measure)}.</p></article>`;
+}
+
+function recommendationStrength(finding, quality) {
+  const rates = quality.rates;
+  const measureRate = app.analysis.metrics.chartBasis === "value" ? rates.value : rates.quantity;
+  const critical = finding?.type === "trend" ? Math.min(rates.date, measureRate)
+    : finding?.type === "concentration" || finding?.type === "review" || finding?.type === "maintain" ? Math.min(rates.product, measureRate)
+      : ["slow", "stockout"].includes(finding?.type) ? Math.min(rates.product, rates.quantity, rates.inventoryProduct, rates.stock) : quality.score / 100;
+  const criticalLevel = critical >= .85 ? "ALTA" : critical >= .65 ? "MEDIA" : "BAJA";
+  return [quality.level, criticalLevel].includes("BAJA") ? "BAJA" : [quality.level, criticalLevel].includes("MEDIA") ? "MEDIA" : "ALTA";
+}
+
+function priorityPresentation(finding) {
+  const { metrics, resultQuality: quality } = app.analysis;
+  const strength = recommendationStrength(finding, quality);
+  const lead = subject => strength === "ALTA" ? `Revisa primero ${subject}.` : strength === "MEDIA" ? `Los datos indican que conviene revisar primero ${subject}.` : `Hay señales de que conviene revisar ${subject}, pero encontramos información incompleta que puede afectar esta conclusión.`;
+  if (finding.type === "slow") {
+    const item = finding.items[0];
+    const soldShare = metrics.units ? item.sold / metrics.units : 0;
+    const ratio = item.sold > 0 ? item.stock / item.sold : null;
+    return { title: lead(`el producto ${item.producto}`), metrics: [`${readableNumber(item.sold)} unidades vendidas`, `${readableNumber(item.stock)} unidades disponibles`, `${readablePercent(soldShare)} de las unidades vendidas`, ratio ? `${new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 }).format(ratio)} veces más unidades disponibles que vendidas` : "No registró unidades vendidas"], found: `Este producto vendió ${readableNumber(item.sold)} unidades durante ${readableNumber(quality.periodDays)} días revisados.`, important: `Representa ${readablePercent(soldShare)} de las unidades vendidas y mantiene ${readableNumber(item.stock)} unidades disponibles.`, action: "Revisa sus ventas y existencias antes de volver a comprarlo.", strength };
+  }
+  if (finding.type === "stockout") {
+    const item = metrics.stockout;
+    return { title: lead(`las existencias de ${item.producto}`), metrics: [`${readableNumber(item.sold)} unidades vendidas`, `${readableNumber(item.stock)} unidades disponibles`], found: `${item.producto} registró ${readableNumber(item.sold)} unidades vendidas y actualmente aparecen ${readableNumber(item.stock)} unidades disponibles.`, important: "Si continúa vendiéndose, las existencias actuales podrían no ser suficientes.", action: "Confirma las existencias y revisa el siguiente pedido.", strength };
+  }
+  if (finding.type === "concentration") {
+    const [product, values] = metrics.ranked[0];
+    const measure = metrics.rankingBasis === "value" ? "valor vendido" : "unidades vendidas";
+    const amount = metrics.rankingBasis === "value" ? `${money.format(values.revenue)} vendidos` : `${readableNumber(values.units)} unidades vendidas`;
+    return { title: lead(`cuánto dependen tus ventas de ${product}`), metrics: [amount, `${readablePercent(metrics.topShare)} del ${measure}`], found: `${product} es el producto que más aporta a las ventas registradas.`, important: `Este producto representa ${readablePercent(metrics.topShare)} del ${measure}.`, action: "Comprueba si este patrón continúa y revisa qué otros productos puedes impulsar.", strength };
+  }
+  if (finding.type === "trend") {
+    const measure = metrics.chartBasis === "value" ? "valor de las ventas" : "unidades vendidas";
+    return { title: lead(`la caída reciente en el ${measure}`), metrics: [`${readablePercent(Math.abs(metrics.trendChange))} menos que el periodo anterior`, `${metrics.monthly.length} meses con registros`], found: finding.reason, important: finding.evidence, action: "Confirma si ocurrió algo fuera de lo normal y revisa qué productos explican el cambio.", strength };
+  }
+  if (finding.type === "maintain" && metrics.ranked[0]) {
+    const [product, values] = metrics.ranked[0];
+    const amount = metrics.rankingBasis === "value" ? `${money.format(values.revenue)} vendidos` : `${readableNumber(values.units)} unidades vendidas`;
+    return { title: lead(`la disponibilidad de ${product}`), metrics: [amount, `${readablePercent(metrics.topShare)} ${metrics.rankingBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}`], found: `${product} lidera las ventas registradas durante el periodo.`, important: "Mantener disponible un producto con demanda ayuda a evitar ventas que no puedas atender.", action: "Revisa sus existencias y el tiempo de entrega de tu proveedor.", strength };
+  }
+  const product = metrics.ranked.at(-1)?.[0];
+  if (product) {
+    const values = metrics.ranked.at(-1)[1];
+    const amount = metrics.rankingBasis === "value" ? `${money.format(values.revenue)} vendidos` : `${readableNumber(values.units)} unidades vendidas`;
+    return { title: lead(`el producto ${product}`), metrics: [amount], found: `${product} fue el producto con menor movimiento registrado.`, important: "Un producto con poco movimiento puede requerir revisar compras, precio o exhibición.", action: "Confirma sus ventas y existencias antes de hacer una nueva compra.", strength };
+  }
+  return { title: "Todavía no tenemos información suficiente para decirte qué atender primero.", metrics: [], found: "La información disponible no permite comparar productos o periodos con seguridad.", important: resultQualityCopy(quality), action: "Revisa los datos incompletos indicados arriba y vuelve a realizar el análisis.", strength: "BAJA" };
+}
+
+function resultEvidenceHtml(presentation) {
+  return `<section class="priority-evidence" id="priority-evidence"><article><span>¿Qué encontramos?</span><p>${safe(presentation.found)}</p></article><article><span>¿Por qué es importante?</span><p>${safe(presentation.important)}</p></article><article><span>¿Qué puedes hacer?</span><p>${safe(presentation.action)}</p></article></section>`;
+}
+
+function stageThreeSecondaryFinding(finding, index) {
+  if (!finding || finding.type === "data") return "";
+  const metrics = app.analysis.metrics;
+  let sentence = finding.title;
+  if (finding.type === "concentration") sentence = `${metrics.ranked[0]?.[0] || "El producto principal"} representa ${readablePercent(metrics.topShare)} ${metrics.rankingBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}.`;
+  if (finding.type === "trend") sentence = `El promedio de tus ventas recientes bajó ${readablePercent(Math.abs(metrics.trendChange))} frente al periodo anterior.`;
+  if (finding.type === "slow") sentence = `${metrics.slowItems.length} ${metrics.slowItems.length === 1 ? "producto mantiene" : "productos mantienen"} ${readableNumber(metrics.slowUnits)} unidades disponibles después de vender ${readableNumber(metrics.slowSales)} unidades.`;
+  if (finding.type === "stockout") sentence = `${metrics.stockout.producto} tiene ${readableNumber(metrics.stockout.stock)} unidades disponibles después de vender ${readableNumber(metrics.stockout.sold)} unidades.`;
+  if (finding.type === "maintain" && metrics.ranked[0]) sentence = `${metrics.ranked[0][0]} lidera con ${readableNumber(metrics.ranked[0][1].units)} unidades vendidas.`;
+  return `<article class="secondary-finding"><p>${safe(sentence)}</p><button class="text-link" type="button" data-priority="${index}" data-go="6">Ver detalle →</button></article>`;
+}
+
+function resultsScreen() {
+  if (!app.analysis) return missingState();
+  app.completed.priority = true;
+  const quality = app.analysis.resultQuality || app.analysis.quality;
+  const main = app.analysis.priorities[0];
+  const insufficient = quality.level === "BAJA" || !main;
+  const secondary = app.analysis.priorities.map((finding, index) => ({ finding, index })).slice(1).filter(item => item.finding.type !== "data").slice(0, 2);
+  const presentation = main ? priorityPresentation(main) : null;
+  return `<p class="eyebrow">Lo más importante que encontramos</p>
+    <h1 class="screen-title">Esto muestran tus datos</h1>
+    <p class="screen-intro">Revisamos la información que compartiste. Aquí te mostramos primero las cifras principales y después lo que creemos que deberías atender.</p>
+    <section class="result-section" aria-labelledby="summary-title"><h2 id="summary-title">Tus datos en pocas palabras</h2><div class="result-stats">${summaryCardsHtml()}</div></section>
+    ${resultQualityHtml()}
+    <section class="result-section" aria-labelledby="charts-title"><h2 id="charts-title">Lo que pasó con tus ventas</h2><div class="result-charts">${trendChartHtml()}${productChartHtml()}</div></section>
+    ${insufficient ? `<section class="insufficient-priority"><p class="section-kicker">Resultado del análisis</p><h2>Todavía no tenemos información suficiente para decirte qué atender primero.</h2><p>${safe(quality.reasons[0] || "No encontramos suficientes datos utilizables para comparar productos o periodos.")}</p></section>` : `<section class="result-section priority-section" aria-labelledby="priority-title"><p class="section-kicker">Atiende esto primero</p><article class="main-priority"><h2 id="priority-title">${safe(presentation.title)}</h2><div class="priority-metrics">${presentation.metrics.slice(0, 4).map(metric => `<span>${safe(metric)}</span>`).join("")}</div><p class="quality-notice">${presentation.strength === "MEDIA" ? `Esta recomendación utiliza información con ${quality.score} % de calidad. Ten en cuenta las limitaciones indicadas.` : presentation.strength === "BAJA" ? `Esta recomendación se basa en información con ${quality.score} % de calidad y debe tomarse como una señal inicial.` : `Basado en información con ${quality.score} % de calidad.`}</p></article></section>${resultEvidenceHtml(presentation)}<div class="priority-actions"><button class="button gold" type="button" data-go="7">Ver mis 3 acciones</button><button class="button secondary" type="button" data-priority="0" data-go="6">Ver evidencia</button></div>`}
+    ${secondary.length ? `<section class="result-section also-found"><h2>También encontramos</h2><div class="secondary-findings">${secondary.map(item => stageThreeSecondaryFinding(item.finding, item.index)).join("")}</div></section>` : ""}
+    <details class="analysis-details"><summary>Ver detalle del análisis</summary><div class="stats-grid">${metricCards()}</div><h3>Para mantener este análisis útil</h3><p>Mantén tus ventas e inventario actualizados.</p><button id="download-summary" class="button secondary" type="button">Descargar resumen ejecutivo</button></details>
+    ${nav(4, null)}`;
 }
 
 function evidenceScreen() {
@@ -1351,6 +1513,107 @@ function buildCanonicalDataset() {
   return { sales, inventory };
 }
 
+function stageThreeQuality(sales, inventory) {
+  const saleValue = row => Number.isFinite(numericValue(row.valorTotal))
+    ? numericValue(row.valorTotal)
+    : Number.isFinite(numericValue(row.precio)) && Number.isFinite(numericValue(row.cantidad))
+      ? numericValue(row.precio) * numericValue(row.cantidad)
+      : NaN;
+  const present = value => String(value ?? "").trim() !== "";
+  const validDate = value => present(value) && !Number.isNaN(new Date(value).getTime());
+  const validQuantity = row => Number.isFinite(numericValue(row.cantidad)) && numericValue(row.cantidad) >= 0;
+  const validValue = row => Number.isFinite(saleValue(row)) && saleValue(row) >= 0;
+  const validStock = row => Number.isFinite(numericValue(row.stock)) && numericValue(row.stock) >= 0;
+  const salesExpected = sales.length * 3;
+  const inventoryExpected = inventory.length * 2;
+  const expected = salesExpected + inventoryExpected;
+  const salesPresent = sales.reduce((sum, row) => sum
+    + Number(present(row.producto))
+    + Number(present(row.fecha))
+    + Number(present(row.cantidad) || present(row.valorTotal) || (present(row.cantidad) && present(row.precio))), 0);
+  const inventoryPresent = inventory.reduce((sum, row) => sum + Number(present(row.producto)) + Number(present(row.stock)), 0);
+  const available = salesPresent + inventoryPresent;
+  const salesValid = sales.reduce((sum, row) => sum + Number(present(row.producto)) + Number(validDate(row.fecha)) + Number(validQuantity(row) || validValue(row)), 0);
+  const inventoryValid = inventory.reduce((sum, row) => sum + Number(present(row.producto)) + Number(validStock(row)), 0);
+  const usable = salesValid + inventoryValid;
+  const rowCompleteness = expected ? available / expected : 0;
+  const sourceCoverage = sales.length && inventory.length ? 1 : sales.length ? .6 : inventory.length ? .4 : 0;
+  const completeness = rowCompleteness * sourceCoverage;
+  const validity = available ? Math.min(1, usable / available) : 0;
+  const negativeRows = sales.filter(row => numericValue(row.cantidad) < 0 || saleValue(row) < 0).length
+    + inventory.filter(row => numericValue(row.stock) < 0).length;
+  const seenSales = new Set();
+  const duplicates = sales.filter(row => present(row.factura)).reduce((count, row) => {
+    const key = `${normalize(row.factura)}|${normalize(row.producto)}`;
+    if (seenSales.has(key)) return count + 1;
+    seenSales.add(key);
+    return count;
+  }, 0);
+  const totalRows = sales.length + inventory.length;
+  const recordConsistency = totalRows ? Math.max(0, 1 - (negativeRows + duplicates) / totalRows) : 0;
+  const salesProducts = new Set(sales.map(row => normalize(row.producto)).filter(Boolean));
+  const inventoryProducts = new Set(inventory.map(row => normalize(row.producto)).filter(Boolean));
+  const related = [...salesProducts].filter(product => inventoryProducts.has(product)).length;
+  const relationCoverage = salesProducts.size && inventoryProducts.size ? related / salesProducts.size : null;
+  const consistency = relationCoverage === null ? recordConsistency : recordConsistency * .75 + relationCoverage * .25;
+  const validDates = sales.map(row => new Date(row.fecha)).filter(date => !Number.isNaN(date.getTime()));
+  const periodDays = validDates.length > 1 ? Math.round((Math.max(...validDates) - Math.min(...validDates)) / 86400000) + 1 : validDates.length;
+  const observedMonths = new Set(validDates.map(date => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`));
+  let expectedMonths = observedMonths.size;
+  if (validDates.length > 1) {
+    const first = new Date(Math.min(...validDates)), last = new Date(Math.max(...validDates));
+    expectedMonths = (last.getUTCFullYear() - first.getUTCFullYear()) * 12 + last.getUTCMonth() - first.getUTCMonth() + 1;
+  }
+  const coverageParts = [];
+  if (sales.length) coverageParts.push(Math.min(1, sales.length / 20), Math.min(1, periodDays / 180), expectedMonths ? observedMonths.size / expectedMonths : 0);
+  if (inventory.length) coverageParts.push(Math.min(1, inventory.length / 10));
+  const coverage = coverageParts.length ? coverageParts.reduce((sum, value) => sum + value, 0) / coverageParts.length : 0;
+  const score = Math.round((completeness * .35 + validity * .30 + consistency * .20 + coverage * .15) * 100);
+  const level = score >= 85 ? "ALTA" : score >= 65 ? "MEDIA" : "BAJA";
+  const salesRate = (predicate, rows = sales) => rows.length ? rows.filter(predicate).length / rows.length : 0;
+  const details = [];
+  if (sales.length) details.push(
+    { label: "Producto de ventas", rate: salesRate(row => present(row.producto)) },
+    { label: "Fecha de venta", rate: salesRate(row => validDate(row.fecha)) },
+    { label: "Cantidad vendida", rate: salesRate(validQuantity) },
+    { label: "Valor de la venta", rate: salesRate(validValue) }
+  );
+  if (inventory.length) details.push(
+    { label: "Producto de inventario", rate: salesRate(row => present(row.producto), inventory) },
+    { label: "Existencias", rate: salesRate(validStock, inventory) }
+  );
+  const reasons = [];
+  const addReason = (rate, label) => { if (rate < 1) reasons.push(`${readablePercent(1 - rate)} de los registros ${label}.`); };
+  if (sales.length) {
+    addReason(details.find(item => item.label === "Cantidad vendida").rate, "no tiene una cantidad vendida utilizable");
+    addReason(details.find(item => item.label === "Fecha de venta").rate, "no tiene una fecha que podamos utilizar");
+    addReason(details.find(item => item.label === "Producto de ventas").rate, "no tiene un producto identificado");
+    if (expectedMonths > observedMonths.size) reasons.push(`${countText(expectedMonths - observedMonths.size, "un mes", "meses")} sin registros dentro del periodo revisado.`);
+  }
+  if (inventory.length) addReason(details.find(item => item.label === "Existencias").rate, "no tiene una existencia utilizable");
+  if (duplicates) reasons.push(`${countText(duplicates, "un registro repetido", "registros repetidos")} puede afectar algunos totales.`);
+  if (relationCoverage !== null && relationCoverage < .7) reasons.push(`Solo pudimos relacionar ${readablePercent(relationCoverage)} de los productos vendidos con el inventario.`);
+  return {
+    score,
+    level,
+    components: { completeness, validity, consistency, coverage },
+    details,
+    reasons: reasons.slice(0, 4),
+    relationCoverage,
+    observedMonths: observedMonths.size,
+    expectedMonths,
+    periodDays,
+    rates: {
+      product: sales.length ? sales.filter(row => present(row.producto)).length / sales.length : 0,
+      date: salesRate(row => validDate(row.fecha)),
+      quantity: salesRate(validQuantity),
+      value: salesRate(validValue),
+      inventoryProduct: inventory.length ? inventory.filter(row => present(row.producto)).length / inventory.length : 0,
+      stock: inventory.length ? inventory.filter(validStock).length / inventory.length : 0
+    }
+  };
+}
+
 function analyze(data) {
   const sales = data.sales || [], inventory = data.inventory || [];
   const hasSales = sales.length > 0, hasInventory = inventory.length > 0;
@@ -1365,35 +1628,19 @@ function analyze(data) {
   const essentialValid = validProductSales + validDateSales + validMeasureSales + validInventory * 2;
   const completeness = essentialValid / essentialTotal;
   const negativeCount = sales.filter(row => numericValue(row.cantidad) < 0 || saleValue(row) < 0).length + inventory.filter(row => numericValue(row.stock) < 0).length;
-  const seen = new Set(), duplicates = new Set();
-  sales.forEach(row => {
-    const key = `${row.fecha}|${row.producto}|${row.cantidad}|${row.precio}|${row.valorTotal}`;
-    if (seen.has(key)) duplicates.add(key);
-    seen.add(key);
-  });
   const dates = sales.map(row => new Date(row.fecha)).filter(date => !Number.isNaN(date.getTime()));
   const period = dates.length > 1 ? Math.round((Math.max(...dates) - Math.min(...dates)) / 86400000) : 0;
-  const saleProducts = new Set(sales.map(row => String(row.producto || "").trim()).filter(Boolean));
-  const inventoryProducts = new Set(inventory.map(row => String(row.producto || "").trim()).filter(Boolean));
+  const saleProducts = new Set(sales.map(row => normalize(row.producto)).filter(Boolean));
+  const inventoryProducts = new Set(inventory.map(row => normalize(row.producto)).filter(Boolean));
   const matches = [...saleProducts].filter(product => inventoryProducts.has(product)).length;
   const relation = saleProducts.size ? matches / saleProducts.size : 0;
   const costRows = inventory.filter(row => Number.isFinite(numericValue(row.costo)) && numericValue(row.costo) >= 0).length;
   const costCoverage = inventory.length ? costRows / inventory.length : 0;
-  let score = 100;
-  if (hasSales && sales.length < 5) score -= 30;
-  if (hasInventory && inventory.length < 2) score -= 30;
-  if (!hasSales && !hasInventory) score = 0;
-  score -= Math.round((1 - completeness) * 40);
-  if (negativeCount) score -= 15;
-  if (duplicates.size) score -= 5;
-  if (hasSales && period < 30) score -= 10;
-  if (hasSales && hasInventory && relation < .5) score -= 10;
-  if (hasSales !== hasInventory) score = Math.min(score, 78);
-  score = Math.max(0, Math.min(100, score));
+  const resultQuality = stageThreeQuality(sales, inventory);
+  const score = resultQuality.score;
+  const level = resultQuality.level;
   const enoughSales = hasSales && sales.length >= 5 && validProductSales / sales.length >= .7 && validDateSales / sales.length >= .7 && validMeasureSales / sales.length >= .7;
   const enoughInventory = hasInventory && inventory.length >= 2 && validInventory / inventory.length >= .7;
-  if (!enoughSales && !enoughInventory) score = Math.min(score, 49);
-  const level = score >= 80 ? "ALTA" : score >= 55 ? "MEDIA" : "BAJA";
   const facts = [];
   if (hasSales) {
     facts.push({ ok: sales.length >= 5, text: `Encontramos ${sales.length} registros de ventas que cubren ${period} días.` });
@@ -1437,25 +1684,32 @@ function analyze(data) {
   const freeContext = normalize(`${app.context.contextoLibre || ""} ${app.context.eventoReciente || ""}`);
   const trendFirst = priorities[0]?.type === "trend";
   const contextMentionsChange = Boolean(app.context.eventoReciente) || /(cerr|problema|proveedor|precio|cliente|normal|vacacion|obra|cambio|perdi)/.test(freeContext);
-  return { quality, metrics, priorities, adaptiveNeeded: trendFirst && !contextMentionsChange };
+  return { quality, resultQuality, metrics, priorities, adaptiveNeeded: trendFirst && !contextMentionsChange };
 }
 
 function calculateMetrics(sales, inventory, period) {
-  const byProduct = {};
-  let revenue = 0, units = 0, quantityRows = 0;
+  const byProduct = {}, salesByKey = {};
+  let revenue = 0, units = 0, quantityRows = 0, valueRows = 0;
   sales.forEach(row => {
     const quantity = numericValue(row.cantidad);
     const value = Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : quantity * numericValue(row.precio);
     const validQuantity = Number.isFinite(quantity) && quantity >= 0;
     const validValue = Number.isFinite(value) && value >= 0;
-    if (!row.producto || (!validQuantity && !validValue)) return;
-    if (validValue) revenue += value;
+    if (validValue) { revenue += value; valueRows += 1; }
     if (validQuantity) { units += quantity; quantityRows += 1; }
-    byProduct[row.producto] ||= { units: 0, revenue: 0 };
-    if (validQuantity) byProduct[row.producto].units += quantity;
-    if (validValue) byProduct[row.producto].revenue += value;
+    const product = String(row.producto || "").trim();
+    if (!product || (!validQuantity && !validValue)) return;
+    byProduct[product] ||= { units: 0, revenue: 0 };
+    if (validQuantity) byProduct[product].units += quantity;
+    if (validValue) byProduct[product].revenue += value;
+    const productKey = normalize(product);
+    salesByKey[productKey] ||= { units: 0, revenue: 0, label: product };
+    if (validQuantity) salesByKey[productKey].units += quantity;
+    if (validValue) salesByKey[productKey].revenue += value;
   });
-  const rankingBasis = revenue > 0 ? "value" : "quantity";
+  const quantityRate = sales.length ? quantityRows / sales.length : 0;
+  const valueRate = sales.length ? valueRows / sales.length : 0;
+  const rankingBasis = valueRate >= .7 ? "value" : quantityRate >= .7 ? "quantity" : valueRows > quantityRows ? "value" : "quantity";
   const basisValue = item => rankingBasis === "value" ? item.revenue : item.units;
   const ranked = Object.entries(byProduct).sort((a, b) => basisValue(b[1]) - basisValue(a[1]));
   const basisTotal = rankingBasis === "value" ? revenue : units;
@@ -1469,7 +1723,8 @@ function calculateMetrics(sales, inventory, period) {
     if (Number.isFinite(value) && value >= 0) monthlyValue[key] = (monthlyValue[key] || 0) + value;
     if (Number.isFinite(quantity) && quantity >= 0) monthlyUnits[key] = (monthlyUnits[key] || 0) + quantity;
   });
-  const monthlyMap = rankingBasis === "value" ? monthlyValue : monthlyUnits;
+  const chartBasis = valueRate >= .7 ? "value" : quantityRate >= .7 ? "quantity" : null;
+  const monthlyMap = chartBasis === "value" ? monthlyValue : chartBasis === "quantity" ? monthlyUnits : {};
   const monthly = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value }));
   const windowSize = monthly.length >= 6 ? 3 : monthly.length >= 4 ? 2 : 0;
   const priorMonths = windowSize ? monthly.slice(-windowSize * 2, -windowSize) : [];
@@ -1478,20 +1733,45 @@ function calculateMetrics(sales, inventory, period) {
   const priorAverage = average(priorMonths), recentAverage = average(recentMonths);
   const trendChange = priorAverage ? (recentAverage - priorAverage) / priorAverage : 0;
   const trendSustained = recentMonths.length > 1 && recentMonths.every(item => item.value < priorAverage) && recentMonths.every((item, index) => index === 0 || item.value <= recentMonths[index - 1].value);
-  const inv = inventory.filter(row => row.producto && Number.isFinite(numericValue(row.stock))).map(row => ({
-    ...row,
-    stock: numericValue(row.stock),
-    cost: numericValue(row.costo),
-    sold: byProduct[row.producto]?.units || 0
-  }));
-  const slowItems = inv.filter(row => row.stock >= 20 && row.sold <= 10).sort((a, b) => b.stock - a.stock);
+  const inventoryKeyCounts = inventory.reduce((counts, row) => {
+    const key = normalize(row.producto);
+    if (key) counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+  const inv = inventory.filter(row => row.producto && Number.isFinite(numericValue(row.stock)) && numericValue(row.stock) >= 0).map(row => {
+    const key = normalize(row.producto);
+    const linked = Boolean(salesByKey[key]) && inventoryKeyCounts[key] === 1;
+    return {
+      ...row,
+      stock: numericValue(row.stock),
+      cost: numericValue(row.costo),
+      sold: linked ? salesByKey[key].units : null,
+      linked
+    };
+  });
+  const linkedProducts = new Set(inv.filter(row => row.linked).map(row => normalize(row.producto))).size;
+  const relationCoverage = Object.keys(salesByKey).length ? linkedProducts / Object.keys(salesByKey).length : 0;
+  const slowItems = inv.filter(row => row.linked && row.stock >= 20 && row.sold <= 10).sort((a, b) => b.stock - a.stock);
   const slowUnits = slowItems.reduce((sum, row) => sum + row.stock, 0);
   const slowValue = slowItems.reduce((sum, row) => sum + (Number.isFinite(row.cost) ? row.stock * row.cost : 0), 0);
   const slowSales = slowItems.reduce((sum, row) => sum + row.sold, 0);
-  const stockout = inv.filter(row => row.stock <= 5 && row.sold > 0).sort((a, b) => b.sold - a.sold)[0];
+  const stockout = inv.filter(row => row.linked && row.stock <= 5 && row.sold > 0).sort((a, b) => b.sold - a.sold)[0];
   const inventoryValue = inv.reduce((sum, row) => sum + (Number.isFinite(row.cost) ? row.stock * row.cost : 0), 0);
   const inventoryUnits = inv.reduce((sum, row) => sum + row.stock, 0);
-  return { revenue, units, quantityRows, ranked, rankingBasis, topShare, monthly, priorAverage, recentAverage, trendChange, trendSustained, inv, inventoryValue, inventoryUnits, slowItems, slowUnits, slowValue, slowSales, stockout, period, products: inv.length };
+  return {
+    revenue, units, quantityRows, valueRows, quantityRate, valueRate, ranked, rankingBasis, chartBasis, topShare,
+    monthly, monthlyValue: Object.entries(monthlyValue).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value })),
+    monthlyUnits: Object.entries(monthlyUnits).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value })),
+    priorAverage, recentAverage, trendChange, trendSustained, inv, inventoryValue, inventoryUnits, slowItems, slowUnits,
+    slowValue, slowSales, stockout, period, products: inv.length, salesProducts: ranked.length, linkedProducts,
+    relationCoverage,
+    valueUnavailableReason: valueRows === 0
+      ? "No encontramos una columna de valor total ni información suficiente de cantidad y precio para calcularlo."
+      : `${readablePercent(1 - valueRate)} de los registros no tiene un valor de venta utilizable.`,
+    quantityUnavailableReason: quantityRows === 0
+      ? "No encontramos una columna con la cantidad vendida."
+      : `${readablePercent(1 - quantityRate)} de los registros no tiene una cantidad vendida utilizable.`
+  };
 }
 
 function priorityScore({ impact, urgency, reach, confidence }) {
@@ -1594,14 +1874,14 @@ function prioritize(metrics, scope) {
 
 function metricCards() {
   const metrics = app.analysis.metrics;
-  if (!metrics.ranked.length && metrics.products) return `<article class="stat"><span>Productos en inventario</span><strong>${metrics.products}</strong></article>
-    <article class="stat"><span>Unidades disponibles</span><strong>${metrics.inventoryUnits}</strong></article>
-    <article class="stat"><span>Costo registrado</span><strong>${metrics.inventoryValue ? money.format(metrics.inventoryValue) : "No disponible"}</strong></article>
-    <article class="stat"><span>Ventas encontradas</span><strong>0</strong></article>`;
-  return `<article class="stat"><span>Valor vendido</span><strong>${metrics.rankingBasis === "value" ? money.format(metrics.revenue) : "No disponible"}</strong></article>
-    <article class="stat"><span>Unidades vendidas</span><strong>${metrics.units}</strong></article>
-    <article class="stat"><span>Días revisados</span><strong>${metrics.period}</strong></article>
-    <article class="stat"><span>Productos relacionados</span><strong>${metrics.products}</strong></article>`;
+  if (!metrics.ranked.length && metrics.products) return `<article class="stat"><span>Productos en inventario</span><strong>${readableNumber(metrics.products)} productos</strong></article>
+    <article class="stat"><span>Existencias registradas</span><strong>${readableNumber(metrics.inventoryUnits)} unidades disponibles</strong></article>
+    <article class="stat"><span>Costo registrado</span><strong>${metrics.inventoryValue ? `${money.format(metrics.inventoryValue)} en inventario` : "No pudimos calcularlo"}</strong>${metrics.inventoryValue ? "" : "<small>No encontramos costos utilizables.</small>"}</article>
+    <article class="stat"><span>Información de ventas</span><strong>No encontramos registros de ventas</strong></article>`;
+  return `<article class="stat"><span>Valor de las ventas</span><strong>${metrics.valueRate >= .7 ? `${money.format(metrics.revenue)} vendidos` : "No pudimos calcularlo"}</strong>${metrics.valueRate >= .7 ? "" : `<small>${safe(metrics.valueUnavailableReason)}</small>`}</article>
+    <article class="stat"><span>Unidades vendidas</span><strong>${metrics.quantityRate >= .7 ? `${readableNumber(metrics.units)} unidades vendidas` : "No pudimos calcularlo"}</strong>${metrics.quantityRate >= .7 ? "" : `<small>${safe(metrics.quantityUnavailableReason)}</small>`}</article>
+    <article class="stat"><span>Periodo revisado</span><strong>${app.analysis.resultQuality.periodDays ? `${readableNumber(app.analysis.resultQuality.periodDays)} días analizados` : "No pudimos calcularlo"}</strong></article>
+    <article class="stat"><span>Relación con inventario</span><strong>${metrics.inv.length ? `${readableNumber(metrics.linkedProducts)} productos relacionados` : "No encontramos inventario"}</strong>${metrics.inv.length && !metrics.linkedProducts ? "<small>No comparamos ventas e inventario porque los productos no coincidieron.</small>" : ""}</article>`;
 }
 
 function getPlan() {

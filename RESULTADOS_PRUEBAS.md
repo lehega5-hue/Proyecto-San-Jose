@@ -6,7 +6,7 @@ Entorno: Node.js 24 incluido en Codex y servidor HTTP estático local.
 
 ## Resultado
 
-**40 de 40 pruebas automatizadas aprobadas.** La batería cubre tarjetas uniformes, selector permanente, confirmación, archivos con varias hojas, medidas flexibles, calidad calculada, alcance dinámico, dictado, demostración y priorización.
+**50 de 50 pruebas automatizadas aprobadas.** La batería cubre tarjetas uniformes, selector permanente, confirmación, archivos con varias hojas, medidas flexibles, calidad calculada, alcance dinámico, dictado, demostración, priorización y los diez escenarios obligatorios de la Etapa 3.
 
 ```powershell
 node tests/run-tests.js
@@ -106,6 +106,25 @@ Las pruebas incluyen ejemplos de 98 % de fechas válidas, 14 % de cantidades vac
 - La priorización conserva impacto, urgencia, alcance y confianza.
 - La carga XLS/XLSX/CSV, lectura de varias hojas y fallback local siguen intactos.
 - El plan conserva exactamente tres acciones.
+
+## Etapa 3 · Esto muestran tus datos
+
+Se verificaron como una sola especificación los siguientes escenarios:
+
+| Caso | Resultado |
+|---|---|
+| A · Ventas, cantidad e inventario completos | Muestra cuatro cifras, calidad alta, dos gráficos y prioridad. |
+| B · Cantidad sin valor monetario | Usa unidades y explica por qué no calcula pesos. |
+| C · Valor con baja calidad | No usa el valor en el gráfico; cambia a cantidad si es utilizable. |
+| D · Productos sin relación | Informa 0 productos relacionados y no compara ventas con inventario. |
+| E · Mes sin registros | Conserva el vacío y no lo interpreta como ventas iguales a cero. |
+| F · Pocas ventas y mucho inventario | Identifica el producto relacionado y muestra ventas, existencias, proporción y periodo. |
+| G · Ventas concentradas | Explica el porcentaje y si corresponde al valor o a las unidades. |
+| H · Calidad alta | Aplica 35 % completitud, 30 % validez, 20 % consistencia y 15 % cobertura. |
+| I · Calidad media | Usa una explicación breve y neutral sobre información incompleta. |
+| J · Calidad crítica | Cambia la recomendación a un lenguaje prudente. |
+
+La pantalla mantiene un máximo de cuatro indicadores, dos gráficos y dos hallazgos secundarios. El detalle de calidad y el detalle del análisis permanecen cerrados inicialmente.
 
 ## Validaciones técnicas
 
