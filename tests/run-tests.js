@@ -49,7 +49,7 @@ const source = fs.readFileSync(appPath, "utf8") + `
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
   roleDisplayLabel, primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryHtml, managementDetailHtml, analysisLimitations
+  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan
 };
 `;
 vm.createContext(sandbox);
@@ -63,7 +63,7 @@ const {
   columnDataQuality, columnIdentification, roleDisplayLabel,
   primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryHtml, managementDetailHtml, analysisLimitations
+  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan
 } = sandbox.__test;
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -203,7 +203,7 @@ test("DEMO 2: el ejemplo continúa sin inventar información de inventario", () 
   app.context = {};
   const result = analyze(datasets.ejemploVentas);
   assert.equal(result.quality.level, "MEDIA");
-  assert.equal(result.priorities[0].type, "trend");
+  assert.equal(result.priorities[0].type, "business-decline");
   assert.equal(Math.round(result.metrics.trendChange * 100), -30);
   assert.ok(result.quality.facts.some(fact => fact.text.includes("No encontramos inventario")));
   assert.equal(result.metrics.inventoryUnits, 0);
@@ -714,11 +714,9 @@ test("ETAPA 3 F: pocas ventas y mucho inventario priorizan un producto relaciona
   const sales = stageThreeSales({ products: ["Café Tradicional 500 g", "Otro"], rowsPerMonth: 2 }).map((row, index) => ({ ...row, cantidad: index % 2 === 0 ? 0 : 10, valorTotal: index % 2 === 0 ? 0 : 100000 }));
   const inventory = [{ producto: "Café Tradicional 500 g", stock: 941 }, { producto: "Otro", stock: 4 }];
   const result = setStageThree({ sales, inventory });
-  const slow = result.priorities.find(finding => finding.type === "slow");
-  assert.ok(slow);
-  const presentation = priorityPresentation(slow);
-  assert.ok(presentation.title.includes("Café Tradicional 500 g"));
-  assert.ok(presentation.metrics.some(metric => metric.includes("941 unidades disponibles")));
+  assert.ok(["inventory-excess", "stock-risk-general"].includes(result.priorities[0].type));
+  assert.ok(result.priorities.slice(1).some(finding => ["slow", "stockout"].includes(finding.type)));
+  assert.ok(result.priorities.some(finding => `${finding.title} ${finding.evidence}`.includes("Café Tradicional 500 g") || `${finding.title} ${finding.evidence}`.includes("Otro")));
 });
 
 test("ETAPA 3 G: la concentración muestra el porcentaje y su significado", () => {
@@ -748,16 +746,15 @@ test("ETAPA 3 I: la calidad media se comunica sin términos técnicos", () => {
   for (const technical of ["dataset", "outlier", "validation score", "confidence score", "nulls"]) assert.ok(!html.toLowerCase().includes(technical));
 });
 
-test("ETAPA 3 J: una medida crítica incompleta vuelve prudente la recomendación", () => {
+test("ETAPA 3 J: una cantidad crítica incompleta impide conclusiones de inventario", () => {
   const sales = stageThreeSales({ products: ["A", "B"], rowsPerMonth: 4 });
   sales.forEach((row, index) => { row.cantidad = index % 2 ? "" : 1; });
   const inventory = [{ producto: "A", stock: 100 }, { producto: "B", stock: 100 }];
   const result = setStageThree({ sales, inventory });
-  const slow = result.priorities.find(finding => finding.type === "slow");
-  assert.ok(slow);
-  const presentation = priorityPresentation(slow);
-  assert.equal(presentation.strength, "BAJA");
-  assert.ok(presentation.title.includes("información incompleta"));
+  assert.equal(result.metrics.quantityRate, .5);
+  assert.equal(result.metrics.excessItems.length, 0);
+  assert.equal(result.metrics.riskItems.length, 0);
+  assert.ok(!result.priorities.some(finding => ["inventory-accumulation", "inventory-excess", "stock-risk-general", "slow", "stockout"].includes(finding.type)));
 });
 
 test("ETAPA 3 FINAL A: solo ventas con cantidad conserva unidades y explica la ausencia de dinero", () => {
@@ -833,10 +830,11 @@ test("ETAPA 3 FINAL I: un producto dominante muestra su porcentaje real", () => 
 
 test("ETAPA 3 FINAL J: un producto que se deteriora puede convertirse en la misma prioridad del detalle", () => {
   const sales = [];
-  const quantities = [100, 90, 80, 20];
+  const quantities = [100, 100, 100, 40, 35, 30];
+  const offsets = [50, 50, 50, 110, 115, 120];
   quantities.forEach((quantity, index) => {
     sales.push({ fecha: `2026-0${index + 1}-10`, producto: "Producto en baja", cantidad: quantity, valorTotal: quantity * 1000 });
-    sales.push({ fecha: `2026-0${index + 1}-11`, producto: "Producto estable", cantidad: 50, valorTotal: 50000 });
+    sales.push({ fecha: `2026-0${index + 1}-11`, producto: "Producto compensador", cantidad: offsets[index], valorTotal: offsets[index] * 1000 });
   });
   const result = setStageThree({ sales, inventory: [] });
   const decline = result.priorities.find(finding => finding.type === "product-decline");
@@ -858,6 +856,109 @@ test("ETAPA 3 FINAL L: sin inventario no genera análisis de existencias", () =>
   assert.ok(!result.priorities.some(finding => ["slow", "stockout"].includes(finding.type)));
   assert.ok(analysisLimitations().some(item => item.includes("No encontramos inventario")));
   assert.ok(!resultsScreen().includes("Productos con más unidades disponibles"));
+});
+
+function businessRows(productSeries) {
+  const rows = [];
+  Object.entries(productSeries).forEach(([producto, values]) => values.forEach((cantidad, index) => rows.push({
+    fecha: `2026-${String(index + 1).padStart(2, "0")}-10`, producto, cantidad, valorTotal: cantidad * 1000
+  })));
+  return rows;
+}
+
+test("MOTOR 1: detecta una caída general aunque el último mes tenga una pequeña recuperación", () => {
+  const sales = businessRows({ A: [60, 60, 60, 40, 30, 35], B: [40, 40, 40, 30, 30, 30] });
+  const result = setStageThree({ sales, inventory: [] });
+  assert.equal(result.metrics.panorama.status, "VENTAS EN DESCENSO");
+  assert.equal(result.priorities[0].type, "business-decline");
+  assert.ok(result.priorities[0].reason.includes("tres meses"));
+});
+
+test("MOTOR 2: calcula qué producto explica la reducción total del negocio", () => {
+  const sales = businessRows({ "Producto A": [60, 60, 60, 20, 20, 20], "Producto B": [40, 40, 40, 45, 45, 45] });
+  const result = setStageThree({ sales, inventory: [] });
+  const cause = result.priorities.find(finding => finding.type === "sales-decline-cause");
+  assert.equal(result.priorities[0].type, "business-decline");
+  assert.ok(cause);
+  assert.equal(cause.driver.product, "Producto A");
+  assert.ok(cause.driver.contribution > 1);
+  assert.ok(cause.summary.includes("Producto A explica"));
+});
+
+test("MOTOR 3: un producto solo es prioridad principal cuando el negocio está estable", () => {
+  const sales = businessRows({ "Producto localizado": [100, 100, 100, 40, 35, 30], "Producto compensador": [50, 50, 50, 110, 115, 120] });
+  const result = setStageThree({ sales, inventory: [] });
+  assert.equal(result.metrics.panorama.status, "VENTAS ESTABLES");
+  assert.equal(result.priorities[0].type, "product-decline");
+  assert.equal(result.priorities[0].driver.product, "Producto localizado");
+});
+
+test("MOTOR 4: varios cortes permiten afirmar que las existencias aumentaron", () => {
+  const sales = businessRows({ A: [60, 60, 60, 40, 40, 40], B: [40, 40, 40, 30, 30, 30] });
+  const inventory = [
+    { fechaCorte: "2026-03-31", producto: "A", stock: 100 }, { fechaCorte: "2026-03-31", producto: "B", stock: 100 },
+    { fechaCorte: "2026-06-30", producto: "A", stock: 140 }, { fechaCorte: "2026-06-30", producto: "B", stock: 120 }
+  ];
+  const result = setStageThree({ sales, inventory });
+  assert.equal(result.metrics.inventoryHistory.length, 2);
+  assert.equal(Math.round(result.metrics.inventoryChange * 100), 30);
+  assert.equal(result.priorities[0].type, "inventory-accumulation");
+  assert.ok(result.priorities[0].reason.includes("existencias aumentaron"));
+});
+
+test("MOTOR 5: una sola fotografía nunca se describe como aumento de inventario", () => {
+  const sales = businessRows({ A: [10, 10, 10, 10, 10, 10], B: [90, 90, 90, 90, 90, 90] });
+  const result = setStageThree({ sales, inventory: [{ producto: "A", stock: 900 }, { producto: "B", stock: 100 }] });
+  assert.equal(result.metrics.inventoryChange, null);
+  assert.notEqual(result.priorities[0].type, "inventory-accumulation");
+  assert.ok(result.priorities.some(finding => finding.type === "inventory-excess"));
+  assert.ok(result.priorities.every(finding => !`${finding.title} ${finding.reason}`.includes("aument")));
+});
+
+test("MOTOR 6: ventas estables con productos críticos y pocas existencias priorizan el riesgo general", () => {
+  const sales = businessRows({ A: [70, 70, 70, 70, 70, 70], B: [30, 30, 30, 30, 30, 30] });
+  const result = setStageThree({ sales, inventory: [{ producto: "A", stock: 10 }, { producto: "B", stock: 90 }] });
+  assert.equal(result.metrics.panorama.status, "VENTAS ESTABLES");
+  assert.equal(result.priorities[0].type, "stock-risk-general");
+  assert.ok(result.priorities[0].reason.includes("unidades vendidas recientemente"));
+});
+
+test("MOTOR 7: inventario sin relación válida no genera prioridades conjuntas", () => {
+  const sales = businessRows({ A: [60, 60, 60, 40, 40, 40], B: [40, 40, 40, 30, 30, 30] });
+  const result = setStageThree({ sales, inventory: [{ producto: "X", stock: 500 }, { producto: "Y", stock: 1 }] });
+  assert.equal(result.metrics.linkedProducts, 0);
+  assert.ok(!result.priorities.some(finding => ["inventory-accumulation", "inventory-excess", "stock-risk-general", "slow", "stockout"].includes(finding.type)));
+});
+
+test("MOTOR 8: los tres hallazgos forman una historia y el plan recibe sus causas", () => {
+  const sales = businessRows({ A: [60, 60, 60, 20, 20, 20], B: [30, 30, 30, 20, 20, 20], C: [10, 10, 10, 10, 10, 10] });
+  const result = setStageThree({ sales, inventory: [] });
+  const plan = getPlan();
+  assert.ok(result.priorities.length <= 3);
+  assert.equal(result.priorities[0].level, "general");
+  assert.ok(result.priorities.slice(1).every(finding => finding.parentType === result.priorities[0].type));
+  assert.ok(plan[0].action.includes("A"));
+  assert.equal(plan.length, 3);
+});
+
+test("MOTOR 9: clasifica internamente crecimiento y no lo presenta como caída", () => {
+  const sales = businessRows({ A: [40, 40, 40, 60, 65, 70], B: [20, 20, 20, 30, 30, 30] });
+  const result = setStageThree({ sales, inventory: [] });
+  assert.equal(result.metrics.panorama.status, "VENTAS EN CRECIMIENTO");
+  assert.notEqual(result.priorities[0].type, "business-decline");
+});
+
+test("MOTOR 10: analiza clientes confirmados como explicación de una caída general", () => {
+  const sales = [];
+  for (let month = 1; month <= 6; month += 1) {
+    const north = month <= 3 ? 70 : 30;
+    sales.push({ fecha: `2026-0${month}-10`, producto: "Producto A", cliente: "Cliente Norte", cantidad: north, valorTotal: north * 1000 });
+    sales.push({ fecha: `2026-0${month}-11`, producto: "Producto A", cliente: "Cliente Sur", cantidad: 30, valorTotal: 30000 });
+  }
+  const result = setStageThree({ sales, inventory: [] });
+  assert.ok(result.metrics.customerDrivers.length >= 2);
+  assert.equal(result.priorities[0].type, "business-decline");
+  assert.ok(result.priorities.slice(1).some(finding => finding.driver?.dimension === "cliente" && finding.driver.product === "Cliente Norte"));
 });
 
 (async () => {

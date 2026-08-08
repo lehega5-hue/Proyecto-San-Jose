@@ -724,9 +724,9 @@ function productChartHtml() {
 function recommendationStrength(finding, quality) {
   const rates = quality.rates;
   const measureRate = app.analysis.metrics.chartBasis === "value" ? rates.value : rates.quantity;
-  const critical = ["trend", "product-decline"].includes(finding?.type) ? Math.min(rates.date, rates.product, measureRate)
+  const critical = ["trend", "business-decline", "product-decline", "sales-decline-cause"].includes(finding?.type) ? Math.min(rates.date, rates.product, measureRate)
     : finding?.type === "concentration" || finding?.type === "review" || finding?.type === "maintain" ? Math.min(rates.product, measureRate)
-      : ["slow", "stockout"].includes(finding?.type) ? Math.min(rates.product, rates.quantity, rates.inventoryProduct, rates.stock) : quality.score / 100;
+      : ["slow", "stockout", "inventory-accumulation", "inventory-excess", "stock-risk-general"].includes(finding?.type) ? Math.min(rates.product, rates.quantity, rates.inventoryProduct, rates.stock) : quality.score / 100;
   const criticalLevel = critical >= .85 ? "ALTA" : critical >= .65 ? "MEDIA" : "BAJA";
   return [quality.level, criticalLevel].includes("BAJA") ? "BAJA" : [quality.level, criticalLevel].includes("MEDIA") ? "MEDIA" : "ALTA";
 }
@@ -735,6 +735,22 @@ function priorityPresentation(finding) {
   const { metrics, resultQuality: quality } = app.analysis;
   const strength = recommendationStrength(finding, quality);
   const lead = subject => strength === "ALTA" ? `Revisa primero ${subject}.` : strength === "MEDIA" ? `Los datos indican que conviene revisar primero ${subject}.` : `Hay señales de que conviene revisar ${subject}, pero encontramos información incompleta que puede afectar esta conclusión.`;
+  if (finding.type === "business-decline") {
+    const panorama = metrics.panorama;
+    const amount = value => panorama.basis === "value" ? money.format(value) : `${readableNumber(value)} unidades`;
+    const title = strength === "ALTA" ? "Tus ventas vienen bajando." : strength === "MEDIA" ? "Los datos muestran que tus ventas vienen bajando." : "Hay señales de una reducción en las ventas, pero falta información para confirmarla.";
+    return { title, metrics: [`${readablePercent(Math.abs(panorama.change))} menos en los últimos tres meses`, `${amount(panorama.recentAverage)} de promedio mensual reciente`, `${amount(panorama.priorAverage)} de promedio mensual anterior`], found: finding.reason, important: finding.meaning, action: finding.action, strength };
+  }
+  if (["inventory-accumulation", "inventory-excess", "stock-risk-general"].includes(finding.type)) {
+    const title = strength === "ALTA" ? finding.title : strength === "MEDIA" ? `Los datos indican que ${finding.title.charAt(0).toLowerCase() + finding.title.slice(1)}` : `Hay señales de esta situación, pero encontramos información incompleta que puede afectar la conclusión.`;
+    const metricsList = finding.type === "inventory-accumulation"
+      ? [`${readablePercent(metrics.inventoryChange)} más unidades en inventario`, `${readablePercent(Math.abs(metrics.unitPanorama.change))} menos unidades vendidas`]
+      : finding.type === "inventory-excess"
+        ? [`${readablePercent(metrics.excessInventoryShare)} de las existencias con poco movimiento`, `${readableNumber(metrics.inventoryUnits)} unidades disponibles`]
+        : [`${readablePercent(metrics.riskSalesShare)} de las ventas recientes en riesgo`, `${metrics.riskItems.length} ${metrics.riskItems.length === 1 ? "producto con pocas existencias" : "productos con pocas existencias"}`];
+    return { title, metrics: metricsList, found: finding.reason, important: finding.meaning, action: finding.action, strength };
+  }
+  if (finding.type === "sales-decline-cause") return { title: finding.title, metrics: [`${readablePercent(finding.driver.contribution)} de la reducción`, `${readablePercent(finding.driver.recentShare)} de las ventas recientes`], found: finding.reason, important: finding.meaning, action: finding.action, strength };
   if (finding.type === "slow") {
     const item = finding.items[0];
     const soldShare = metrics.units ? item.sold / metrics.units : 0;
@@ -742,7 +758,7 @@ function priorityPresentation(finding) {
     return { title: lead(`el producto ${item.producto}`), metrics: [`${readableNumber(item.sold)} unidades vendidas`, `${readableNumber(item.stock)} unidades disponibles`, `${readablePercent(soldShare)} de las unidades vendidas`, ratio ? `${new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 }).format(ratio)} veces más unidades disponibles que vendidas` : "No registró unidades vendidas"], found: `Este producto vendió ${readableNumber(item.sold)} unidades durante ${readableNumber(quality.periodDays)} días revisados.`, important: `Representa ${readablePercent(soldShare)} de las unidades vendidas y mantiene ${readableNumber(item.stock)} unidades disponibles.`, action: "Revisa sus ventas y existencias antes de volver a comprarlo.", strength };
   }
   if (finding.type === "stockout") {
-    const item = metrics.stockout;
+    const item = finding.item || metrics.stockout;
     return { title: lead(`las existencias de ${item.producto}`), metrics: [`${readableNumber(item.sold)} unidades vendidas`, `${readableNumber(item.stock)} unidades disponibles`], found: `${item.producto} registró ${readableNumber(item.sold)} unidades vendidas y actualmente aparecen ${readableNumber(item.stock)} unidades disponibles.`, important: "Si continúa vendiéndose, las existencias actuales podrían no ser suficientes.", action: "Confirma las existencias y revisa el siguiente pedido.", strength };
   }
   if (finding.type === "concentration") {
@@ -756,6 +772,7 @@ function priorityPresentation(finding) {
     return { title: lead(`la caída reciente en el ${measure}`), metrics: [`${readablePercent(Math.abs(metrics.trendChange))} menos que el periodo anterior`, `${metrics.monthly.length} meses con registros`], found: finding.reason, important: finding.evidence, action: "Confirma si ocurrió algo fuera de lo normal y revisa qué productos explican el cambio.", strength };
   }
   if (finding.type === "product-decline") {
+    if (finding.driver) return { title: finding.title, metrics: [`${readablePercent(Math.abs(finding.driver.change))} menos entre los dos periodos`, `${readablePercent(finding.driver.recentShare)} de las ventas recientes`], found: finding.reason, important: finding.meaning, action: finding.action, strength };
     const item = finding.productChange;
     const measure = metrics.chartBasis === "value" ? "valor vendido" : "unidades vendidas";
     const latest = metrics.chartBasis === "value" ? `${money.format(item.latest)} vendidos` : `${readableNumber(item.latest)} unidades vendidas`;
@@ -781,20 +798,10 @@ function resultEvidenceHtml(presentation) {
 }
 
 function stageThreeSecondaryFindings() {
-  const metrics = app.analysis.metrics;
-  const findings = [];
-  const comparison = trendComparison(metrics.monthly, metrics.chartBasis);
-  if (metrics.chartBasis && comparison.available && comparison.averageChange !== null) findings.push({
-    key: "sales",
-    sentence: `En el último mes completo vendiste ${readablePercent(Math.abs(comparison.averageChange))} ${comparison.averageChange < 0 ? "menos" : "más"} que tu promedio reciente.`
-  });
-  if (metrics.chartBasis && metrics.ranked.length) {
-    const valueOf = item => metrics.chartBasis === "value" ? item[1].revenue : item[1].units;
-    const total = metrics.chartBasis === "value" ? metrics.revenue : metrics.units;
-    const topThree = total ? metrics.ranked.slice(0, 3).reduce((sum, item) => sum + valueOf(item), 0) / total : 0;
-    findings.push({ key: "products", sentence: `Tus ${Math.min(3, metrics.ranked.length)} productos principales generan ${readablePercent(topThree)} ${metrics.chartBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}.` });
-  }
-  return findings.slice(0, 2);
+  return (app.analysis.priorities || []).slice(1, 3).filter(finding => finding.type !== "data").map(finding => ({
+    key: finding.type,
+    sentence: finding.summary || finding.reason || finding.title
+  }));
 }
 
 function analysisLimitations() {
@@ -826,6 +833,13 @@ function compactRecentChartHtml() {
 
 function managementSalesHtml() {
   const metrics = app.analysis.metrics;
+  const panorama = metrics.panorama;
+  if (panorama.reliable) {
+    const amount = value => panorama.basis === "value" ? money.format(value) : `${readableNumber(value)} unidades`;
+    const direction = panorama.status === "VENTAS EN DESCENSO" ? "vienen bajando" : panorama.status === "VENTAS EN CRECIMIENTO" ? "vienen aumentando" : "se mantienen estables";
+    const comparison = panorama.change === null ? "partieron de un periodo sin ventas registradas" : `${readablePercent(Math.abs(panorama.change))} ${panorama.change < 0 ? "menos" : "más"} que en los tres meses anteriores`;
+    return `<section><h3>Qué pasó con tus ventas</h3><p><strong>Tus ventas ${direction}.</strong></p><p>En los últimos tres meses registraste un promedio mensual de ${safe(amount(panorama.recentAverage))}.</p><p>Eso fue ${safe(comparison)}. El promedio anterior fue de ${safe(amount(panorama.priorAverage))} al mes.</p><p>Esto significa que el negocio ${panorama.status === "VENTAS EN DESCENSO" ? "está vendiendo menos de lo que venía vendiendo" : panorama.status === "VENTAS EN CRECIMIENTO" ? "está vendiendo más de lo que venía vendiendo" : "mantiene un comportamiento similar entre ambos periodos"}.</p><h4>Últimos 6 meses</h4>${compactRecentChartHtml()}</section>`;
+  }
   const comparison = trendComparison(metrics.monthly, metrics.chartBasis);
   if (!metrics.chartBasis || !comparison.available) return `<section><h3>Qué pasó con tus ventas</h3><p><strong>No podemos decir todavía si las ventas están mejorando o bajando.</strong></p><p>${safe(comparison.reason || "No encontramos una medida de ventas suficientemente completa.")}</p>${compactRecentChartHtml()}</section>`;
   const direction = Math.abs(comparison.averageChange) < .05 ? "se mantienen" : comparison.averageChange < 0 ? "vienen bajando" : "vienen aumentando";
@@ -1767,13 +1781,49 @@ function analyze(data, referenceDate = new Date()) {
   const metrics = calculateMetrics(sales, inventory, period, referenceDate);
   const priorities = level === "BAJA" ? [] : prioritize(metrics, { hasSales, hasInventory, completeness });
   const freeContext = normalize(`${app.context.contextoLibre || ""} ${app.context.eventoReciente || ""}`);
-  const trendFirst = priorities[0]?.type === "trend";
+  const trendFirst = ["trend", "business-decline"].includes(priorities[0]?.type);
   const contextMentionsChange = Boolean(app.context.eventoReciente) || /(cerr|problema|proveedor|precio|cliente|normal|vacacion|obra|cambio|perdi)/.test(freeContext);
   return { quality, resultQuality, metrics, priorities, adaptiveNeeded: trendFirst && !contextMentionsChange };
 }
 
+function salesPanorama(series, basis) {
+  const window = series.slice(-6);
+  if (!basis || window.length < 6 || !consecutiveMonths(window)) return {
+    status: "INFORMACIÓN INSUFICIENTE", reliable: false,
+    reason: "Necesitamos seis meses completos y consecutivos para comparar dos periodos equivalentes."
+  };
+  const prior = window.slice(0, 3), recent = window.slice(3);
+  const total = items => items.reduce((sum, item) => sum + item.value, 0);
+  const priorTotal = total(prior), recentTotal = total(recent);
+  const change = priorTotal ? (recentTotal - priorTotal) / priorTotal : recentTotal ? null : 0;
+  const status = change === null ? "VENTAS EN CRECIMIENTO" : change <= -.10 ? "VENTAS EN DESCENSO" : change >= .10 ? "VENTAS EN CRECIMIENTO" : "VENTAS ESTABLES";
+  const priorAverage = priorTotal / 3, recentAverage = recentTotal / 3;
+  const duration = status === "VENTAS EN DESCENSO" ? recent.filter(item => item.value < priorAverage).length
+    : status === "VENTAS EN CRECIMIENTO" ? recent.filter(item => item.value > priorAverage).length : 0;
+  return { status, reliable: true, basis, window, prior, recent, priorTotal, recentTotal, priorAverage, recentAverage, change, duration, lastMonth: recent.at(-1) };
+}
+
+function productChangeDrivers(productMonthly, panorama) {
+  if (!panorama.reliable) return [];
+  const field = panorama.basis === "value" ? "revenue" : "units";
+  const priorMonths = panorama.prior.map(item => item.month), recentMonths = panorama.recent.map(item => item.month);
+  const businessDelta = panorama.recentTotal - panorama.priorTotal;
+  return Object.values(productMonthly).map(item => {
+    const sum = months => months.reduce((total, month) => total + (item.months[month]?.[field] || 0), 0);
+    const priorTotal = sum(priorMonths), recentTotal = sum(recentMonths), delta = recentTotal - priorTotal;
+    const change = priorTotal ? delta / priorTotal : recentTotal ? null : 0;
+    const contribution = businessDelta && Math.sign(delta) === Math.sign(businessDelta) ? Math.abs(delta / businessDelta) : 0;
+    const recentShare = panorama.recentTotal ? recentTotal / panorama.recentTotal : 0;
+    return { product: item.label, key: item.key, priorTotal, recentTotal, delta, change, contribution, recentShare };
+  }).filter(item => item.priorTotal || item.recentTotal).sort((a, b) => {
+    if (panorama.status === "VENTAS EN DESCENSO") return a.delta - b.delta;
+    if (panorama.status === "VENTAS EN CRECIMIENTO") return b.delta - a.delta;
+    return Math.abs(b.delta) - Math.abs(a.delta);
+  });
+}
+
 function calculateMetrics(sales, inventory, period, referenceDate = new Date()) {
-  const byProduct = {}, salesByKey = {}, productMonthly = {};
+  const byProduct = {}, salesByKey = {}, productMonthly = {}, customerMonthly = {}, sellerMonthly = {};
   let revenue = 0, units = 0, quantityRows = 0, valueRows = 0;
   sales.forEach(row => {
     const quantity = numericValue(row.cantidad);
@@ -1809,56 +1859,112 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
     if (Number.isFinite(quantity) && quantity >= 0) monthlyUnits[key] = (monthlyUnits[key] || 0) + quantity;
     const product = String(row.producto || "").trim();
     if (product) {
-      productMonthly[product] ||= {};
-      productMonthly[product][key] ||= { units: 0, revenue: 0 };
-      if (Number.isFinite(value) && value >= 0) productMonthly[product][key].revenue += value;
-      if (Number.isFinite(quantity) && quantity >= 0) productMonthly[product][key].units += quantity;
+      const productKey = normalize(product);
+      productMonthly[productKey] ||= { key: productKey, label: product, months: {} };
+      productMonthly[productKey].months[key] ||= { units: 0, revenue: 0 };
+      if (Number.isFinite(value) && value >= 0) productMonthly[productKey].months[key].revenue += value;
+      if (Number.isFinite(quantity) && quantity >= 0) productMonthly[productKey].months[key].units += quantity;
     }
+    [["cliente", customerMonthly], ["vendedor", sellerMonthly]].forEach(([role, collection]) => {
+      const label = String(row[role] || "").trim();
+      if (!label) return;
+      const dimensionKey = normalize(label);
+      collection[dimensionKey] ||= { key: dimensionKey, label, months: {} };
+      collection[dimensionKey].months[key] ||= { units: 0, revenue: 0 };
+      if (Number.isFinite(value) && value >= 0) collection[dimensionKey].months[key].revenue += value;
+      if (Number.isFinite(quantity) && quantity >= 0) collection[dimensionKey].months[key].units += quantity;
+    });
   });
   const chartBasis = valueRate >= .7 ? "value" : quantityRate >= .7 ? "quantity" : null;
   const monthlyMap = chartBasis === "value" ? monthlyValue : chartBasis === "quantity" ? monthlyUnits : {};
   const currentMonth = `${referenceDate.getFullYear()}-${String(referenceDate.getMonth() + 1).padStart(2, "0")}`;
   const allMonthly = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value }));
   const monthly = allMonthly.filter(item => item.month < currentMonth);
-  const windowSize = monthly.length >= 6 ? 3 : monthly.length >= 4 ? 2 : 0;
-  const priorMonths = windowSize ? monthly.slice(-windowSize * 2, -windowSize) : [];
-  const recentMonths = windowSize ? monthly.slice(-windowSize) : [];
+  const completeMonthlyValue = Object.entries(monthlyValue).sort(([a], [b]) => a.localeCompare(b)).filter(([month]) => month < currentMonth).map(([month, value]) => ({ month, value }));
+  const completeMonthlyUnits = Object.entries(monthlyUnits).sort(([a], [b]) => a.localeCompare(b)).filter(([month]) => month < currentMonth).map(([month, value]) => ({ month, value }));
+  const panorama = salesPanorama(monthly, chartBasis);
+  const unitPanorama = salesPanorama(completeMonthlyUnits, quantityRate >= .7 ? "quantity" : null);
+  const valuePanorama = salesPanorama(completeMonthlyValue, valueRate >= .7 ? "value" : null);
+  const productDrivers = productChangeDrivers(productMonthly, panorama);
+  const customerDrivers = productChangeDrivers(customerMonthly, panorama).map(item => ({ ...item, dimension: "cliente" }));
+  const sellerDrivers = productChangeDrivers(sellerMonthly, panorama).map(item => ({ ...item, dimension: "vendedor" }));
+  productDrivers.forEach(item => { item.dimension = "producto"; });
+  const windowSize = panorama.reliable ? 3 : monthly.length >= 4 ? 2 : 0;
+  const priorMonths = panorama.reliable ? panorama.prior : windowSize ? monthly.slice(-windowSize * 2, -windowSize) : [];
+  const recentMonths = panorama.reliable ? panorama.recent : windowSize ? monthly.slice(-windowSize) : [];
   const average = values => values.length ? values.reduce((sum, item) => sum + item.value, 0) / values.length : 0;
   const priorAverage = average(priorMonths), recentAverage = average(recentMonths);
   const trendChange = priorAverage ? (recentAverage - priorAverage) / priorAverage : 0;
   const trendSustained = recentMonths.length > 1 && consecutiveMonths([...priorMonths, ...recentMonths]) && recentMonths.every(item => item.value < priorAverage) && recentMonths.every((item, index) => index === 0 || item.value <= recentMonths[index - 1].value);
-  const productChanges = Object.entries(productMonthly).map(([product, values]) => {
-    const series = monthly.slice(-4).map(item => ({ month: item.month, value: values[item.month]?.[chartBasis === "value" ? "revenue" : "units"] ?? null }));
+  const productChanges = Object.values(productMonthly).map(item => {
+    const series = monthly.slice(-4).map(month => ({ month: month.month, value: item.months[month.month]?.[chartBasis === "value" ? "revenue" : "units"] ?? 0 }));
     if (!chartBasis || series.length < 4 || series.some(item => item.value === null)) return null;
     const latest = series.at(-1).value;
     const previous = series.slice(0, 3);
     const previousAverage = previous.reduce((sum, item) => sum + item.value, 0) / 3;
     const change = previousAverage ? (latest - previousAverage) / previousAverage : 0;
-    return { product, latest, previousAverage, change, series };
+    return { product: item.label, latest, previousAverage, change, series };
   }).filter(Boolean).sort((a, b) => a.change - b.change);
-  const inventoryKeyCounts = inventory.reduce((counts, row) => {
+  const validInventoryRows = inventory.filter(row => row.producto && Number.isFinite(numericValue(row.stock)) && numericValue(row.stock) >= 0);
+  const inventorySnapshots = validInventoryRows.reduce((groups, row) => {
+    const date = new Date(row.fechaCorte);
+    if (Number.isNaN(date.getTime())) return groups;
+    const key = date.toISOString().slice(0, 10);
+    (groups[key] ||= []).push(row);
+    return groups;
+  }, {});
+  const inventoryHistory = Object.entries(inventorySnapshots).sort(([a], [b]) => a.localeCompare(b)).map(([date, rows]) => ({
+    date, units: rows.reduce((sum, row) => sum + numericValue(row.stock), 0), rows
+  }));
+  const currentInventoryRows = inventoryHistory.length ? inventoryHistory.at(-1).rows : validInventoryRows;
+  const inventoryKeyCounts = currentInventoryRows.reduce((counts, row) => {
     const key = normalize(row.producto);
     if (key) counts[key] = (counts[key] || 0) + 1;
     return counts;
   }, {});
-  const inv = inventory.filter(row => row.producto && Number.isFinite(numericValue(row.stock)) && numericValue(row.stock) >= 0).map(row => {
+  const recentUnitMonths = unitPanorama.reliable ? unitPanorama.recent.map(item => item.month) : completeMonthlyUnits.slice(-3).map(item => item.month);
+  const recentUnitsTotal = recentUnitMonths.reduce((sum, month) => sum + (monthlyUnits[month] || 0), 0);
+  const currentInventoryUnits = currentInventoryRows.reduce((sum, row) => sum + numericValue(row.stock), 0);
+  const inv = currentInventoryRows.map(row => {
     const key = normalize(row.producto);
     const linked = Boolean(salesByKey[key]) && inventoryKeyCounts[key] === 1;
+    const recentSold = linked ? recentUnitMonths.reduce((sum, month) => sum + (productMonthly[key]?.months[month]?.units || 0), 0) : null;
+    const recentMonthlyAverage = recentUnitMonths.length && recentSold !== null ? recentSold / recentUnitMonths.length : null;
+    const stock = numericValue(row.stock);
     return {
       ...row,
-      stock: numericValue(row.stock),
+      stock,
       cost: numericValue(row.costo),
       sold: linked ? salesByKey[key].units : null,
+      recentSold,
+      recentMonthlyAverage,
+      stockShare: currentInventoryUnits ? stock / currentInventoryUnits : 0,
+      recentSalesShare: recentUnitsTotal && recentSold !== null ? recentSold / recentUnitsTotal : 0,
+      coverageMonths: recentMonthlyAverage > 0 ? stock / recentMonthlyAverage : null,
       linked
     };
   });
   const linkedProducts = new Set(inv.filter(row => row.linked).map(row => normalize(row.producto))).size;
   const relationCoverage = Object.keys(salesByKey).length ? linkedProducts / Object.keys(salesByKey).length : 0;
-  const slowItems = inv.filter(row => row.linked && row.stock >= 20 && row.sold <= 10).sort((a, b) => b.stock - a.stock);
+  const canCompareInventoryMovement = quantityRate >= .7 && recentUnitMonths.length > 0;
+  const excessItems = canCompareInventoryMovement ? inv.filter(row => row.linked && row.stock > 0 && (row.recentSold === 0 || row.coverageMonths >= 6 || (row.stockShare >= .15 && row.recentSalesShare <= .05))).sort((a, b) => b.stockShare - a.stockShare) : [];
+  const riskItems = canCompareInventoryMovement ? inv.filter(row => row.linked && row.recentSold > 0 && row.coverageMonths !== null && row.coverageMonths <= 1.5 && row.recentSalesShare >= .05).sort((a, b) => b.recentSalesShare - a.recentSalesShare) : [];
+  const noMovementItems = canCompareInventoryMovement ? inv.filter(row => row.linked && row.stock > 0 && row.recentSold === 0).sort((a, b) => b.stock - a.stock) : [];
+  const excessInventoryShare = currentInventoryUnits ? excessItems.reduce((sum, row) => sum + row.stock, 0) / currentInventoryUnits : 0;
+  const riskSalesShare = recentUnitsTotal ? riskItems.reduce((sum, row) => sum + row.recentSold, 0) / recentUnitsTotal : 0;
+  const noMovementShare = currentInventoryUnits ? noMovementItems.reduce((sum, row) => sum + row.stock, 0) / currentInventoryUnits : 0;
+  const inventoryChange = inventoryHistory.length >= 2 && inventoryHistory.at(-2).units
+    ? (inventoryHistory.at(-1).units - inventoryHistory.at(-2).units) / inventoryHistory.at(-2).units : null;
+  const inventoryStatus = !inv.length ? "INFORMACIÓN INSUFICIENTE"
+    : !linkedProducts && sales.length ? "INFORMACIÓN INSUFICIENTE"
+      : noMovementShare >= .30 ? "INVENTARIO SIN MOVIMIENTO"
+        : excessInventoryShare >= .30 ? "EXCESO DE INVENTARIO"
+          : riskSalesShare >= .20 ? "RIESGO DE FALTA DE INVENTARIO" : "INVENTARIO EQUILIBRADO";
+  const slowItems = excessItems;
   const slowUnits = slowItems.reduce((sum, row) => sum + row.stock, 0);
   const slowValue = slowItems.reduce((sum, row) => sum + (Number.isFinite(row.cost) ? row.stock * row.cost : 0), 0);
   const slowSales = slowItems.reduce((sum, row) => sum + row.sold, 0);
-  const stockout = inv.filter(row => row.linked && row.stock <= 5 && row.sold > 0).sort((a, b) => b.sold - a.sold)[0];
+  const stockout = riskItems[0];
   const inventoryValue = inv.reduce((sum, row) => sum + (Number.isFinite(row.cost) ? row.stock * row.cost : 0), 0);
   const inventoryUnits = inv.reduce((sum, row) => sum + row.stock, 0);
   return {
@@ -1867,9 +1973,11 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
     lastCompleteMonth: monthly.at(-1)?.month || null,
     monthlyValue: Object.entries(monthlyValue).sort(([a], [b]) => a.localeCompare(b)).filter(([month]) => month < currentMonth).map(([month, value]) => ({ month, value })),
     monthlyUnits: Object.entries(monthlyUnits).sort(([a], [b]) => a.localeCompare(b)).filter(([month]) => month < currentMonth).map(([month, value]) => ({ month, value })),
-    productChanges,
+    panorama, unitPanorama, valuePanorama, productDrivers, customerDrivers, sellerDrivers, productChanges,
     priorAverage, recentAverage, trendChange, trendSustained, inv, inventoryValue, inventoryUnits, slowItems, slowUnits,
-    slowValue, slowSales, stockout, period, products: inv.length, salesProducts: ranked.length, linkedProducts,
+    slowValue, slowSales, stockout, excessItems, riskItems, noMovementItems, excessInventoryShare, riskSalesShare, noMovementShare,
+    inventoryHistory: inventoryHistory.map(item => ({ date: item.date, units: item.units })), inventoryChange, inventoryStatus,
+    recentUnitsTotal, period, products: inv.length, salesProducts: ranked.length, linkedProducts,
     relationCoverage,
     valueUnavailableReason: valueRows === 0
       ? "No encontramos una columna de valor total ni información suficiente de cantidad y precio para calcularlo."
@@ -1889,29 +1997,49 @@ function scored(finding, factors) {
 }
 
 function prioritize(metrics, scope) {
-  const findings = [];
-  const decliningProduct = metrics.productChanges.find(item => item.change <= -.30 && item.previousAverage > 0);
-  if (scope.hasSales && decliningProduct) findings.push(scored({
-    type: "product-decline",
-    title: `Las ventas de ${decliningProduct.product} vienen bajando.`,
-    reason: `${decliningProduct.product} terminó el último mes completo ${percent(Math.abs(decliningProduct.change))} por debajo de su promedio de los tres meses anteriores.`,
-    evidence: metrics.chartBasis === "value"
-      ? `Pasó de un promedio de ${money.format(decliningProduct.previousAverage)} a ${money.format(decliningProduct.latest)} vendidos.`
-      : `Pasó de un promedio de ${readableNumber(decliningProduct.previousAverage)} a ${readableNumber(decliningProduct.latest)} unidades vendidas.`,
-    meaning: "El cambio reciente de este producto puede estar afectando una parte relevante de las ventas.",
-    action: "Revisa qué cambió en sus ventas antes de ajustar compras, precio o exhibición.",
-    indicator: metrics.chartBasis === "value" ? "Valor vendido del producto cada mes." : "Unidades vendidas del producto cada mes.",
-    productChange: decliningProduct
-  }, { impact: Math.min(100, Math.abs(decliningProduct.change) * 160), urgency: 85, reach: 70, confidence: 90 }));
-  if (scope.hasSales && metrics.trendSustained && metrics.trendChange <= -.15) findings.push(scored({
-    type: "trend",
-    title: `Tus ventas bajaron ${percent(Math.abs(metrics.trendChange))} en los meses más recientes.`,
-    reason: metrics.rankingBasis === "value" ? `El promedio mensual pasó de ${money.format(metrics.priorAverage)} a ${money.format(metrics.recentAverage)}.` : `El promedio mensual pasó de ${Math.round(metrics.priorAverage)} a ${Math.round(metrics.recentAverage)} unidades.`,
-    evidence: `La caída aparece de forma sostenida en los últimos ${metrics.monthly.length >= 6 ? 3 : 2} meses disponibles.`,
-    meaning: "Es un cambio reciente que afecta el conjunto de las ventas y merece confirmarse antes de atribuirlo a una causa.",
-    action: "Confirma si ocurrió algo fuera de lo normal y revisa qué productos explican la mayor parte de la caída.",
-    indicator: "Valor vendido cada mes."
-  }, { impact: Math.min(100, Math.abs(metrics.trendChange) * 300), urgency: 95, reach: 100, confidence: metrics.monthly.length >= 6 ? 95 : 75 }));
+  const findings = [], general = [];
+  const evidenceConfidence = Math.round(Math.max(0, Math.min(1, scope.completeness)) * 100);
+  const inventoryConfidence = Math.round(evidenceConfidence * Math.min(1, metrics.relationCoverage / .7));
+  const panorama = metrics.panorama;
+  const measureName = panorama.basis === "value" ? "valor vendido" : "unidades vendidas";
+  const amount = value => panorama.basis === "value" ? money.format(value) : `${readableNumber(value)} unidades`;
+  const productDecliners = metrics.productDrivers.filter(item => item.delta < 0);
+  const dimensionDecliners = [...metrics.customerDrivers, ...metrics.sellerDrivers].filter(item => item.delta < 0).sort((a, b) => b.contribution - a.contribution);
+  const topDecliners = [productDecliners[0], dimensionDecliners.find(item => item.contribution >= .25) || productDecliners[1]].filter(Boolean);
+  const topGrowers = metrics.productDrivers.filter(item => item.delta > 0);
+  if (scope.hasSales && panorama.reliable && panorama.status === "VENTAS EN DESCENSO") general.push(scored({
+    type: "business-decline", level: "general", title: "Tus ventas vienen bajando.",
+    reason: `En los últimos tres meses vendiste ${percent(Math.abs(panorama.change))} menos que en los tres meses anteriores.`,
+    evidence: `El promedio mensual pasó de ${amount(panorama.priorAverage)} a ${amount(panorama.recentAverage)}.`,
+    meaning: "Esto significa que el negocio está vendiendo menos de lo que venía vendiendo.",
+    action: "Revisa primero qué productos explican la mayor parte de la reducción.",
+    indicator: panorama.basis === "value" ? "Valor vendido en los próximos tres meses." : "Unidades vendidas en los próximos tres meses.",
+    drivers: topDecliners
+  }, { impact: Math.min(100, Math.abs(panorama.change) * 260), urgency: 85, reach: 100, confidence: evidenceConfidence }));
+  if (scope.hasSales && scope.hasInventory && metrics.inventoryChange !== null && metrics.inventoryChange >= .10 && metrics.unitPanorama.reliable && metrics.unitPanorama.status === "VENTAS EN DESCENSO") general.push(scored({
+    type: "inventory-accumulation", level: "general", title: "Las existencias están creciendo mientras vendes menos.",
+    reason: `Las existencias aumentaron ${percent(metrics.inventoryChange)} y las unidades vendidas bajaron ${percent(Math.abs(metrics.unitPanorama.change))}.`,
+    evidence: `Comparamos ${metrics.inventoryHistory.length} cortes de inventario y dos periodos de tres meses completos de ventas.`,
+    meaning: "Esto significa que la mercancía está creciendo más rápido que las ventas.",
+    action: "Revisa los productos que explican la mayor parte de las existencias altas antes de volver a pedirlos.",
+    indicator: "Unidades disponibles frente a unidades vendidas.", items: metrics.excessItems
+  }, { impact: Math.min(100, (metrics.inventoryChange + Math.abs(metrics.unitPanorama.change)) * 180), urgency: 88, reach: 100, confidence: inventoryConfidence }));
+  if (scope.hasSales && scope.hasInventory && metrics.linkedProducts && metrics.inventoryChange === null && metrics.excessInventoryShare >= .30) general.push(scored({
+    type: "inventory-excess", level: "general", title: "Las existencias son altas frente a lo que vendes.",
+    reason: `${percent(metrics.excessInventoryShare)} de las unidades disponibles está en productos con poco o ningún movimiento reciente.`,
+    evidence: `Comparamos la fotografía actual del inventario con las unidades vendidas en los últimos ${Math.max(1, metrics.unitPanorama.recent?.length || 3)} meses completos.`,
+    meaning: "Esto significa que hay muchas unidades guardadas frente a lo que se está vendiendo.",
+    action: "Revisa esos productos antes de volver a comprarlos.",
+    indicator: "Unidades disponibles de los productos con poco movimiento.", items: metrics.excessItems
+  }, { impact: Math.min(100, metrics.excessInventoryShare * 130), urgency: 78, reach: metrics.excessInventoryShare * 100, confidence: inventoryConfidence }));
+  if (scope.hasSales && scope.hasInventory && metrics.linkedProducts && metrics.riskSalesShare >= .20) general.push(scored({
+    type: "stock-risk-general", level: "general", title: "Podrías quedarte sin productos que hoy sostienen tus ventas.",
+    reason: `Los productos con pocas existencias representan ${percent(metrics.riskSalesShare)} de las unidades vendidas recientemente.`,
+    evidence: `${metrics.riskItems.length === 1 ? "Un producto tiene" : `${metrics.riskItems.length} productos tienen`} existencias para cerca de un mes o menos al ritmo reciente de ventas.`,
+    meaning: "Si se agotan, pueden afectar una parte importante de tus ventas.",
+    action: "Confirma las existencias y los tiempos de entrega antes del siguiente pedido.",
+    indicator: "Unidades disponibles de los productos que más se venden.", items: metrics.riskItems
+  }, { impact: Math.min(100, metrics.riskSalesShare * 140), urgency: 96, reach: metrics.riskSalesShare * 100, confidence: inventoryConfidence }));
   const concentration = scored({
     type: "concentration",
     title: `Gran parte de tus ventas depende de ${metrics.ranked[0]?.[0] || "un solo producto"}.`,
@@ -1920,32 +2048,7 @@ function prioritize(metrics, scope) {
     meaning: "Una caída en ese producto puede afectar una parte importante de las ventas observadas.",
     action: "Comprueba si el patrón continúa y elige dos productos complementarios que puedas ofrecer junto al principal.",
     indicator: "Porcentaje del valor vendido que representa el producto principal."
-  }, { impact: metrics.topShare * 100, urgency: 45, reach: metrics.topShare * 100, confidence: 90 });
-  const slow = metrics.slowItems.length ? {
-    type: "slow",
-    title: "Hay productos almacenados que casi no se venden.",
-    reason: `${metrics.slowItems.length === 1 ? "Un producto tiene" : `${metrics.slowItems.length} productos tienen`} existencias altas y registraron pocas ventas durante ${metrics.period} días.`,
-    evidence: `Suman ${metrics.slowUnits} unidades almacenadas y ${metrics.slowSales} unidades vendidas.${metrics.slowValue ? ` Su costo registrado es ${money.format(metrics.slowValue)}.` : ""}`,
-    meaning: "Ese inventario ocupa espacio y puede mantener dinero comprometido sin generar ventas.",
-    action: "Revisa esos productos y define cuáles puedes promocionar, vender juntos o dejar de comprar temporalmente.",
-    indicator: "Unidades disponibles de los productos almacenados que casi no se venden.",
-    items: metrics.slowItems
-  } : null;
-  const scoredSlow = slow ? scored(slow, {
-    impact: metrics.inventoryValue ? Math.min(100, metrics.slowValue / metrics.inventoryValue * 100) : Math.min(100, metrics.slowUnits / Math.max(1, metrics.inventoryUnits) * 100),
-    urgency: 75,
-    reach: Math.min(100, metrics.slowItems.length / Math.max(1, metrics.products) * 100),
-    confidence: scope.hasSales && scope.hasInventory ? 95 : 55
-  }) : null;
-  const stockout = metrics.stockout ? scored({
-    type: "stockout",
-    title: `Podrías quedarte sin ${metrics.stockout.producto}.`,
-    reason: "El producto tiene ventas registradas y muy pocas unidades disponibles.",
-    evidence: `${metrics.stockout.sold} unidades vendidas y ${metrics.stockout.stock} unidades disponibles.`,
-    meaning: "Si continúa vendiéndose al mismo ritmo, podrían aparecer ventas que el negocio no pueda atender.",
-    action: "Confirma físicamente las existencias y revisa el siguiente pedido antes de que lleguen a cero.",
-    indicator: "Días con el producto disponible sin llegar a cero."
-  }, { impact: 75, urgency: 95, reach: Math.min(100, metrics.stockout.sold / Math.max(1, metrics.units) * 100), confidence: 95 }) : null;
+  }, { impact: metrics.topShare * 100, urgency: 45, reach: metrics.topShare * 100, confidence: evidenceConfidence });
   if (!scope.hasSales && scope.hasInventory) findings.push(scored({
     type: "inventory-only",
     title: "Agrega ventas antes de decidir qué producto atender.",
@@ -1955,9 +2058,57 @@ function prioritize(metrics, scope) {
     action: "Busca un archivo con fecha, producto, cantidad y valor vendido para completar el análisis.",
     indicator: "Número de registros de ventas agregados al próximo análisis."
   }, { impact: 80, urgency: 90, reach: 100, confidence: 100 }));
+  if (general.length) {
+    const main = general.sort((a, b) => b.priorityScore - a.priorityScore)[0];
+    findings.push(main);
+    if (main.type === "business-decline") {
+      for (const driver of topDecliners.slice(0, 2)) {
+        const subject = driver.dimension === "cliente" ? `El cliente ${driver.product}` : driver.dimension === "vendedor" ? `Las ventas del comercial ${driver.product}` : driver.product;
+        findings.push(scored({
+        type: "sales-decline-cause", level: "cause", parentType: main.type,
+        title: `${subject} ${driver.dimension === "vendedor" ? "explican" : "explica"} ${percent(driver.contribution)} de la reducción de las ventas.`,
+        reason: `${subject} ${driver.dimension === "vendedor" ? "pasaron" : "pasó"} de ${amount(driver.priorTotal)} a ${amount(driver.recentTotal)} en los dos periodos comparados.`,
+        evidence: `${driver.dimension === "vendedor" ? "Perdieron" : "Perdió"} ${amount(Math.abs(driver.delta))} y ${driver.dimension === "vendedor" ? "representan" : "representa"} ${percent(driver.recentShare)} de las ventas recientes.`,
+        meaning: `Esta ${driver.dimension === "producto" ? "parte del portafolio" : "dimensión comercial"} es una de las principales explicaciones de la caída general.`,
+        action: `Revisa qué cambió en ${driver.dimension === "producto" ? `las ventas de ${driver.product}` : driver.dimension === "cliente" ? `la relación con ${driver.product}` : `las ventas atendidas por ${driver.product}`}.`, indicator: main.indicator, driver,
+        summary: `${subject} ${driver.dimension === "vendedor" ? "explican" : "explica"} ${percent(driver.contribution)} de la reducción de las ventas.`
+      }, { impact: Math.min(100, driver.contribution * 100), urgency: 75, reach: driver.recentShare * 100, confidence: evidenceConfidence }));
+      }
+    } else if (["inventory-accumulation", "inventory-excess"].includes(main.type)) {
+      for (const item of metrics.excessItems.slice(0, 2)) findings.push(scored({
+        type: "slow", level: "cause", parentType: main.type,
+        title: `${item.producto} concentra existencias altas frente a sus ventas.`,
+        reason: `${item.producto} representa ${percent(item.stockShare)} de las unidades disponibles y ${percent(item.recentSalesShare)} de las unidades vendidas recientemente.`,
+        evidence: `${readableNumber(item.stock)} unidades disponibles y ${readableNumber(item.recentSold)} unidades vendidas en los meses recientes.`,
+        meaning: "Hay muchas unidades guardadas frente a lo que se está vendiendo.",
+        action: `Revisa ${item.producto} antes de volver a comprarlo.`, indicator: main.indicator, items: [item],
+        summary: `${item.producto} concentra ${percent(item.stockShare)} de las existencias y ${percent(item.recentSalesShare)} de las ventas recientes.`
+      }, { impact: item.stockShare * 100, urgency: 72, reach: item.stockShare * 100, confidence: inventoryConfidence }));
+    } else if (main.type === "stock-risk-general") {
+      for (const item of metrics.riskItems.slice(0, 2)) findings.push(scored({
+        type: "stockout", level: "cause", parentType: main.type,
+        title: `${item.producto} puede quedarse sin existencias.`,
+        reason: `${item.producto} representa ${percent(item.recentSalesShare)} de las unidades vendidas recientemente.`,
+        evidence: `${readableNumber(item.stock)} unidades disponibles frente a ${readableNumber(item.recentSold)} vendidas en los meses recientes.`,
+        meaning: "Si se agota, puede afectar una parte importante de las ventas.",
+        action: "Confirma las existencias y el siguiente pedido.", indicator: main.indicator, item,
+        summary: `${item.producto} aporta ${percent(item.recentSalesShare)} de las ventas recientes y tiene ${readableNumber(item.stock)} unidades disponibles.`
+      }, { impact: item.recentSalesShare * 100, urgency: 95, reach: item.recentSalesShare * 100, confidence: inventoryConfidence }));
+    }
+    for (const alternative of general) if (findings.length < 3 && alternative !== main) findings.push(alternative);
+    return findings.slice(0, 3);
+  }
+  const localized = metrics.productDrivers.find(item => panorama.status === "VENTAS ESTABLES" && item.priorTotal > 0 && item.change <= -.30 && item.recentShare >= .15);
+  if (localized) findings.push(scored({
+    type: "product-decline", level: "localized", title: `Revisa primero el producto ${localized.product}.`,
+    reason: `Sus ventas bajaron ${percent(Math.abs(localized.change))} entre los dos periodos de tres meses.`,
+    evidence: `Representa ${percent(localized.recentShare)} de las ventas recientes.`,
+    meaning: "El problema está localizado, pero su peso en el negocio es suficiente para atenderlo.",
+    action: "Revisa qué cambió en sus clientes, precio o disponibilidad.", indicator: `Ventas de ${localized.product} cada mes.`, driver: localized
+  }, { impact: Math.min(100, Math.abs(localized.change) * localized.recentShare * 220), urgency: 80, reach: localized.recentShare * 100, confidence: evidenceConfidence }));
+  const localRisk = metrics.riskItems.find(item => item.recentSalesShare >= .10);
+  if (localRisk) findings.push(scored({ type: "stockout", level: "localized", title: `Podrías quedarte sin ${localRisk.producto}.`, reason: `${localRisk.producto} representa ${percent(localRisk.recentSalesShare)} de las unidades vendidas recientemente.`, evidence: `${readableNumber(localRisk.stock)} unidades disponibles frente a ${readableNumber(localRisk.recentSold)} vendidas recientemente.`, meaning: "Si se agota, puede afectar una parte relevante de tus ventas.", action: "Confirma las existencias y el siguiente pedido.", indicator: "Unidades disponibles del producto.", item: localRisk }, { impact: localRisk.recentSalesShare * 100, urgency: 95, reach: localRisk.recentSalesShare * 100, confidence: inventoryConfidence }));
   if (scope.hasSales && metrics.topShare >= .6) findings.push(concentration);
-  if (scope.hasSales && scope.hasInventory && metrics.quantityRows > 0 && scoredSlow) findings.push(scoredSlow);
-  if (stockout) findings.push(stockout);
   const fallbacks = [
     {
       type: "review",
@@ -1987,7 +2138,7 @@ function prioritize(metrics, scope) {
       indicator: "Semanas actualizadas sin interrupción."
     }
   ];
-  for (const fallback of fallbacks) if (findings.length < 3 && !findings.some(item => item.type === fallback.type)) findings.push(scored(fallback, { impact: 35, urgency: 35, reach: 45, confidence: scope.completeness * 100 }));
+  for (const fallback of fallbacks.filter(item => item.type !== "data")) if (findings.length < 3 && !findings.some(item => item.type === fallback.type)) findings.push(scored(fallback, { impact: 35, urgency: 35, reach: 45, confidence: scope.completeness * 100 }));
   return findings.sort((a, b) => b.priorityScore - a.priorityScore).slice(0, 3);
 }
 
@@ -2006,6 +2157,36 @@ function metricCards() {
 function getPlan() {
   const finding = app.analysis?.priorities[0];
   if (!finding) return [];
+  if (finding.type === "business-decline") {
+    const drivers = (finding.drivers || []).slice(0, 2).map(item => item.dimension === "cliente" ? `el cliente ${item.product}` : item.dimension === "vendedor" ? `el comercial ${item.product}` : item.product);
+    const names = drivers.length ? drivers.join(" y ") : "los productos que más bajaron";
+    return [
+      { when: "HOY", action: `Revisa qué cambió en las ventas de ${names}.`, explain: "Estos productos explican la mayor parte de la reducción reciente." },
+      { when: "ESTA SEMANA", action: "Compara precio, clientes y disponibilidad frente a los tres meses anteriores.", explain: "Busca una causa comprobable antes de cambiar varias decisiones al mismo tiempo." },
+      { when: "EN 14 DÍAS", action: "Revisa si las ventas empezaron a recuperarse frente al promedio reciente.", explain: "Usa la misma medida y compara meses completos." }
+    ];
+  }
+  if (["inventory-accumulation", "inventory-excess"].includes(finding.type)) {
+    const products = (finding.items || []).slice(0, 2).map(item => item.producto).join(" y ") || "los productos con más existencias frente a sus ventas";
+    return [
+      { when: "HOY", action: `Revisa ${products} antes de volver a comprarlos.`, explain: "Confirma físicamente las existencias y las ventas pendientes de registrar." },
+      { when: "ESTA SEMANA", action: "Define cómo mover las unidades que ya tienes.", explain: "Prueba una acción por producto para saber cuál funciona." },
+      { when: "EN 14 DÍAS", action: "Compara nuevamente existencias y ventas.", explain: "No afirmes que el inventario creció si todavía solo tienes una fotografía actual." }
+    ];
+  }
+  if (finding.type === "stock-risk-general") {
+    const products = (finding.items || []).slice(0, 2).map(item => item.producto).join(" y ") || "los productos con pocas existencias";
+    return [
+      { when: "HOY", action: `Confirma las existencias físicas de ${products}.`, explain: "Revisa también pedidos pendientes y tiempos de entrega." },
+      { when: "ESTA SEMANA", action: "Ajusta el siguiente pedido usando las ventas recientes.", explain: "Prioriza los productos que sostienen una parte importante de las ventas." },
+      { when: "EN 14 DÍAS", action: "Comprueba si los productos se mantuvieron disponibles.", explain: "Registra cualquier venta que no pudiste atender por falta de unidades." }
+    ];
+  }
+  if (finding.type === "product-decline" && finding.driver) return [
+    { when: "HOY", action: `Revisa qué cambió en las ventas de ${finding.driver.product}.`, explain: "Compara los dos periodos de tres meses usados por San José." },
+    { when: "ESTA SEMANA", action: "Compara clientes, precio y disponibilidad del producto.", explain: "El problema está localizado y tiene peso suficiente en el negocio." },
+    { when: "EN 14 DÍAS", action: "Comprueba si sus ventas empezaron a recuperarse.", explain: finding.indicator }
+  ];
   if (finding.type === "trend") return [
     { when: "HOY", action: "Confirma qué productos y semanas explican la caída reciente.", explain: app.context.eventoReciente ? `Ten en cuenta el contexto indicado: ${app.context.eventoReciente}.` : "Compara el periodo reciente con los meses anteriores." },
     { when: "ESTA SEMANA", action: "Elige una causa comprobable y una acción pequeña para responder.", explain: "Evita cambiar precios, compras y promociones al mismo tiempo." },
