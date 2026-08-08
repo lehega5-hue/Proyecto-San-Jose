@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="San José transforma datos de ventas e inventario en prioridades empresariales claras.">
+  <title>San José – Transformación Empresarial</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="overrides.css">
+</head>
+<body>
+  <div id="login-view" class="login-view">
+    <section class="login-brand">
+      <img src="assets/logo-san-jose.png" alt="San José – Transformación Empresarial. Hacemos simple lo complejo.">
+      <div class="login-promise">
+        <span>Orientación empresarial basada en datos</span>
+        <h1>Tus datos te muestran qué atender primero.</h1>
+        <p>Una demostración sencilla para convertir ventas e inventario en decisiones comprensibles.</p>
+      </div>
+    </section>
+    <main class="login-panel">
+      <form id="login-form" class="login-card">
+        <p class="eyebrow">Demostración académica</p>
+        <h2>Bienvenido a San José</h2>
+        <p>Ingresa con las credenciales del piloto.</p>
+        <label>Correo<input id="login-email" type="email" autocomplete="username" required value="demo@sanjose.com"></label>
+        <label>Contraseña<input id="login-password" type="password" autocomplete="current-password" required placeholder="Escribe la contraseña"></label>
+        <button class="button" type="submit">Ingresar</button>
+        <p id="login-error" class="message error" role="alert"></p>
+        <details><summary>Ver credenciales de demostración</summary><code>demo@sanjose.com</code><br><code>SanJose2026</code></details>
+      </form>
+    </main>
+  </div>
+
+  <div id="app-view" class="app-view hidden">
+    <header class="app-header">
+      <div class="compact-brand"><img src="assets/logo-san-jose.png" alt=""><div><strong>San José</strong><small>Transformación Empresarial</small></div></div>
+      <div class="header-actions"><button id="test-summary-button" class="text-button" type="button">Resultados de la prueba</button><button id="logout-button" class="text-button" type="button">Salir</button></div>
+    </header>
+    <div class="progress-wrap">
+      <div class="progress-copy"><span id="progress-label">Paso 1 de 10</span><strong id="progress-title">Bienvenida</strong></div>
+      <div class="progress-track"><span id="progress-bar"></span></div>
+    </div>
+    <main id="screen" class="screen" tabindex="-1"></main>
+    <aside class="decision-note">San José es una herramienta de apoyo para tomar decisiones. La decisión final y su ejecución siempre corresponden al empresario.</aside>
+  </div>
+
+  <dialog id="test-dialog" class="test-dialog">
+    <button class="dialog-close" type="button" aria-label="Cerrar">×</button>
+    <div id="test-dialog-content"></div>
+  </dialog>
+  <script src="assets/xlsx.full.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
