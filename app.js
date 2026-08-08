@@ -79,17 +79,40 @@ const datasets = {
 
 const semanticRoles = {
   sales: {
-    fecha: { label: "Fecha de venta", required: true, terms: ["fecha", "fecha venta", "fecha factura", "día", "periodo"] },
-    producto: { label: "Producto", required: true, terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código producto", "mercancía"] },
-    cantidad: { label: "Cantidad vendida", required: true, terms: ["cantidad", "unidades", "und", "cant", "qty", "despacho", "volumen"] },
-    precio: { label: "Precio por unidad", required: false, terms: ["precio", "precio venta", "valor unitario", "vr unitario"] },
-    valorTotal: { label: "Valor total de venta", required: false, terms: ["valor total", "total venta", "vr neto", "valor neto", "importe", "subtotal", "ingreso"] },
-    costo: { label: "Costo", required: false, terms: ["costo", "coste", "valor costo"] }
+    fecha: { label: "Fecha de venta", group: "main", description: "Nos permite revisar cómo cambian las ventas en el tiempo.", terms: ["fecha", "fecha venta", "fecha factura", "día", "periodo"] },
+    producto: { label: "Producto / referencia", group: "main", description: "Nos permite saber qué se vendió.", terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código producto", "mercancía"] },
+    cantidad: { label: "Cantidad vendida", group: "main", measure: true, description: "Permite analizar el volumen vendido.", terms: ["cantidad", "unidades", "und", "cant", "qty", "despacho", "volumen"] },
+    valorTotal: { label: "Valor total de la venta", group: "main", measure: true, description: "Permite analizar ingresos.", terms: ["valor total", "total venta", "vr total", "vr tot fac", "vr neto", "valor neto", "importe", "subtotal", "ingreso"] },
+    precio: { label: "Precio unitario", group: "additional", description: "Con cantidad, permite calcular el valor total de la venta.", terms: ["precio", "precio venta", "valor unitario", "vr unitario"] },
+    costo: { label: "Costo unitario", group: "additional", description: "Ayuda a estimar rentabilidad cuando también hay valor de venta.", terms: ["costo", "coste", "valor costo", "costo unitario"] },
+    cliente: { label: "Cliente", group: "additional", terms: ["cliente", "nombre cliente", "nit cliente"] },
+    canal: { label: "Canal de venta", group: "additional", terms: ["canal", "canal venta", "tipo venta"] },
+    categoria: { label: "Categoría de producto", group: "additional", terms: ["categoría", "familia", "línea producto"] },
+    sede: { label: "Sede / punto de venta", group: "additional", terms: ["sede", "punto venta", "tienda", "local"] },
+    vendedor: { label: "Vendedor", group: "additional", terms: ["vendedor", "asesor", "comercial"] },
+    descuento: { label: "Descuento", group: "additional", terms: ["descuento", "dto", "valor descuento"] },
+    factura: { label: "Número de factura", group: "additional", terms: ["factura", "numero factura", "nro factura", "documento"] },
+    ciudad: { label: "Ciudad / zona", group: "additional", terms: ["ciudad", "zona", "región", "territorio"] },
+    formaPago: { label: "Forma de pago", group: "additional", terms: ["forma pago", "medio pago", "método pago"] }
   },
   inventory: {
-    producto: { label: "Producto", required: true, terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código producto", "mercancía"] },
-    stock: { label: "Existencias disponibles", required: true, terms: ["existencia", "existencias", "stock", "inventario", "saldo", "disponible", "cantidad disponible"] },
-    costo: { label: "Costo", required: false, terms: ["costo", "coste", "valor costo"] }
+    producto: { label: "Producto / referencia", group: "main", description: "Nos permite identificar cada artículo.", terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código producto", "mercancía"] },
+    stock: { label: "Existencia actual", group: "main", description: "Nos permite saber cuántas unidades hay disponibles.", terms: ["existencia", "existencias", "stock", "inventario", "saldo", "disponible", "cantidad actual"] },
+    fechaCorte: { label: "Fecha de corte del inventario", group: "main", recommended: true, description: "Es muy recomendable para saber a qué momento corresponden las existencias.", terms: ["fecha corte", "fecha inventario", "fecha saldo", "corte"] },
+    costo: { label: "Costo unitario", group: "additional", terms: ["costo", "coste", "valor costo", "costo unitario"] },
+    ultimoMovimiento: { label: "Fecha del último movimiento", group: "additional", terms: ["ultimo movimiento", "fecha movimiento", "última salida", "ultima entrada"] },
+    inventarioMinimo: { label: "Inventario mínimo", group: "additional", terms: ["inventario minimo", "stock minimo", "mínimo"] },
+    inventarioMaximo: { label: "Inventario máximo", group: "additional", terms: ["inventario maximo", "stock maximo", "máximo"] },
+    puntoReposicion: { label: "Punto de reposición", group: "additional", terms: ["punto reposicion", "punto pedido", "reorden"] },
+    reservada: { label: "Cantidad reservada", group: "additional", terms: ["reservada", "cantidad reservada", "comprometida"] },
+    disponible: { label: "Cantidad disponible", group: "additional", terms: ["cantidad disponible", "disponible venta"] },
+    pendienteRecibir: { label: "Cantidad pendiente por recibir", group: "additional", terms: ["pendiente recibir", "por recibir", "ordenado"] },
+    proveedor: { label: "Proveedor", group: "additional", terms: ["proveedor", "nombre proveedor"] },
+    tiempoEntrega: { label: "Tiempo de entrega", group: "additional", terms: ["tiempo entrega", "lead time", "dias entrega"] },
+    bodega: { label: "Bodega / sede", group: "additional", terms: ["bodega", "almacén", "sede"] },
+    categoria: { label: "Categoría", group: "additional", terms: ["categoría", "familia", "línea"] },
+    lote: { label: "Lote", group: "additional", terms: ["lote", "numero lote"] },
+    vencimiento: { label: "Fecha de vencimiento", group: "additional", terms: ["vencimiento", "fecha vencimiento", "caducidad"] }
   }
 };
 
@@ -282,12 +305,14 @@ function interpretationPanel() {
     ${additional.length ? `<p class="optional-note">También encontramos ${countText(additional.length, "una hoja", "hojas")} con información adicional. Esta versión de San José se concentra únicamente en ventas e inventario.</p>` : ""}
     ${unknown.length ? `<p class="optional-note">No logramos reconocer ${countText(unknown.length, "una hoja", "hojas")}. Puedes continuar si ya encontramos ventas o inventario.</p>` : ""}
     <h2>Esto es lo que entendimos</h2>
-    <p>Solo pedimos tu intervención cuando una correspondencia no es completamente clara.</p>
+    <p>Revisa qué identificó San José. Puedes confirmar, cambiar o decidir no usar cualquier interpretación.</p>
+    <div class="interpretation-key"><span><b>Confianza de interpretación</b>: qué tan seguros estamos del significado de una columna.</span><span>La calidad de los datos se evaluará después de tu confirmación.</span></div>
     <div class="sheet-mappings">
       ${relevant.map(item => mappingCard(item.table, item.index)).join("")}
     </div>
     <div id="mapping-issues">${issues.map(issue => `<div class="low-stop"><h3>${safe(issue.title)}</h3><p>${safe(issue.message)}</p><small>${safe(issue.help)}</small></div>`).join("")}</div>
-    ${interpretationScopeMessage(scope)}
+    ${availabilitySummary()}
+    ${analysisScopePanel(scope)}
     <div class="partial-actions">
       <button class="button secondary" type="button" id="clear-files">Elegir otros archivos</button>
       ${scope.hasSales && !scope.hasInventory ? '<button class="button secondary" type="button" data-focus-upload>Agregar inventario</button>' : ""}
@@ -298,53 +323,105 @@ function interpretationPanel() {
 }
 
 function mappingCard(table, tableIndex) {
-  const assignments = Object.entries(table.interpretation.assignments);
-  const clear = assignments.filter(([, assignment]) => assignment?.confidence === "Alta");
-  const doubtfulByHeader = new Map();
-  assignments.filter(([, assignment]) => assignment && assignment.confidence !== "Alta").forEach(([role, assignment]) => {
-    const previous = doubtfulByHeader.get(assignment.header);
-    if (!previous || assignment.score > previous.assignment.score) doubtfulByHeader.set(assignment.header, { role, assignment });
-  });
+  const roles = Object.entries(semanticRoles[table.type]);
+  const main = roles.filter(([, config]) => config.group === "main");
+  const additional = roles.filter(([role, config]) => config.group === "additional" && (table.interpretation.assignments[role] || roleDecision(tableIndex, role)));
   return `<article class="mapping-card">
     <header><div><span>${table.type === "sales" ? "Ventas" : "Inventario"}</span><h3>${safe(table.sheetName)}</h3></div><small>${safe(table.fileName)}</small></header>
-    <div class="understood-list">${clear.map(([role, assignment]) => `<div><span>${safe(semanticRoles[table.type][role].label)}</span><strong>“${safe(assignment.header)}”</strong><small>Ejemplo: ${safe(assignment.sample || "sin muestra")}</small></div>`).join("")}</div>
-    ${[...doubtfulByHeader.entries()].map(([header, item]) => clarificationQuestion(table, tableIndex, header, item.role, item.assignment)).join("")}
+    <section class="needed-data"><h4>Datos que necesitamos para este análisis</h4>${table.type === "sales" ? '<p>Necesitamos fecha, producto y al menos una medida de la venta: cantidad, valor total o cantidad con precio unitario.</p>' : '<p>Necesitamos producto y existencia actual. La fecha de corte es muy recomendable, pero no bloquea.</p>'}</section>
+    <div class="interpretation-rows">${main.map(([role]) => interpretationRow(table, tableIndex, role)).join("")}</div>
+    <details class="additional-data"><summary>Ver datos adicionales encontrados (${additional.length})</summary><p>Estos datos pueden ayudarnos a hacer un análisis más completo.</p>${additional.length ? additional.map(([role]) => interpretationRow(table, tableIndex, role)).join("") : "<p>No identificamos datos adicionales en esta hoja.</p>"}</details>
   </article>`;
 }
 
-function clarificationQuestion(table, tableIndex, header, proposedRole, assignment) {
-  const options = table.type === "sales"
-    ? [["cantidad", "Cantidad vendida"], ["valorTotal", "Valor de la venta"], ["producto", "Producto"], ["fecha", "Fecha de venta"]]
-    : [["stock", "Existencia disponible"], ["producto", "Producto"], ["costo", "Valor o costo"]];
-  const selected = app.clarifications[`${tableIndex}:${header}`] || "";
-  return `<section class="clarification-question">
-    <p class="eyebrow">Necesitamos tu ayuda para entender este dato</p>
-    <h4>No estamos seguros de qué significa “${safe(header)}”.</h4>
-    <p>Estos son algunos valores que encontramos:</p>
-    <div class="sample-values">${safe(assignment.sample || "Sin muestra")}</div>
-    <label>¿Qué representa esta información?
-      <select class="meaning-select" data-table="${tableIndex}" data-header="${safe(header)}" data-proposed="${proposedRole}">
-        <option value="">Selecciona</option>
-        ${options.map(([value, label]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${label}</option>`).join("")}
-        <option value="other" ${selected === "other" ? "selected" : ""}>Otra información</option>
-        <option value="unknown" ${selected === "unknown" ? "selected" : ""}>No sé</option>
-      </select>
-    </label>
-  </section>`;
+function roleDecision(tableIndex, role) {
+  return app.clarifications[`${tableIndex}:${role}`] || null;
+}
+
+function interpretationRow(table, tableIndex, role) {
+  const config = semanticRoles[table.type][role];
+  const assignment = table.interpretation.assignments[role];
+  const decision = roleDecision(tableIndex, role);
+  const editing = decision?.status === "editing";
+  const unavailable = ["missing", "ignored", "unknown"].includes(decision?.status);
+  const samples = assignment?.header ? (table.profiles[assignment.header]?.sample || assignment.sample || "Sin muestra") : "";
+  if (unavailable && !editing) return `<article class="interpretation-item unavailable">
+    <div><span>Dato que buscamos</span><h5>${safe(config.label)}</h5><small>${decision.status === "ignored" ? `Decidiste no usar “${safe(decision.header || "esta columna")}”.` : decision.status === "unknown" ? "Indicaste que no sabes qué representa esta columna." : "Indicaste que este dato no existe en el archivo."}</small></div>
+    <div class="interpretation-status"><b>○ No disponible</b><button class="text-link interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar decisión</button></div>
+  </article>`;
+  const ambiguity = assignment && assignment.confidence !== "Alta" && !assignment.confirmed;
+  const duplicate = assignment?.duplicates?.length > 1 && !assignment.confirmed;
+  return `<article class="interpretation-item ${ambiguity || duplicate || !assignment ? "needs-review" : ""}">
+    ${ambiguity ? '<p class="human-help">Necesitamos tu ayuda para entender este dato.</p>' : ""}
+    ${duplicate ? `<p class="duplicate-warning">Encontramos dos columnas que podrían representar ${safe(config.label)}. ¿Cuál quieres utilizar?</p>` : ""}
+    <div class="interpretation-main">
+      <div><span>Dato que buscamos</span><h5>${safe(config.label)}</h5><small>${safe(config.description || "Puede mejorar el análisis.")}</small></div>
+      <div><span>Columna que encontramos</span><strong>${assignment ? `“${safe(assignment.header)}”` : "No encontramos este dato."}</strong>${assignment ? `<small>Ejemplos: ${safe(samples)}</small>` : ""}</div>
+      <div><span>Lo entendimos como</span><strong>${assignment ? safe(config.label) : "Pendiente"}</strong>${assignment ? `<small class="confidence ${assignment.confidence.toLowerCase()}">Confianza ${safe(assignment.confidence)}</small>` : ""}</div>
+      <div><span>Estado</span><strong>${assignment?.confirmed ? "✓ Confirmado por ti" : assignment ? "✓ Identificado por San José" : "! Necesita revisión"}</strong></div>
+    </div>
+    ${ambiguity ? ambiguousMeaningChooser(table, tableIndex, role, assignment) : ""}
+    ${editing || !assignment || duplicate ? columnChooser(table, tableIndex, role, assignment) : ""}
+    ${assignment && !editing && !duplicate ? `<div class="interpretation-actions"><button class="button mini interpretation-action" type="button" data-action="confirm" data-table="${tableIndex}" data-role="${role}">Confirmar</button><button class="button mini secondary interpretation-action" type="button" data-action="edit" data-table="${tableIndex}" data-role="${role}">Cambiar</button><button class="text-link interpretation-action" type="button" data-action="ignore" data-table="${tableIndex}" data-role="${role}">No usar esta columna</button></div>` : ""}
+  </article>`;
+}
+
+function ambiguousMeaningChooser(table, tableIndex, role, assignment) {
+  const preferred = table.type === "sales" ? ["valorTotal", "precio", "costo", "cantidad", "producto", "fecha"] : ["stock", "costo", "producto", "fechaCorte"];
+  return `<div class="ambiguous-meaning"><label>¿Qué representa “${safe(assignment.header)}”?
+    <select class="ambiguous-role-select" data-table="${tableIndex}" data-role="${role}" data-header="${safe(assignment.header)}"><option value="">Selecciona</option>${preferred.map(optionRole => `<option value="${optionRole}" ${role === optionRole ? "selected" : ""}>${safe(semanticRoles[table.type][optionRole].label)}</option>`).join("")}<option value="other">Otra información</option><option value="unknown">No sé</option></select>
+  </label></div>`;
+}
+
+function columnChooser(table, tableIndex, role, assignment) {
+  const config = semanticRoles[table.type][role];
+  const candidates = assignment?.duplicates?.length ? assignment.duplicates : table.headers;
+  return `<div class="column-chooser"><label>¿Qué columna contiene ${safe(config.label.toLowerCase())}?
+    <select class="role-column-select" data-table="${tableIndex}" data-role="${role}"><option value="">Seleccionar columna</option>${candidates.map(header => `<option value="${safe(header)}" ${assignment?.header === header ? "selected" : ""}>${safe(header)}</option>`).join("")}</select>
+  </label><button class="text-link interpretation-action" type="button" data-action="missing" data-table="${tableIndex}" data-role="${role}">No tengo ese dato</button></div>`;
 }
 
 function interpretedScope() {
-  const usable = assignment => assignment && assignment.header && assignment.confidence === "Alta";
-  const hasSales = app.classified.some(table => table.type === "sales" && usable(table.interpretation.assignments.fecha) && usable(table.interpretation.assignments.producto) && usable(table.interpretation.assignments.cantidad) && (usable(table.interpretation.assignments.precio) || usable(table.interpretation.assignments.valorTotal)));
-  const hasInventory = app.classified.some(table => table.type === "inventory" && usable(table.interpretation.assignments.producto) && usable(table.interpretation.assignments.stock));
+  const hasSales = app.classified.some(table => table.type === "sales" && isUsableAssignment(table.interpretation.assignments.fecha) && isUsableAssignment(table.interpretation.assignments.producto) && (isUsableAssignment(table.interpretation.assignments.cantidad) || isUsableAssignment(table.interpretation.assignments.valorTotal)));
+  const hasInventory = app.classified.some(table => table.type === "inventory" && isUsableAssignment(table.interpretation.assignments.producto) && isUsableAssignment(table.interpretation.assignments.stock));
   return { hasSales, hasInventory };
 }
 
-function interpretationScopeMessage(scope) {
-  if (scope.hasSales && scope.hasInventory) return '<div class="scope-message success-scope"><h3>Perfecto. Encontramos información de ventas e inventario.</h3><p>Podemos realizar el análisis completo.</p></div>';
-  if (scope.hasSales) return '<div class="scope-message"><h3>Encontramos ventas, pero no inventario.</h3><p>Sí podemos ayudarte con tus ventas. Sin inventario no podremos evaluar productos acumulados ni posibles faltantes.</p></div>';
-  if (scope.hasInventory) return '<div class="scope-message"><h3>Encontramos inventario, pero no ventas.</h3><p>No afirmaremos qué se vende o permanece almacenado. Podemos orientarte sobre el siguiente dato que necesitas.</p></div>';
-  return "";
+function isUsableAssignment(assignment) {
+  return Boolean(assignment?.header && (assignment.confidence === "Alta" || assignment.confirmed) && !(assignment.duplicates?.length > 1 && !assignment.confirmed));
+}
+
+function roleAvailability(type, role) {
+  const found = app.classified.filter(table => table.type === type).map(table => table.interpretation.assignments[role]).filter(Boolean);
+  if (found.some(isUsableAssignment)) return "available";
+  if (found.length) return "review";
+  return "missing";
+}
+
+function availabilitySummary() {
+  const item = (type, role, label = semanticRoles[type][role].label) => {
+    let status = roleAvailability(type, role);
+    const calculated = type === "sales" && role === "valorTotal" && status !== "available" && roleAvailability("sales", "cantidad") === "available" && roleAvailability("sales", "precio") === "available";
+    if (calculated) status = "available";
+    return `<li class="${status}"><b>${status === "available" ? "✓" : status === "review" ? "!" : "○"}</b> ${safe(label)}${calculated ? " — San José lo calculará con cantidad × precio" : status === "missing" ? " no encontrado" : ""}</li>`;
+  };
+  const hasSales = app.classified.some(table => table.type === "sales");
+  const hasInventory = app.classified.some(table => table.type === "inventory");
+  return `<section class="availability-summary"><h3>Resumen de la información</h3><div>${hasSales ? `<article><h4>Ventas</h4><ul>${item("sales", "fecha", "Fecha")}${item("sales", "producto", "Producto")}${item("sales", "valorTotal", "Valor de venta")}${item("sales", "cantidad", "Cantidad")}${item("sales", "costo", "Costo")}</ul></article>` : ""}${hasInventory ? `<article><h4>Inventario</h4><ul>${item("inventory", "producto", "Producto")}${item("inventory", "stock", "Existencia")}${item("inventory", "ultimoMovimiento", "Último movimiento")}</ul></article>` : ""}</div><p class="availability-legend">✓ Disponible &nbsp; ! Necesita revisión &nbsp; ○ No disponible</p></section>`;
+}
+
+function analysisScopePanel(scope) {
+  const available = [], unavailable = [];
+  const has = (type, role) => roleAvailability(type, role) === "available";
+  const salesMeasure = has("sales", "cantidad") || has("sales", "valorTotal");
+  const revenue = has("sales", "valorTotal") || (has("sales", "cantidad") && has("sales", "precio"));
+  if (scope.hasSales && salesMeasure) available.push("cómo han cambiado tus ventas", revenue ? "qué productos generan más ingresos" : "qué productos venden más unidades", "si dependes demasiado de pocos productos");
+  if (scope.hasInventory) available.push("cuántas existencias tienes registradas por producto");
+  if (revenue && has("sales", "costo")) available.push("una aproximación inicial a la rentabilidad");
+  else unavailable.push("Rentabilidad — no encontramos costos y valor de venta suficientes.");
+  if (!(scope.hasSales && scope.hasInventory && has("sales", "cantidad"))) unavailable.push("Productos acumulados — necesitamos ventas por cantidad e inventario.");
+  if (!revenue && scope.hasSales) unavailable.push("Ingresos — necesitamos valor total o cantidad con precio unitario.");
+  return `<section class="analysis-scope"><div><h3>Con esta información podemos analizar:</h3><ul>${available.length ? available.map(text => `<li>✓ ${safe(text)}</li>`).join("") : "<li>! Primero necesitamos completar los datos principales.</li>"}</ul></div><div><h3>Todavía no podemos analizar:</h3><ul>${unavailable.map(text => `<li>○ ${safe(text)}</li>`).join("") || "<li>✓ No identificamos limitaciones adicionales para este alcance.</li>"}</ul></div></section>`;
 }
 
 function qualityScreen() {
@@ -537,7 +614,9 @@ function bindScreen() {
       dropZone.classList.remove("dragging");
       readUploads(event.dataTransfer.files);
     });
-    document.querySelectorAll(".meaning-select").forEach(select => select.addEventListener("change", changeMeaning));
+    document.querySelectorAll(".interpretation-action").forEach(button => button.addEventListener("click", handleInterpretationAction));
+    document.querySelectorAll(".role-column-select").forEach(select => select.addEventListener("change", selectRoleColumn));
+    document.querySelectorAll(".ambiguous-role-select").forEach(select => select.addEventListener("change", selectAmbiguousMeaning));
     $("#confirm-mapping")?.addEventListener("click", confirmInterpretation);
     $("#clear-files")?.addEventListener("click", resetUploads);
     document.querySelectorAll("[data-focus-upload]").forEach(button => button.addEventListener("click", () => $("#business-files")?.click()));
@@ -835,8 +914,8 @@ function semanticScore(header, role, config, profile) {
     }
   }
   if (role === "producto" && /(producto|articulo|descripcion|mercancia|referencia|sku)/.test(name)) score += 3;
-  if (role === "fecha") score += profile.dates * 6;
-  if (["cantidad", "precio", "valorTotal", "costo", "stock"].includes(role)) score += profile.numeric * 3;
+  if (["fecha", "fechaCorte", "ultimoMovimiento", "vencimiento"].includes(role)) score += profile.dates * 6;
+  if (["cantidad", "precio", "valorTotal", "costo", "stock", "inventarioMinimo", "inventarioMaximo", "puntoReposicion", "reservada", "disponible", "pendienteRecibir", "tiempoEntrega", "descuento"].includes(role)) score += profile.numeric * 3;
   if (role === "producto") score += profile.text * 2;
   return score;
 }
@@ -853,7 +932,8 @@ function inferInterpretation(table, type) {
     if (!best || best.score < 2) { assignments[role] = null; continue; }
     const confidence = best.score >= 8 ? "Alta" : best.score >= 5 ? "Media" : "Baja";
     if (confidence === "Alta") used.add(best.header);
-    assignments[role] = { header: best.header, confidence, score: best.score, sample: best.profile.sample };
+    const duplicates = best.score >= 8 ? ranked.filter(item => item.score >= 8 && best.score - item.score <= 1).map(item => item.header) : [];
+    assignments[role] = { header: best.header, confidence: duplicates.length > 1 ? "Media" : confidence, score: best.score, sample: best.profile.sample, duplicates };
   }
   return { headers: table.headers, assignments, rowCount: table.rows.length };
 }
@@ -868,8 +948,8 @@ function localClassifyTable(table) {
   const sales = inferInterpretation(table, "sales");
   const inventory = inferInterpretation(table, "inventory");
   const usable = assignment => assignment && assignment.confidence !== "Baja";
-  const salesScore = ["fecha", "producto", "cantidad"].filter(role => usable(sales.assignments[role])).length * 3
-    + (usable(sales.assignments.precio) || usable(sales.assignments.valorTotal) ? 3 : 0);
+  const salesScore = ["fecha", "producto"].filter(role => usable(sales.assignments[role])).length * 3
+    + (usable(sales.assignments.cantidad) || usable(sales.assignments.valorTotal) ? 4 : 0);
   const inventoryScore = ["producto", "stock"].filter(role => usable(inventory.assignments[role])).length * 4;
   const name = normalize(`${table.fileName} ${table.sheetName}`);
   const salesBonus = /(venta|factur|despach|salida)/.test(name) ? 3 : 0;
@@ -927,20 +1007,18 @@ function buildClassifiedTable(table, local, interpreted) {
 function requiredMappingIssues() {
   const issues = [];
   const relevant = type => app.classified.filter(table => table.type === type);
-  const usable = assignment => assignment && assignment.header && assignment.confidence === "Alta";
-  const completeSales = relevant("sales").filter(table => {
-    const assignments = table.interpretation.assignments;
-    return usable(assignments.fecha) && usable(assignments.producto) && usable(assignments.cantidad) && (usable(assignments.precio) || usable(assignments.valorTotal));
+  const conflicts = app.classified.flatMap(table => table.interpretation ? Object.entries(table.interpretation.assignments).filter(([, assignment]) => assignment?.duplicates?.length > 1 && !assignment.confirmed) : []);
+  if (conflicts.length) issues.push({
+    title: "Necesitamos resolver una interpretación duplicada",
+    message: "Encontramos dos columnas posibles para el mismo dato.",
+    help: "Elige cuál quieres utilizar antes de continuar."
   });
-  const completeInventory = relevant("inventory").filter(table => {
-    const assignments = table.interpretation.assignments;
-    return usable(assignments.producto) && usable(assignments.stock);
-  });
-  if (!completeSales.length && !completeInventory.length) {
+  const scope = interpretedScope();
+  if (!scope.hasSales && !scope.hasInventory) {
     if (relevant("sales").length) issues.push({
       title: "Necesitamos entender mejor las ventas",
-      message: "Encontramos una hoja de ventas, pero todavía no identificamos fecha, producto, cantidad y valor con suficiente seguridad.",
-      help: "Responde las preguntas marcadas arriba. Si eliges “No sé” en un dato indispensable, te explicaremos por qué lo necesitamos."
+      message: "Necesitamos fecha, producto y al menos cantidad o valor total de la venta.",
+      help: "Confirma o corrige los datos principales. Si no existen, San José adaptará el alcance."
     });
     if (relevant("inventory").length) issues.push({
       title: "Necesitamos entender mejor el inventario",
@@ -956,20 +1034,67 @@ function requiredMappingIssues() {
   return issues;
 }
 
-function changeMeaning(event) {
-  const table = app.classified[Number(event.target.dataset.table)];
-  const header = event.target.dataset.header;
-  const choice = event.target.value;
-  app.clarifications[`${event.target.dataset.table}:${header}`] = choice;
-  for (const [role, assignment] of Object.entries(table.interpretation.assignments)) {
-    if (assignment?.header === header) table.interpretation.assignments[role] = null;
+function handleInterpretationAction(event) {
+  const tableIndex = Number(event.currentTarget.dataset.table);
+  const role = event.currentTarget.dataset.role;
+  const action = event.currentTarget.dataset.action;
+  const table = app.classified[tableIndex];
+  const assignment = table.interpretation.assignments[role];
+  const key = `${tableIndex}:${role}`;
+  if (action === "confirm" && assignment) {
+    assignment.confirmed = true;
+    assignment.duplicates = [];
+    app.clarifications[key] = { status: "confirmed" };
+  } else if (action === "edit") app.clarifications[key] = { status: "editing" };
+  else if (action === "ignore") {
+    app.clarifications[key] = { status: "ignored", header: assignment?.header || "" };
+    table.interpretation.assignments[role] = null;
+  } else if (action === "missing") {
+    app.clarifications[key] = { status: "missing" };
+    table.interpretation.assignments[role] = null;
   }
-  if (semanticRoles[table.type][choice]) table.interpretation.assignments[choice] = {
+  render();
+}
+
+function selectRoleColumn(event) {
+  const tableIndex = Number(event.target.dataset.table);
+  const role = event.target.dataset.role;
+  const header = event.target.value;
+  if (!header) return;
+  const table = app.classified[tableIndex];
+  table.interpretation.assignments[role] = {
     header,
     confidence: "Alta",
+    confirmed: true,
+    userSelected: true,
+    duplicates: [],
     score: 10,
-    sample: table.profiles[header]?.sample || "Confirmada por el usuario"
+    sample: table.profiles[header]?.sample || "Sin muestra"
   };
+  app.clarifications[`${tableIndex}:${role}`] = { status: "confirmed" };
+  render();
+}
+
+function selectAmbiguousMeaning(event) {
+  const tableIndex = Number(event.target.dataset.table);
+  const currentRole = event.target.dataset.role;
+  const header = event.target.dataset.header;
+  const selectedRole = event.target.value;
+  if (!selectedRole) return;
+  const table = app.classified[tableIndex];
+  table.interpretation.assignments[currentRole] = null;
+  if (semanticRoles[table.type][selectedRole]) {
+    table.interpretation.assignments[selectedRole] = {
+      header,
+      confidence: "Alta",
+      confirmed: true,
+      userSelected: true,
+      duplicates: [],
+      score: 10,
+      sample: table.profiles[header]?.sample || "Sin muestra"
+    };
+    app.clarifications[`${tableIndex}:${selectedRole}`] = { status: "confirmed" };
+  } else app.clarifications[`${tableIndex}:${currentRole}`] = { status: selectedRole === "other" ? "ignored" : "unknown", header };
   render();
 }
 
@@ -989,22 +1114,20 @@ function buildCanonicalDataset() {
   for (const table of app.classified) {
     if (!["sales", "inventory"].includes(table.type) || !table.interpretation) continue;
     const assignments = table.interpretation.assignments;
-    const value = (row, role) => assignments[role]?.header ? row[assignments[role].header] : "";
+    const value = (row, role) => isUsableAssignment(assignments[role]) ? row[assignments[role].header] : "";
     if (table.type === "sales") {
-      table.rows.forEach(row => sales.push({
-        fecha: value(row, "fecha"),
-        producto: value(row, "producto"),
-        cantidad: value(row, "cantidad"),
-        precio: value(row, "precio"),
-        valorTotal: value(row, "valorTotal"),
-        costo: value(row, "costo")
-      }));
+      if (!(isUsableAssignment(assignments.fecha) && isUsableAssignment(assignments.producto) && (isUsableAssignment(assignments.cantidad) || isUsableAssignment(assignments.valorTotal)))) continue;
+      table.rows.forEach(row => {
+        const record = Object.fromEntries(Object.keys(semanticRoles.sales).map(role => [role, value(row, role)]));
+        if (!record.valorTotal && Number.isFinite(numericValue(record.cantidad)) && Number.isFinite(numericValue(record.precio))) {
+          record.valorTotal = numericValue(record.cantidad) * numericValue(record.precio);
+          record.valorTotalCalculado = true;
+        }
+        sales.push(record);
+      });
     } else {
-      table.rows.forEach(row => inventory.push({
-        producto: value(row, "producto"),
-        stock: value(row, "stock"),
-        costo: value(row, "costo")
-      }));
+      if (!(isUsableAssignment(assignments.producto) && isUsableAssignment(assignments.stock))) continue;
+      table.rows.forEach(row => inventory.push(Object.fromEntries(Object.keys(semanticRoles.inventory).map(role => [role, value(row, role)]))));
     }
   }
   return { sales, inventory };
@@ -1018,9 +1141,10 @@ function analyze(data) {
   const validQuantitySales = sales.filter(row => Number.isFinite(numericValue(row.cantidad)) && numericValue(row.cantidad) >= 0).length;
   const validValueSales = sales.filter(row => Number.isFinite(saleValue(row)) && saleValue(row) >= 0).length;
   const validDateSales = sales.filter(row => !Number.isNaN(new Date(row.fecha).getTime())).length;
+  const validMeasureSales = sales.filter(row => (Number.isFinite(numericValue(row.cantidad)) && numericValue(row.cantidad) >= 0) || (Number.isFinite(saleValue(row)) && saleValue(row) >= 0)).length;
   const validInventory = inventory.filter(row => row.producto && Number.isFinite(numericValue(row.stock)) && numericValue(row.stock) >= 0).length;
-  const essentialTotal = Math.max(1, sales.length * 4 + inventory.length * 2);
-  const essentialValid = validProductSales + validQuantitySales + validValueSales + validDateSales + validInventory * 2;
+  const essentialTotal = Math.max(1, sales.length * 3 + inventory.length * 2);
+  const essentialValid = validProductSales + validDateSales + validMeasureSales + validInventory * 2;
   const completeness = essentialValid / essentialTotal;
   const negativeCount = sales.filter(row => numericValue(row.cantidad) < 0 || saleValue(row) < 0).length + inventory.filter(row => numericValue(row.stock) < 0).length;
   const seen = new Set(), duplicates = new Set();
@@ -1048,7 +1172,7 @@ function analyze(data) {
   if (hasSales && hasInventory && relation < .5) score -= 10;
   if (hasSales !== hasInventory) score = Math.min(score, 78);
   score = Math.max(0, Math.min(100, score));
-  const enoughSales = hasSales && sales.length >= 5 && validProductSales / sales.length >= .7 && validValueSales / sales.length >= .7;
+  const enoughSales = hasSales && sales.length >= 5 && validProductSales / sales.length >= .7 && validDateSales / sales.length >= .7 && validMeasureSales / sales.length >= .7;
   const enoughInventory = hasInventory && inventory.length >= 2 && validInventory / inventory.length >= .7;
   if (!enoughSales && !enoughInventory) score = Math.min(score, 49);
   const level = score >= 80 ? "ALTA" : score >= 55 ? "MEDIA" : "BAJA";
@@ -1056,7 +1180,9 @@ function analyze(data) {
   if (hasSales) {
     facts.push({ ok: sales.length >= 5, text: `Encontramos ${sales.length} registros de ventas que cubren ${period} días.` });
     facts.push({ ok: validProductSales === sales.length, text: `${percent(validProductSales / Math.max(1, sales.length))} de las ventas tiene producto.` });
-    facts.push({ ok: validQuantitySales === sales.length, text: `${percent(validQuantitySales / Math.max(1, sales.length))} de las ventas tiene cantidad válida.` });
+    facts.push({ ok: validDateSales === sales.length, text: `${percent(validDateSales / Math.max(1, sales.length))} de las ventas tiene fecha válida.` });
+    facts.push({ ok: validMeasureSales === sales.length, text: `${percent(validMeasureSales / Math.max(1, sales.length))} de las ventas tiene cantidad o valor utilizable.` });
+    if (validValueSales) facts.push({ ok: validValueSales === sales.length, text: `${percent(validValueSales / Math.max(1, sales.length))} de las ventas tiene valor de venta utilizable.` });
   } else facts.push({ ok: false, text: "No encontramos información de ventas." });
   if (hasInventory) {
     facts.push({ ok: enoughInventory, text: `Encontramos ${inventory.length} productos en inventario y ${percent(validInventory / Math.max(1, inventory.length))} tiene existencias válidas.` });
@@ -1065,9 +1191,9 @@ function analyze(data) {
   facts.push({ ok: !negativeCount, text: negativeCount ? `Encontramos ${countText(negativeCount, "un valor negativo", "valores negativos")} que conviene revisar.` : "No encontramos cantidades negativas inesperadas." });
   facts.push({ ok: costCoverage >= .5, text: costCoverage ? `Encontramos costo para ${percent(costCoverage)} del inventario.` : "No encontramos costos; no analizaremos rentabilidad." });
   const missingParts = [];
-  if (validQuantitySales < sales.length) missingParts.push(`${countText(sales.length - validQuantitySales, "venta", "ventas")} sin cantidad válida`);
+  if (validMeasureSales < sales.length) missingParts.push(`${countText(sales.length - validMeasureSales, "venta", "ventas")} sin cantidad ni valor utilizable`);
   if (validProductSales < sales.length) missingParts.push(`${countText(sales.length - validProductSales, "venta", "ventas")} sin producto`);
-  if (validValueSales < sales.length) missingParts.push(`${countText(sales.length - validValueSales, "venta", "ventas")} sin valor utilizable`);
+  if (validDateSales < sales.length) missingParts.push(`${countText(sales.length - validDateSales, "venta", "ventas")} sin fecha válida`);
   if (validInventory < inventory.length) missingParts.push(`${countText(inventory.length - validInventory, "producto", "productos")} sin existencias válidas`);
   if (hasSales && sales.length < 5) missingParts.push("más registros de ventas");
   if (hasInventory && inventory.length < 2) missingParts.push("un inventario con al menos dos productos");
@@ -1098,27 +1224,34 @@ function analyze(data) {
 
 function calculateMetrics(sales, inventory, period) {
   const byProduct = {};
-  let revenue = 0, units = 0;
+  let revenue = 0, units = 0, quantityRows = 0;
   sales.forEach(row => {
     const quantity = numericValue(row.cantidad);
     const value = Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : quantity * numericValue(row.precio);
-    if (!row.producto || !Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(value) || value < 0) return;
-    revenue += value;
-    units += quantity;
+    const validQuantity = Number.isFinite(quantity) && quantity >= 0;
+    const validValue = Number.isFinite(value) && value >= 0;
+    if (!row.producto || (!validQuantity && !validValue)) return;
+    if (validValue) revenue += value;
+    if (validQuantity) { units += quantity; quantityRows += 1; }
     byProduct[row.producto] ||= { units: 0, revenue: 0 };
-    byProduct[row.producto].units += quantity;
-    byProduct[row.producto].revenue += value;
+    if (validQuantity) byProduct[row.producto].units += quantity;
+    if (validValue) byProduct[row.producto].revenue += value;
   });
-  const ranked = Object.entries(byProduct).sort((a, b) => b[1].revenue - a[1].revenue);
-  const topShare = revenue && ranked[0] ? ranked[0][1].revenue / revenue : 0;
-  const monthlyMap = {};
+  const rankingBasis = revenue > 0 ? "value" : "quantity";
+  const basisValue = item => rankingBasis === "value" ? item.revenue : item.units;
+  const ranked = Object.entries(byProduct).sort((a, b) => basisValue(b[1]) - basisValue(a[1]));
+  const basisTotal = rankingBasis === "value" ? revenue : units;
+  const topShare = basisTotal && ranked[0] ? basisValue(ranked[0][1]) / basisTotal : 0;
+  const monthlyValue = {}, monthlyUnits = {};
   sales.forEach(row => {
     const date = new Date(row.fecha), quantity = numericValue(row.cantidad);
     const value = Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : quantity * numericValue(row.precio);
-    if (Number.isNaN(date.getTime()) || !Number.isFinite(value) || value < 0) return;
+    if (Number.isNaN(date.getTime())) return;
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-    monthlyMap[key] = (monthlyMap[key] || 0) + value;
+    if (Number.isFinite(value) && value >= 0) monthlyValue[key] = (monthlyValue[key] || 0) + value;
+    if (Number.isFinite(quantity) && quantity >= 0) monthlyUnits[key] = (monthlyUnits[key] || 0) + quantity;
   });
+  const monthlyMap = rankingBasis === "value" ? monthlyValue : monthlyUnits;
   const monthly = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value }));
   const windowSize = monthly.length >= 6 ? 3 : monthly.length >= 4 ? 2 : 0;
   const priorMonths = windowSize ? monthly.slice(-windowSize * 2, -windowSize) : [];
@@ -1140,7 +1273,7 @@ function calculateMetrics(sales, inventory, period) {
   const stockout = inv.filter(row => row.stock <= 5 && row.sold > 0).sort((a, b) => b.sold - a.sold)[0];
   const inventoryValue = inv.reduce((sum, row) => sum + (Number.isFinite(row.cost) ? row.stock * row.cost : 0), 0);
   const inventoryUnits = inv.reduce((sum, row) => sum + row.stock, 0);
-  return { revenue, units, ranked, topShare, monthly, priorAverage, recentAverage, trendChange, trendSustained, inv, inventoryValue, inventoryUnits, slowItems, slowUnits, slowValue, slowSales, stockout, period, products: inv.length };
+  return { revenue, units, quantityRows, ranked, rankingBasis, topShare, monthly, priorAverage, recentAverage, trendChange, trendSustained, inv, inventoryValue, inventoryUnits, slowItems, slowUnits, slowValue, slowSales, stockout, period, products: inv.length };
 }
 
 function priorityScore({ impact, urgency, reach, confidence }) {
@@ -1156,7 +1289,7 @@ function prioritize(metrics, scope) {
   if (scope.hasSales && metrics.trendSustained && metrics.trendChange <= -.15) findings.push(scored({
     type: "trend",
     title: `Tus ventas bajaron ${percent(Math.abs(metrics.trendChange))} en los meses más recientes.`,
-    reason: `El promedio mensual pasó de ${money.format(metrics.priorAverage)} a ${money.format(metrics.recentAverage)}.`,
+    reason: metrics.rankingBasis === "value" ? `El promedio mensual pasó de ${money.format(metrics.priorAverage)} a ${money.format(metrics.recentAverage)}.` : `El promedio mensual pasó de ${Math.round(metrics.priorAverage)} a ${Math.round(metrics.recentAverage)} unidades.`,
     evidence: `La caída aparece de forma sostenida en los últimos ${metrics.monthly.length >= 6 ? 3 : 2} meses disponibles.`,
     meaning: "Es un cambio reciente que afecta el conjunto de las ventas y merece confirmarse antes de atribuirlo a una causa.",
     action: "Confirma si ocurrió algo fuera de lo normal y revisa qué productos explican la mayor parte de la caída.",
@@ -1165,8 +1298,8 @@ function prioritize(metrics, scope) {
   const concentration = scored({
     type: "concentration",
     title: `Gran parte de tus ventas depende de ${metrics.ranked[0]?.[0] || "un solo producto"}.`,
-    reason: `${metrics.ranked[0]?.[0] || "El producto principal"} representa ${percent(metrics.topShare)} del valor vendido.`,
-    evidence: `De ${money.format(metrics.revenue)} vendidos, ${money.format(metrics.ranked[0]?.[1].revenue || 0)} provienen de ese producto.`,
+    reason: `${metrics.ranked[0]?.[0] || "El producto principal"} representa ${percent(metrics.topShare)} ${metrics.rankingBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}.`,
+    evidence: metrics.rankingBasis === "value" ? `De ${money.format(metrics.revenue)} vendidos, ${money.format(metrics.ranked[0]?.[1].revenue || 0)} provienen de ese producto.` : `De ${metrics.units} unidades vendidas, ${metrics.ranked[0]?.[1].units || 0} corresponden a ese producto.`,
     meaning: "Una caída en ese producto puede afectar una parte importante de las ventas observadas.",
     action: "Comprueba si el patrón continúa y elige dos productos complementarios que puedas ofrecer junto al principal.",
     indicator: "Porcentaje del valor vendido que representa el producto principal."
@@ -1206,7 +1339,7 @@ function prioritize(metrics, scope) {
     indicator: "Número de registros de ventas agregados al próximo análisis."
   }, { impact: 80, urgency: 90, reach: 100, confidence: 100 }));
   if (scope.hasSales && metrics.topShare >= .6) findings.push(concentration);
-  if (scope.hasSales && scope.hasInventory && scoredSlow) findings.push(scoredSlow);
+  if (scope.hasSales && scope.hasInventory && metrics.quantityRows > 0 && scoredSlow) findings.push(scoredSlow);
   if (stockout) findings.push(stockout);
   const fallbacks = [
     {
@@ -1247,7 +1380,7 @@ function metricCards() {
     <article class="stat"><span>Unidades disponibles</span><strong>${metrics.inventoryUnits}</strong></article>
     <article class="stat"><span>Costo registrado</span><strong>${metrics.inventoryValue ? money.format(metrics.inventoryValue) : "No disponible"}</strong></article>
     <article class="stat"><span>Ventas encontradas</span><strong>0</strong></article>`;
-  return `<article class="stat"><span>Valor vendido</span><strong>${money.format(metrics.revenue)}</strong></article>
+  return `<article class="stat"><span>Valor vendido</span><strong>${metrics.rankingBasis === "value" ? money.format(metrics.revenue) : "No disponible"}</strong></article>
     <article class="stat"><span>Unidades vendidas</span><strong>${metrics.units}</strong></article>
     <article class="stat"><span>Días revisados</span><strong>${metrics.period}</strong></article>
     <article class="stat"><span>Productos relacionados</span><strong>${metrics.products}</strong></article>`;

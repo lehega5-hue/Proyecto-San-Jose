@@ -43,7 +43,9 @@ const appPath = path.join(__dirname, "..", "app.js");
 const source = fs.readFileSync(appPath, "utf8") + `
 ;globalThis.__test = {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
-  setupSpeechRecognition, voiceState: () => ({ isListening })
+  setupSpeechRecognition, voiceState: () => ({ isListening }), semanticRoles,
+  inferInterpretation, buildCanonicalDataset, interpretedScope,
+  handleInterpretationAction, selectRoleColumn, interpretationRow
 };
 `;
 vm.createContext(sandbox);
@@ -51,7 +53,9 @@ vm.runInContext(source, sandbox, { filename: appPath });
 
 const {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
-  setupSpeechRecognition, voiceState
+  setupSpeechRecognition, voiceState, semanticRoles, inferInterpretation,
+  buildCanonicalDataset, interpretedScope, handleInterpretationAction,
+  selectRoleColumn, interpretationRow
 } = sandbox.__test;
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -108,6 +112,30 @@ function speechResult(text, isFinal = true) {
   const result = [{ transcript: text }];
   result.isFinal = isFinal;
   return { results: [result] };
+}
+
+function assignment(header, confidence = "Alta", extra = {}) {
+  return { header, confidence, score: confidence === "Alta" ? 10 : confidence === "Media" ? 6 : 3, sample: "muestra", duplicates: [], ...extra };
+}
+
+function makeTable(type, rows, assignments) {
+  const headers = Object.keys(rows[0] || {});
+  return {
+    type,
+    fileName: `${type}.csv`,
+    sheetName: type === "sales" ? "Ventas" : "Inventario",
+    headers,
+    rows,
+    profiles: Object.fromEntries(headers.map(header => [header, { numeric: 0, dates: 0, text: 0, sample: rows.slice(0, 3).map(row => row[header]).join(", ") }])),
+    interpretation: { assignments: { ...Object.fromEntries(Object.keys(semanticRoles[type]).map(role => [role, null])), ...assignments } }
+  };
+}
+
+function resetInterpretation(tables) {
+  app.classified = tables;
+  app.clarifications = {};
+  app.semanticPending = true;
+  app.step = 3;
 }
 
 test("VOZ 1: el dictado continuo reinicia si el navegador termina la escucha", async () => {
@@ -206,6 +234,161 @@ test("Un dato opcional ausente no bloquea una carga real completa", () => {
     } }
   }];
   assert.equal(requiredMappingIssues().length, 0);
+});
+
+test("ANALÍTICA 1: identifica correctamente columnas normales con confianza alta", () => {
+  const rows = [{ Fecha: "2026-01-01", "Cod Art": "A001", Cantidad: 2, "Valor Total": 20000 }];
+  const table = makeTable("sales", rows, {});
+  table.profiles.Fecha.dates = 1;
+  table.profiles["Cod Art"].text = 1;
+  table.profiles.Cantidad.numeric = 1;
+  table.profiles["Valor Total"].numeric = 1;
+  const result = inferInterpretation(table, "sales");
+  assert.equal(result.assignments.fecha.confidence, "Alta");
+  assert.equal(result.assignments.producto.header, "Cod Art");
+});
+
+test("ANALÍTICA 2: una interpretación alta incorrecta sigue mostrando Cambiar", () => {
+  const table = makeTable("sales", [{ Fecha: "2026-01-01", Cliente: "Ana", "Cod Art": "A001", Cantidad: 2 }], {
+    fecha: assignment("Fecha"), producto: assignment("Cliente"), cantidad: assignment("Cantidad")
+  });
+  resetInterpretation([table]);
+  const html = interpretationRow(table, 0, "producto");
+  assert.ok(html.includes("Confianza Alta"));
+  assert.ok(html.includes(">Cambiar<"));
+});
+
+test("ANALÍTICA 3: el usuario corrige una interpretación sin recargar", () => {
+  const table = makeTable("sales", [{ Fecha: "2026-01-01", Cliente: "Ana", "Cod Art": "A001", Cantidad: 2 }], {
+    fecha: assignment("Fecha"), producto: assignment("Cliente"), cantidad: assignment("Cantidad")
+  });
+  resetInterpretation([table]);
+  selectRoleColumn({ target: { dataset: { table: "0", role: "producto" }, value: "Cod Art" } });
+  assert.equal(table.interpretation.assignments.producto.header, "Cod Art");
+  assert.equal(table.interpretation.assignments.producto.confirmed, true);
+});
+
+test("ANALÍTICA 4: confianza media necesita confirmación", () => {
+  const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", U: 2 }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("U", "Media")
+  });
+  resetInterpretation([table]);
+  assert.equal(interpretedScope().hasSales, false);
+  handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "cantidad", action: "confirm" } } });
+  assert.equal(interpretedScope().hasSales, true);
+});
+
+test("ANALÍTICA 5: confianza baja necesita confirmación", () => {
+  const table = makeTable("inventory", [{ Referencia: "A", Saldo: 4 }], {
+    producto: assignment("Referencia"), stock: assignment("Saldo", "Baja")
+  });
+  resetInterpretation([table]);
+  assert.equal(interpretedScope().hasInventory, false);
+  handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "stock", action: "confirm" } } });
+  assert.equal(interpretedScope().hasInventory, true);
+});
+
+test("ANALÍTICA 6: No tengo ese dato guarda la decisión durante la sesión", () => {
+  const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 2 }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad")
+  });
+  resetInterpretation([table]);
+  handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "valorTotal", action: "missing" } } });
+  assert.equal(app.clarifications["0:valorTotal"].status, "missing");
+  assert.ok(interpretationRow(table, 0, "valorTotal").includes("No disponible"));
+});
+
+test("ANALÍTICA 7: No usar ignora la columna sin borrar el archivo", () => {
+  const rows = [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 2, Cliente: "Ana" }];
+  const table = makeTable("sales", rows, { fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad"), cliente: assignment("Cliente") });
+  resetInterpretation([table]);
+  handleInterpretationAction({ currentTarget: { dataset: { table: "0", role: "cliente", action: "ignore" } } });
+  assert.equal(table.interpretation.assignments.cliente, null);
+  assert.equal(table.rows[0].Cliente, "Ana");
+  assert.equal(app.clarifications["0:cliente"].status, "ignored");
+});
+
+test("ANALÍTICA 8: la ausencia de un dato opcional no bloquea", () => {
+  const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 2 }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad")
+  });
+  resetInterpretation([table]);
+  assert.equal(requiredMappingIssues().length, 0);
+});
+
+test("ANALÍTICA 9: la ausencia de un dato necesario bloquea", () => {
+  const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A" }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto")
+  });
+  resetInterpretation([table]);
+  assert.ok(requiredMappingIssues().length > 0);
+});
+
+test("ANALÍTICA 10: dos columnas posibles deben resolverse", () => {
+  const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 2, "Total 1": 10, "Total 2": 12 }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad"),
+    valorTotal: assignment("Total 1", "Media", { duplicates: ["Total 1", "Total 2"] })
+  });
+  resetInterpretation([table]);
+  assert.ok(requiredMappingIssues().some(issue => issue.title.includes("duplicada")));
+  selectRoleColumn({ target: { dataset: { table: "0", role: "valorTotal" }, value: "Total 2" } });
+  assert.equal(table.interpretation.assignments.valorTotal.header, "Total 2");
+  assert.equal(requiredMappingIssues().length, 0);
+});
+
+test("ANALÍTICA 11: calcula valor total desde cantidad por precio", () => {
+  const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 3, Precio: 12000 }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad"), precio: assignment("Precio")
+  });
+  resetInterpretation([table]);
+  const dataset = buildCanonicalDataset();
+  assert.equal(dataset.sales[0].valorTotal, 36000);
+  assert.equal(dataset.sales[0].valorTotalCalculado, true);
+});
+
+test("ANALÍTICA 12: solo ventas produce alcance de ventas", () => {
+  const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 3 }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad")
+  });
+  resetInterpretation([table]);
+  const scope = interpretedScope();
+  assert.equal(scope.hasSales, true);
+  assert.equal(scope.hasInventory, false);
+});
+
+test("ANALÍTICA 13: ventas e inventario producen alcance combinado", () => {
+  const sales = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 3 }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad")
+  });
+  const inventory = makeTable("inventory", [{ Producto: "A", Existencia: 8 }], {
+    producto: assignment("Producto"), stock: assignment("Existencia")
+  });
+  resetInterpretation([sales, inventory]);
+  const scope = interpretedScope();
+  assert.equal(scope.hasSales, true);
+  assert.equal(scope.hasInventory, true);
+});
+
+test("VALIDACIÓN: fecha, producto y cantidad permiten analizar volumen", () => {
+  const sales = Array.from({ length: 6 }, (_, index) => ({ fecha: `2026-0${index + 1}-10`, producto: index % 2 ? "B" : "A", cantidad: 10 - index }));
+  const result = analyze({ sales, inventory: [] });
+  assert.notEqual(result.quality.level, "BAJA");
+  assert.equal(result.metrics.rankingBasis, "quantity");
+});
+
+test("VALIDACIÓN: fecha, producto y valor total permiten analizar ingresos", () => {
+  const sales = Array.from({ length: 6 }, (_, index) => ({ fecha: `2026-0${index + 1}-10`, producto: index % 2 ? "B" : "A", valorTotal: 100000 - index * 5000 }));
+  const result = analyze({ sales, inventory: [] });
+  assert.notEqual(result.quality.level, "BAJA");
+  assert.equal(result.metrics.rankingBasis, "value");
+});
+
+test("VALIDACIÓN: valor sin cantidad no se usa para afirmar inventario acumulado", () => {
+  const sales = Array.from({ length: 6 }, (_, index) => ({ fecha: `2026-0${index + 1}-10`, producto: index % 2 ? "B" : "A", valorTotal: 100000 }));
+  const inventory = [{ producto: "A", stock: 80, costo: 10000 }, { producto: "B", stock: 70, costo: 9000 }];
+  const result = analyze({ sales, inventory });
+  assert.equal(result.metrics.quantityRows, 0);
+  assert.ok(!result.priorities.some(finding => finding.type === "slow"));
 });
 
 (async () => {
