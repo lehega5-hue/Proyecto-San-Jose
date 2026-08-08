@@ -49,7 +49,8 @@ const source = fs.readFileSync(appPath, "utf8") + `
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
   roleDisplayLabel, primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan
+  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan,
+  evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 };
 `;
 vm.createContext(sandbox);
@@ -63,7 +64,8 @@ const {
   columnDataQuality, columnIdentification, roleDisplayLabel,
   primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan
+  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan,
+  evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 } = sandbox.__test;
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -959,6 +961,59 @@ test("MOTOR 10: analiza clientes confirmados como explicación de una caída gen
   assert.ok(result.metrics.customerDrivers.length >= 2);
   assert.equal(result.priorities[0].type, "business-decline");
   assert.ok(result.priorities.slice(1).some(finding => finding.driver?.dimension === "cliente" && finding.driver.product === "Cliente Norte"));
+});
+
+test("ARQUITECTURA 1: todos los módulos entregan el contrato empresarial común", () => {
+  const sales = businessRows({ A: [60, 60, 60, 20, 20, 20], B: [40, 40, 40, 30, 30, 30] });
+  const result = setStageThree({ sales, inventory: [{ producto: "A", stock: 500 }, { producto: "B", stock: 5 }] });
+  const required = ["dominio", "tipoProblema", "problemaGeneral", "magnitud", "unidad", "periodo", "evidencia", "causasObservadas", "aportePorCausa", "hipotesisPorValidar", "limitaciones", "calidadInformacion", "impacto", "urgencia", "alcance", "prioridad"];
+  assert.ok(result.businessFindings.length >= 2);
+  result.businessFindings.forEach(finding => required.forEach(field => assert.ok(Object.hasOwn(finding, field), `${finding.type} no tiene ${field}`)));
+});
+
+test("ARQUITECTURA 2: el diagnóstico entrega hechos, hipótesis y datos disponibles por separado", () => {
+  const sales = [];
+  for (let month = 1; month <= 6; month += 1) {
+    if (month <= 3) sales.push({ fecha: `2026-0${month}-10`, producto: "A", cliente: "Cliente inactivo", cantidad: 70, valorTotal: 70000 });
+    sales.push({ fecha: `2026-0${month}-11`, producto: "B", cliente: "Cliente activo", cantidad: month <= 3 ? 30 : 20, valorTotal: (month <= 3 ? 30 : 20) * 1000 });
+  }
+  const result = setStageThree({ sales, inventory: [] });
+  const diagnosis = result.diagnostico;
+  const required = ["problemGeneral", "evidenciaProblema", "causasObservadas", "aportePorCausa", "hipotesisPorValidar", "limitaciones", "calidadInformacion", "periodoAnalizado", "comparacionHistorica", "datosDisponibles"];
+  required.forEach(field => assert.ok(Object.hasOwn(diagnosis, field), `falta ${field}`));
+  assert.ok(diagnosis.causasObservadas.some(item => item.includes("Cliente inactivo") || item.includes("cliente que antes compraba")));
+  assert.ok(diagnosis.hipotesisPorValidar.some(item => item.includes("precio")));
+  assert.ok(!diagnosis.causasObservadas.some(item => item.includes("precio")));
+  assert.equal(diagnosis.datosDisponibles.competencia, false);
+});
+
+test("ARQUITECTURA 3: Etapa 3 investiga y no presenta un plan comercial detallado", () => {
+  const sales = businessRows({ A: [60, 60, 60, 20, 20, 20], B: [40, 40, 40, 30, 30, 30] });
+  setStageThree({ sales, inventory: [] });
+  const html = resultsScreen();
+  assert.ok(html.includes("¿Qué conviene investigar?"));
+  assert.ok(!html.includes("¿Qué puedes hacer?"));
+  app.activePriority = 0;
+  const evidence = evidenceScreen();
+  assert.ok(evidence.includes("Qué conviene investigar"));
+  assert.ok(!evidence.includes("Qué conviene hacer"));
+});
+
+test("ARQUITECTURA 4: el motor central puede priorizar un módulo futuro sin reconstruirse", () => {
+  const futureFinding = { dominio: "cartera", tipoProblema: "cartera-vencida", problemaGeneral: "La cartera vencida está aumentando.", magnitud: 64, unidad: "porcentaje", periodo: "Último mes", evidencia: ["Cinco clientes concentran 64 % de la deuda vencida."], causasObservadas: [], aportePorCausa: [], hipotesisPorValidar: [], limitaciones: [], calidadInformacion: { nivel: "Alta", porcentaje: 95 }, impacto: 95, urgencia: 90, alcance: 80, prioridad: 91 };
+  const architecture = runBusinessAnalysisModules({}, [() => [futureFinding]], []);
+  const ranked = prioritizeBusinessFindings([...architecture.findings, { ...futureFinding, dominio: "ventas", prioridad: 60 }]);
+  assert.equal(ranked[0].dominio, "cartera");
+  assert.equal(architecture.moduleFindings[0].tipoProblema, "cartera-vencida");
+});
+
+test("ARQUITECTURA 5: el cruce Ventas e Inventario exige productos relacionados", () => {
+  const sales = businessRows({ A: [60, 60, 60, 40, 40, 40], B: [40, 40, 40, 30, 30, 30] });
+  const invalid = setStageThree({ sales, inventory: [{ fechaCorte: "2026-03-31", producto: "X", stock: 100 }, { fechaCorte: "2026-06-30", producto: "X", stock: 160 }] });
+  assert.ok(!invalid.businessFindings.some(finding => finding.dominio === "ventas-inventario"));
+  const valid = setStageThree({ sales, inventory: [{ fechaCorte: "2026-03-31", producto: "A", stock: 100 }, { fechaCorte: "2026-06-30", producto: "A", stock: 160 }] });
+  assert.ok(valid.businessFindings.some(finding => finding.dominio === "ventas-inventario"));
+  assert.ok(valid.businessFindings.find(finding => finding.dominio === "ventas-inventario").limitaciones.some(item => item.includes("no demuestra")));
 });
 
 (async () => {

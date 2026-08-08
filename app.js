@@ -793,8 +793,18 @@ function priorityPresentation(finding) {
   return { title: "Todavía no tenemos información suficiente para decirte qué atender primero.", metrics: [], found: "La información disponible no permite comparar productos o periodos con seguridad.", important: resultQualityCopy(quality), action: "Revisa los datos incompletos indicados arriba y vuelve a realizar el análisis.", strength: "BAJA" };
 }
 
-function resultEvidenceHtml(presentation) {
-  return `<section class="priority-evidence" id="priority-evidence"><article><span>¿Qué encontramos?</span><p>${safe(presentation.found)}</p></article><article><span>¿Por qué es importante?</span><p>${safe(presentation.important)}</p></article><article><span>¿Qué puedes hacer?</span><p>${safe(presentation.action)}</p></article></section>`;
+function diagnosticReviewText(finding) {
+  if (finding?.reviewFocus) return finding.reviewFocus;
+  if (finding?.type === "sales-decline-cause") return "Si este factor continúa aportando a la caída general de las ventas.";
+  if (["slow", "inventory-excess", "inventory-accumulation"].includes(finding?.type)) return "Qué productos concentran más existencias frente a sus ventas recientes.";
+  if (["stockout", "stock-risk-general"].includes(finding?.type)) return "Si las existencias registradas alcanzan para sostener el ritmo reciente de ventas.";
+  if (["concentration", "maintain"].includes(finding?.type)) return "Si la dependencia del producto principal continúa en otros periodos.";
+  if (["trend", "product-decline"].includes(finding?.type)) return "Qué productos, clientes o periodos están asociados con el cambio observado.";
+  return "La situación señalada y la información que falta para explicarla mejor.";
+}
+
+function resultEvidenceHtml(presentation, finding) {
+  return `<section class="priority-evidence" id="priority-evidence"><article><span>¿Qué encontramos?</span><p>${safe(presentation.found)}</p></article><article><span>¿Por qué es importante?</span><p>${safe(presentation.important)}</p></article><article><span>¿Qué conviene investigar?</span><p>${safe(diagnosticReviewText(finding))}</p></article></section>`;
 }
 
 function stageThreeSecondaryFindings() {
@@ -858,14 +868,24 @@ function managementProductsHtml() {
   return `<section><h3>Qué productos están sosteniendo tus ventas</h3><p><strong>${combined >= .6 ? "Gran parte de tus ventas depende de pocos productos." : "Tus ventas están repartidas entre varios productos."}</strong></p><p>${safe(leaders.map(item => item[0]).join(", "))} representan ${readablePercent(combined)} ${metrics.chartBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}.</p><p>${safe(leaders[0][0])} representa por sí solo ${readablePercent(first)}.</p><p>Esto significa que si uno de estos productos vende menos, puede afectar una parte importante de tus ventas.</p></section>`;
 }
 
+function managementObservedCausesHtml() {
+  const diagnosis = app.analysis.diagnostico;
+  const causes = diagnosis?.causasObservadas || [];
+  const main = app.analysis.priorities[0];
+  if (!causes.length) return `<section><h3>Qué está explicando el cambio</h3><p><strong>Todavía no encontramos factores observados suficientes para explicarlo.</strong></p><p>No convertimos posibles explicaciones en hechos cuando los archivos no pueden demostrarlas.</p></section>`;
+  return `<section><h3>Qué está explicando el cambio</h3><ul>${causes.map(item => `<li>${safe(item)}</li>`).join("")}</ul><p><strong>En conjunto:</strong> ${safe(main?.meaning || "Estos factores están asociados con el resultado observado.")}</p></section>`;
+}
+
 function managementDetailHtml(main, presentation, insufficient) {
   const quality = app.analysis.resultQuality;
   const limitations = analysisLimitations();
+  const diagnosis = app.analysis.diagnostico;
+  const hypotheses = diagnosis?.hipotesisPorValidar || [];
   const details = quality.details.filter(item => ["Fecha de venta", "Producto de ventas", "Cantidad vendida", "Valor de la venta"].includes(item.label)).slice(0, 4);
   return `<div class="management-report"><header><p class="section-kicker">Mini informe gerencial</p><h2>Resumen para tomar decisiones</h2><p>Revisamos tu información. Estos son los puntos más importantes para entender qué está pasando.</p></header>
-    ${managementSalesHtml()}${managementProductsHtml()}
+    ${managementSalesHtml()}${managementObservedCausesHtml()}
     <section><h3>Qué deberías revisar primero</h3>${insufficient ? `<p><strong>Todavía no tenemos información suficiente para decirte qué atender primero.</strong></p><p>${safe(quality.reasons[0] || resultQualityCopy(quality))}</p>` : `<p><strong>${safe(presentation.title)}</strong></p><p>${safe(presentation.found)}</p><p>${safe(presentation.important)}</p><p>Por eso San José lo coloca como la primera situación a revisar.</p>`}</section>
-    <section><h3>Lo que todavía no podemos saber</h3>${limitations.length ? `<ul>${limitations.map(item => `<li>${safe(item)}</li>`).join("")}</ul>` : "<p>No encontramos una limitación importante para las conclusiones mostradas.</p>"}</section>
+    <section><h3>Lo que todavía no podemos saber</h3>${hypotheses.length ? `<p><strong>Posibles explicaciones por confirmar:</strong></p><ul>${hypotheses.map(item => `<li>${safe(item)}</li>`).join("")}</ul><p>Estas posibilidades no están demostradas por los datos.</p>` : ""}${limitations.length ? `<p><strong>Información que limita el diagnóstico:</strong></p><ul>${limitations.map(item => `<li>${safe(item)}</li>`).join("")}</ul>` : "<p>No encontramos una limitación importante para las conclusiones mostradas.</p>"}</section>
     <section><h3>Calidad de la información</h3><p><strong>Calidad de la información: ${quality.score} % · ${safe(quality.level[0] + quality.level.slice(1).toLowerCase())}</strong></p><p>${safe(resultQualityCopy(quality))}</p><details class="detail-quality"><summary>Ver por qué</summary><ul>${details.map(item => `<li><span>${safe(item.label.replace(" de venta", ""))}</span><strong>${readablePercent(item.rate)} utilizable</strong></li>`).join("")}</ul></details></section>
     <section class="download-explanation"><h3>Descargar resumen ejecutivo</h3><p>Guarda estas conclusiones en un informe corto para revisarlas con tu equipo.</p></section></div>`;
 }
@@ -884,7 +904,7 @@ function resultsScreen() {
     <section class="result-section" aria-labelledby="summary-title"><h2 id="summary-title">Tus datos en pocas palabras</h2><div class="result-stats">${summaryCardsHtml()}</div></section>
     ${resultQualityHtml()}
     <section class="result-section" aria-labelledby="charts-title"><h2 id="charts-title">Lo que pasó con tus ventas</h2><div class="result-charts">${trendChartHtml()}${productChartHtml()}</div></section>
-    ${insufficient ? `<section class="insufficient-priority"><p class="section-kicker">Resultado del análisis</p><h2>Todavía no tenemos información suficiente para decirte qué atender primero.</h2><p>${safe(quality.reasons[0] || "No encontramos suficientes datos utilizables para comparar productos o periodos.")}</p></section>` : `<section class="result-section priority-section" aria-labelledby="priority-title"><p class="section-kicker">Atiende esto primero</p><article class="main-priority"><h2 id="priority-title">${safe(presentation.title)}</h2><div class="priority-metrics">${presentation.metrics.slice(0, 4).map(metric => `<span>${safe(metric)}</span>`).join("")}</div><p class="quality-notice">${presentation.strength === "MEDIA" ? `Esta recomendación utiliza información con ${quality.score} % de calidad. Ten en cuenta las limitaciones indicadas.` : presentation.strength === "BAJA" ? `Esta recomendación se basa en información con ${quality.score} % de calidad y debe tomarse como una señal inicial.` : `Basado en información con ${quality.score} % de calidad.`}</p></article></section>${resultEvidenceHtml(presentation)}<div class="priority-actions"><button class="button gold" type="button" data-go="7">Ver mis 3 acciones</button><button class="button secondary" type="button" data-priority="0" data-go="6">Ver evidencia</button></div>`}
+    ${insufficient ? `<section class="insufficient-priority"><p class="section-kicker">Resultado del análisis</p><h2>Todavía no tenemos información suficiente para decirte qué atender primero.</h2><p>${safe(quality.reasons[0] || "No encontramos suficientes datos utilizables para comparar productos o periodos.")}</p></section>` : `<section class="result-section priority-section" aria-labelledby="priority-title"><p class="section-kicker">Atiende esto primero</p><article class="main-priority"><h2 id="priority-title">${safe(presentation.title)}</h2><div class="priority-metrics">${presentation.metrics.slice(0, 4).map(metric => `<span>${safe(metric)}</span>`).join("")}</div><p class="quality-notice">${presentation.strength === "MEDIA" ? `Este diagnóstico utiliza información con ${quality.score} % de calidad. Ten en cuenta las limitaciones indicadas.` : presentation.strength === "BAJA" ? `Este diagnóstico se basa en información con ${quality.score} % de calidad y debe tomarse como una señal inicial.` : `Basado en información con ${quality.score} % de calidad.`}</p></article></section>${resultEvidenceHtml(presentation, main)}<div class="priority-actions"><button class="button gold" type="button" data-go="7">Ver mis 3 acciones</button><button class="button secondary" type="button" data-priority="0" data-go="6">Ver evidencia</button></div>`}
     ${secondary.length ? `<section class="result-section also-found"><h2>También encontramos</h2><div class="secondary-findings">${secondary.map(item => `<article class="secondary-finding"><p>${safe(item.sentence)}</p></article>`).join("")}</div></section>` : ""}
     <details class="analysis-details"><summary>Ver detalle del análisis</summary>${managementDetailHtml(main, presentation, insufficient)}</details>
     <div class="download-summary-action"><button id="download-summary" class="button secondary" type="button" ${insufficient ? "disabled" : ""}>Descargar resumen ejecutivo</button>${insufficient ? "<p>Podrás descargarlo cuando exista información suficiente para sustentar una conclusión.</p>" : ""}</div>
@@ -899,7 +919,7 @@ function evidenceScreen() {
     <article class="focus-card"><span>Lo que muestran tus datos</span><h2>${safe(finding.evidence)}</h2></article>
     <div class="consulting-detail">
       <section class="panel"><h2>Qué significa</h2><p>${safe(finding.meaning)}</p></section>
-      <section class="panel"><h2>Qué conviene hacer</h2><p>${safe(finding.action)}</p><p><strong>Qué observar:</strong> ${safe(finding.indicator)}</p></section>
+      <section class="panel"><h2>Qué conviene investigar</h2><p>${safe(diagnosticReviewText(finding))}</p><p><strong>Qué observar:</strong> ${safe(finding.indicator)}</p></section>
     </div>
     <div class="actions"><button class="button secondary" type="button" data-go="5">← Volver al resultado</button>${app.activePriority === 0 ? '<button class="button gold" type="button" data-go="7">Crear plan de 3 acciones →</button>' : ""}</div>`;
 }
@@ -1779,11 +1799,21 @@ function analyze(data, referenceDate = new Date()) {
     nextStep: "Busca esas columnas o registros en el archivo que ya utiliza tu negocio, complétalos y vuelve a cargarlo."
   };
   const metrics = calculateMetrics(sales, inventory, period, referenceDate);
-  const priorities = level === "BAJA" ? [] : prioritize(metrics, { hasSales, hasInventory, completeness });
+  const analysisScope = { hasSales, hasInventory, completeness };
+  const architecture = businessAnalysisArchitecture(metrics, analysisScope);
+  const priorities = level === "BAJA" ? [] : prioritize(metrics, analysisScope);
+  const diagnosticHandoff = buildDiagnosticHandoff(priorities[0] || architecture.rankedFindings[0], metrics, resultQuality, data);
   const freeContext = normalize(`${app.context.contextoLibre || ""} ${app.context.eventoReciente || ""}`);
   const trendFirst = ["trend", "business-decline"].includes(priorities[0]?.type);
   const contextMentionsChange = Boolean(app.context.eventoReciente) || /(cerr|problema|proveedor|precio|cliente|normal|vacacion|obra|cambio|perdi)/.test(freeContext);
-  return { quality, resultQuality, metrics, priorities, adaptiveNeeded: trendFirst && !contextMentionsChange };
+  return {
+    quality, resultQuality, metrics, priorities,
+    hallazgosEmpresariales: architecture.findings,
+    businessFindings: architecture.findings,
+    diagnostico: diagnosticHandoff,
+    diagnosticHandoff,
+    adaptiveNeeded: trendFirst && !contextMentionsChange
+  };
 }
 
 function salesPanorama(series, basis) {
@@ -1993,73 +2023,283 @@ function priorityScore({ impact, urgency, reach, confidence }) {
 }
 
 function scored(finding, factors) {
-  return { ...finding, priorityFactors: factors, priorityScore: priorityScore(factors) };
+  const score = priorityScore(factors);
+  return {
+    ...finding,
+    dominio: finding.dominio || "empresarial",
+    tipoProblema: finding.tipoProblema || finding.type || "situacion-por-revisar",
+    problemaGeneral: finding.problemaGeneral || finding.title || "Situación por revisar",
+    magnitud: finding.magnitud ?? null,
+    unidad: finding.unidad || "",
+    periodo: finding.periodo || "Periodo disponible",
+    evidencia: finding.evidencia || [finding.reason, finding.evidence].filter(Boolean),
+    causasObservadas: finding.causasObservadas || [],
+    aportePorCausa: finding.aportePorCausa || [],
+    hipotesisPorValidar: finding.hipotesisPorValidar || [],
+    limitaciones: finding.limitaciones || [],
+    calidadInformacion: finding.calidadInformacion || { nivel: factors.confidence >= 85 ? "Alta" : factors.confidence >= 65 ? "Media" : "Baja", porcentaje: Math.round(factors.confidence) },
+    impacto: Math.round(factors.impact),
+    urgencia: Math.round(factors.urgency),
+    alcance: Math.round(factors.reach),
+    prioridad: score,
+    priorityFactors: factors,
+    priorityScore: score
+  };
+}
+
+function observedSalesCauses(metrics) {
+  const panorama = metrics.panorama;
+  if (!panorama.reliable || panorama.status !== "VENTAS EN DESCENSO") return { causes: [], contributions: [], drivers: [] };
+  const amount = value => panorama.basis === "value" ? money.format(value) : `${readableNumber(value)} unidades`;
+  const productDrivers = metrics.productDrivers.filter(item => item.delta < 0 && item.contribution >= .05).slice(0, 2);
+  const inactiveCustomers = metrics.customerDrivers.filter(item => item.priorTotal > 0 && item.recentTotal === 0);
+  const decliningCustomer = metrics.customerDrivers.filter(item => item.delta < 0).sort((a, b) => b.contribution - a.contribution)[0];
+  const seller = metrics.sellerDrivers.find(item => item.delta < 0 && item.contribution >= .10);
+  const causes = [], contributions = [];
+  productDrivers.forEach(driver => {
+    causes.push(`${driver.product} explica ${percent(driver.contribution)} de la reducción observada en las ventas.`);
+    contributions.push({ factor: driver.product, dimension: "producto", aporte: driver.contribution, unidad: "proporción de la reducción", evidencia: `Pasó de ${amount(driver.priorTotal)} a ${amount(driver.recentTotal)}.` });
+  });
+  if (inactiveCustomers.length) {
+    const priorTotal = inactiveCustomers.reduce((sum, item) => sum + item.priorTotal, 0);
+    const contribution = inactiveCustomers.reduce((sum, item) => sum + item.contribution, 0);
+    const priorShare = panorama.priorTotal ? priorTotal / panorama.priorTotal : 0;
+    causes.push(`${inactiveCustomers.length} ${inactiveCustomers.length === 1 ? "cliente que antes compraba no registró" : "clientes que antes compraban no registraron"} ventas en los tres meses recientes; representaban ${percent(priorShare)} de las ventas anteriores.`);
+    contributions.push({ factor: "Clientes sin ventas recientes", dimension: "cliente", aporte: contribution, unidad: "proporción de la reducción", evidencia: `Representaban ${percent(priorShare)} de las ventas del periodo anterior.` });
+  } else if (decliningCustomer && decliningCustomer.contribution >= .10) {
+    causes.push(`Las ventas de ${decliningCustomer.product} bajaron ${percent(Math.abs(decliningCustomer.change || 0))} entre los periodos comparados.`);
+    contributions.push({ factor: decliningCustomer.product, dimension: "cliente", aporte: decliningCustomer.contribution, unidad: "proporción de la reducción", evidencia: `Pasaron de ${amount(decliningCustomer.priorTotal)} a ${amount(decliningCustomer.recentTotal)}.` });
+  }
+  if (seller) {
+    causes.push(`Las ventas asociadas con ${seller.product} bajaron ${percent(Math.abs(seller.change || 0))} entre los periodos comparados.`);
+    contributions.push({ factor: seller.product, dimension: "comercial", aporte: seller.contribution, unidad: "proporción de la reducción", evidencia: `Pasaron de ${amount(seller.priorTotal)} a ${amount(seller.recentTotal)}.` });
+  }
+  if (panorama.basis === "value" && metrics.unitPanorama.reliable && metrics.unitPanorama.change < 0) {
+    causes.push(`Las unidades vendidas bajaron ${percent(Math.abs(metrics.unitPanorama.change))}.`);
+    contributions.push({ factor: "Cantidad vendida", dimension: "cantidad", aporte: Math.abs(metrics.unitPanorama.change), unidad: "variación porcentual", evidencia: "Comparamos los mismos dos periodos de tres meses completos." });
+  }
+  const commercialDriver = inactiveCustomers[0] || decliningCustomer || seller;
+  const drivers = [productDrivers[0], commercialDriver || productDrivers[1]].filter(Boolean);
+  return { causes: [...new Set(causes)], contributions, drivers };
+}
+
+function salesAnalysisModule({ metrics, scope, evidenceConfidence }) {
+  if (!scope.hasSales) return [];
+  const findings = [], panorama = metrics.panorama;
+  const measureName = panorama.basis === "value" ? "valor vendido" : "unidades vendidas";
+  const amount = value => panorama.basis === "value" ? money.format(value) : `${readableNumber(value)} unidades`;
+  const observed = observedSalesCauses(metrics);
+  if (panorama.reliable && panorama.status === "VENTAS EN DESCENSO") findings.push(scored({
+    type: "business-decline", level: "general", dominio: "ventas", tipoProblema: "caida-general",
+    title: "Tus ventas vienen bajando.", problemaGeneral: "Caída general de ventas",
+    magnitud: Math.abs(panorama.change) * 100, unidad: "porcentaje",
+    periodo: `${panorama.prior[0].month} a ${panorama.recent.at(-1).month}`,
+    reason: `En los últimos tres meses vendiste ${percent(Math.abs(panorama.change))} menos que en los tres meses anteriores.`,
+    evidence: `El promedio mensual pasó de ${amount(panorama.priorAverage)} a ${amount(panorama.recentAverage)}.`,
+    meaning: observed.causes.length > 1 ? "La reducción aparece en varios frentes observados y no está explicada por un único producto." : "El negocio está vendiendo menos de lo que venía vendiendo.",
+    reviewFocus: "La caída general y los factores observados que más aportan a ella.",
+    indicator: panorama.basis === "value" ? "Valor vendido en los próximos tres meses." : "Unidades vendidas en los próximos tres meses.",
+    causasObservadas: observed.causes, aportePorCausa: observed.contributions, drivers: observed.drivers,
+    hipotesisPorValidar: ["Cambios de precio.", "Cambios en la actividad comercial o en el mercado.", "Problemas de disponibilidad.", "Cambios en las necesidades o decisiones de los clientes."],
+    limitaciones: ["Los datos muestran qué cambió, pero no demuestran por sí solos por qué ocurrió."],
+    datosAnalizados: { medida: measureName, meses: 6 }
+  }, { impact: Math.min(100, Math.abs(panorama.change) * 260), urgency: 85, reach: 100, confidence: evidenceConfidence }));
+  if (panorama.reliable && panorama.status === "VENTAS EN CRECIMIENTO") findings.push(scored({
+    type: "sales-growth", dominio: "ventas", tipoProblema: "crecimiento-general", title: "Tus ventas vienen aumentando.", problemaGeneral: "Crecimiento general de ventas",
+    magnitud: panorama.change === null ? null : panorama.change * 100, unidad: "porcentaje", periodo: `${panorama.prior[0].month} a ${panorama.recent.at(-1).month}`,
+    reason: panorama.change === null ? "Las ventas recientes partieron de un periodo anterior sin ventas registradas." : `En los últimos tres meses vendiste ${percent(panorama.change)} más que en los tres meses anteriores.`,
+    evidence: `El promedio mensual pasó de ${amount(panorama.priorAverage)} a ${amount(panorama.recentAverage)}.`, meaning: "El negocio está vendiendo más que en el periodo anterior.", reviewFocus: "Si el crecimiento está repartido o depende de pocos productos, clientes o comerciales.",
+    indicator: panorama.basis === "value" ? "Valor vendido por mes." : "Unidades vendidas por mes.",
+    causasObservadas: metrics.productDrivers.filter(item => item.delta > 0 && item.contribution >= .10).slice(0, 3).map(item => `${item.product} aporta ${percent(item.contribution)} del crecimiento observado.`),
+    aportePorCausa: metrics.productDrivers.filter(item => item.delta > 0 && item.contribution >= .10).slice(0, 3).map(item => ({ factor: item.product, dimension: "producto", aporte: item.contribution, unidad: "proporción del crecimiento", evidencia: `Pasó de ${amount(item.priorTotal)} a ${amount(item.recentTotal)}.` })),
+    hipotesisPorValidar: ["Mayor demanda.", "Cambios de precio, disponibilidad o actividad comercial."], limitaciones: ["Los datos muestran dónde creció la venta, pero no demuestran por qué ocurrió."]
+  }, { impact: Math.min(80, (panorama.change || .3) * 180), urgency: 35, reach: 100, confidence: evidenceConfidence }));
+  if (panorama.reliable && panorama.status === "VENTAS ESTABLES") findings.push(scored({
+    type: "sales-stability", dominio: "ventas", tipoProblema: "estabilidad-general", title: "Tus ventas se mantienen estables.", problemaGeneral: "Ventas estables",
+    magnitud: Math.abs(panorama.change || 0) * 100, unidad: "variación porcentual", periodo: `${panorama.prior[0].month} a ${panorama.recent.at(-1).month}`,
+    reason: `La diferencia entre los dos periodos de tres meses fue de ${percent(Math.abs(panorama.change || 0))}.`, evidence: `El promedio mensual reciente fue ${amount(panorama.recentAverage)} frente a ${amount(panorama.priorAverage)} anteriormente.`,
+    meaning: "El total se mantiene cerca del periodo anterior, aunque algunos productos pueden haber cambiado.", reviewFocus: "Los cambios internos que pueden quedar ocultos detrás de un total estable.", indicator: panorama.basis === "value" ? "Valor vendido por mes." : "Unidades vendidas por mes.",
+    causasObservadas: [], aportePorCausa: [], hipotesisPorValidar: [], limitaciones: ["Un total estable puede ocultar aumentos y reducciones entre productos."]
+  }, { impact: 30, urgency: 25, reach: 100, confidence: evidenceConfidence }));
+  if (metrics.ranked[0] && metrics.topShare >= .6) findings.push(scored({
+    type: "concentration", dominio: "ventas", tipoProblema: "dependencia-producto", title: `Gran parte de tus ventas depende de ${metrics.ranked[0][0]}.`,
+    problemaGeneral: "Dependencia de pocos productos", magnitud: metrics.topShare * 100, unidad: "porcentaje de las ventas", periodo: "Periodo completo disponible",
+    reason: `${metrics.ranked[0][0]} representa ${percent(metrics.topShare)} ${metrics.rankingBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}.`,
+    evidence: metrics.rankingBasis === "value" ? `De ${money.format(metrics.revenue)} vendidos, ${money.format(metrics.ranked[0][1].revenue)} provienen de ese producto.` : `De ${metrics.units} unidades vendidas, ${metrics.ranked[0][1].units} corresponden a ese producto.`,
+    meaning: "Una reducción en ese producto puede afectar una parte importante de las ventas observadas.", reviewFocus: "Si esta dependencia continúa en otros periodos.",
+    indicator: "Porcentaje de las ventas que representa el producto principal.",
+    causasObservadas: [`${metrics.ranked[0][0]} concentra ${percent(metrics.topShare)} de las ventas observadas.`],
+    aportePorCausa: [{ factor: metrics.ranked[0][0], dimension: "producto", aporte: metrics.topShare, unidad: "proporción de las ventas", evidencia: "Calculado sobre el periodo completo disponible." }],
+    hipotesisPorValidar: ["Preferencia de los clientes.", "Diferencias de disponibilidad, precio o exhibición."],
+    limitaciones: ["La concentración describe la distribución de las ventas; no explica por qué los clientes prefieren ese producto."]
+  }, { impact: metrics.topShare * 100, urgency: 45, reach: metrics.topShare * 100, confidence: evidenceConfidence }));
+  return findings;
+}
+
+function inventoryAnalysisModule({ metrics, scope, inventoryConfidence, evidenceConfidence }) {
+  const findings = [];
+  if (!scope.hasInventory) return findings;
+  const inventoryLeaders = [...metrics.inv].sort((a, b) => b.stockShare - a.stockShare).slice(0, 3);
+  const inventoryConcentration = inventoryLeaders.reduce((sum, item) => sum + item.stockShare, 0);
+  if (inventoryLeaders.length && inventoryConcentration >= .60) findings.push(scored({
+    type: "inventory-concentration", dominio: "inventario", tipoProblema: "concentracion-inventario", title: "Gran parte de las existencias está concentrada en pocos productos.", problemaGeneral: "Concentración de inventario",
+    magnitud: inventoryConcentration * 100, unidad: "porcentaje de las existencias", periodo: "Corte actual de inventario",
+    reason: `${inventoryLeaders.map(item => item.producto).join(", ")} concentran ${percent(inventoryConcentration)} de las unidades disponibles.`,
+    evidence: `${readableNumber(inventoryLeaders.reduce((sum, item) => sum + item.stock, 0))} de ${readableNumber(metrics.inventoryUnits)} unidades están en esos productos.`,
+    meaning: "La mayor parte del inventario depende de pocos productos; esto no indica por sí solo si existe exceso.", reviewFocus: "Si esos productos también tienen movimiento de ventas suficiente.", indicator: "Porcentaje de las existencias concentrado en los principales productos.",
+    causasObservadas: inventoryLeaders.map(item => `${item.producto} representa ${percent(item.stockShare)} de las existencias actuales.`),
+    aportePorCausa: inventoryLeaders.map(item => ({ factor: item.producto, dimension: "producto", aporte: item.stockShare, unidad: "proporción de las existencias", evidencia: `${readableNumber(item.stock)} unidades disponibles.` })),
+    hipotesisPorValidar: ["Política de compras.", "Demanda esperada.", "Tamaño de lote de proveedores."], limitaciones: ["La concentración actual no permite afirmar que exista exceso sin comparar movimiento o historia."]
+  }, { impact: inventoryConcentration * 70, urgency: 35, reach: inventoryConcentration * 100, confidence: evidenceConfidence }));
+  if (!scope.hasSales) findings.push(scored({
+    type: "inventory-only", dominio: "inventario", tipoProblema: "informacion-incompleta", title: "Agrega ventas antes de decidir qué producto atender.",
+    problemaGeneral: "Inventario sin información de movimiento", magnitud: metrics.inventoryUnits, unidad: "unidades disponibles", periodo: "Corte actual de inventario",
+    reason: `Encontramos ${metrics.products} productos y ${metrics.inventoryUnits} unidades disponibles, pero ninguna venta.`,
+    evidence: metrics.inventoryValue ? `El costo registrado del inventario es ${money.format(metrics.inventoryValue)}.` : "No hay ventas que permitan comparar movimiento por producto.",
+    meaning: "Sin ventas o movimientos no podemos afirmar qué producto se vende, permanece almacenado o podría agotarse.", reviewFocus: "La disponibilidad de registros de ventas para completar el diagnóstico.",
+    indicator: "Número de registros de ventas disponibles.", limitaciones: ["No encontramos ventas para medir el movimiento del inventario."],
+    hipotesisPorValidar: []
+  }, { impact: 80, urgency: 90, reach: 100, confidence: 100 }));
+  if (!scope.hasSales || !metrics.linkedProducts) return findings;
+  if (metrics.inventoryChange === null && metrics.excessInventoryShare >= .30) findings.push(scored({
+    type: "inventory-excess", level: "general", dominio: "inventario", tipoProblema: "existencias-altas", title: "Las existencias son altas frente a lo que vendes.",
+    problemaGeneral: "Existencias altas frente a las ventas", magnitud: metrics.excessInventoryShare * 100, unidad: "porcentaje de las existencias", periodo: "Inventario actual frente a ventas recientes",
+    reason: `${percent(metrics.excessInventoryShare)} de las unidades disponibles está en productos con poco o ningún movimiento reciente.`,
+    evidence: `Comparamos la fotografía actual del inventario con las unidades vendidas en los últimos ${Math.max(1, metrics.unitPanorama.recent?.length || 3)} meses completos.`,
+    meaning: "Hay muchas unidades guardadas frente a lo que se está vendiendo.", reviewFocus: "Los productos que concentran existencias altas frente a sus ventas.",
+    indicator: "Unidades disponibles de los productos con poco movimiento.", items: metrics.excessItems,
+    causasObservadas: metrics.excessItems.slice(0, 3).map(item => `${item.producto} representa ${percent(item.stockShare)} de las existencias y ${percent(item.recentSalesShare)} de las ventas recientes.`),
+    aportePorCausa: metrics.excessItems.slice(0, 3).map(item => ({ factor: item.producto, dimension: "producto", aporte: item.stockShare, unidad: "proporción de las existencias", evidencia: `${readableNumber(item.stock)} unidades disponibles.` })),
+    hipotesisPorValidar: ["Compras superiores a la necesidad.", "Menor demanda.", "Cambios de precio.", "Sustitución por otros productos."],
+    limitaciones: ["Solo contamos con una fotografía actual del inventario; no podemos afirmar que las existencias hayan crecido ni que se esté comprando demasiado."]
+  }, { impact: Math.min(100, metrics.excessInventoryShare * 130), urgency: 78, reach: metrics.excessInventoryShare * 100, confidence: inventoryConfidence }));
+  if (metrics.riskSalesShare >= .20) findings.push(scored({
+    type: "stock-risk-general", level: "general", dominio: "inventario", tipoProblema: "riesgo-falta-inventario", title: "Podrías quedarte sin productos que hoy sostienen tus ventas.",
+    problemaGeneral: "Riesgo de falta de inventario", magnitud: metrics.riskSalesShare * 100, unidad: "porcentaje de las ventas recientes", periodo: "Inventario actual frente a ventas recientes",
+    reason: `Los productos con pocas existencias representan ${percent(metrics.riskSalesShare)} de las unidades vendidas recientemente.`,
+    evidence: `${metrics.riskItems.length === 1 ? "Un producto tiene" : `${metrics.riskItems.length} productos tienen`} existencias para cerca de un mes o menos al ritmo reciente de ventas.`,
+    meaning: "Si se agotan, pueden afectar una parte importante de las ventas.", reviewFocus: "Las existencias registradas y el ritmo reciente de venta de los productos señalados.",
+    indicator: "Unidades disponibles de los productos que más se venden.", items: metrics.riskItems,
+    causasObservadas: metrics.riskItems.slice(0, 3).map(item => `${item.producto} tiene ${readableNumber(item.stock)} unidades disponibles y representa ${percent(item.recentSalesShare)} de las ventas recientes.`),
+    aportePorCausa: metrics.riskItems.slice(0, 3).map(item => ({ factor: item.producto, dimension: "producto", aporte: item.recentSalesShare, unidad: "proporción de las ventas recientes", evidencia: `${readableNumber(item.stock)} unidades disponibles frente a ${readableNumber(item.recentSold)} vendidas recientemente.` })),
+    hipotesisPorValidar: ["Reposición más lenta.", "Cambios en entregas del proveedor.", "Demanda temporalmente mayor."],
+    limitaciones: ["No encontramos pedidos pendientes ni tiempos de entrega de proveedores."]
+  }, { impact: Math.min(100, metrics.riskSalesShare * 140), urgency: 96, reach: metrics.riskSalesShare * 100, confidence: inventoryConfidence }));
+  return findings;
+}
+
+function salesInventoryRelationshipAnalysis({ metrics, scope, inventoryConfidence }) {
+  if (!scope.hasSales || !scope.hasInventory || metrics.relationCoverage < .50 || metrics.inventoryChange === null || metrics.inventoryChange < .10 || !metrics.unitPanorama.reliable || metrics.unitPanorama.status !== "VENTAS EN DESCENSO") return [];
+  return [scored({
+    type: "inventory-accumulation", level: "general", dominio: "ventas-inventario", tipoProblema: "ventas-bajas-existencias-altas", title: "Las existencias están creciendo mientras vendes menos.",
+    problemaGeneral: "Caída de ventas acompañada de acumulación de existencias", magnitud: Math.max(metrics.inventoryChange, Math.abs(metrics.unitPanorama.change)) * 100, unidad: "variación porcentual", periodo: "Dos periodos de tres meses y cortes históricos de inventario",
+    reason: `Las existencias aumentaron ${percent(metrics.inventoryChange)} y las unidades vendidas bajaron ${percent(Math.abs(metrics.unitPanorama.change))}.`,
+    evidence: `Comparamos ${metrics.inventoryHistory.length} cortes de inventario y dos periodos de tres meses completos de ventas.`,
+    meaning: "La caída de ventas coincide con un aumento de las existencias; los datos muestran la relación, no demuestran por sí solos su causa.", reviewFocus: "Los productos relacionados que concentran el aumento de existencias y la reducción de ventas.",
+    indicator: "Unidades disponibles frente a unidades vendidas.", items: metrics.excessItems,
+    causasObservadas: ["Las unidades vendidas bajaron mientras las existencias totales aumentaron en los periodos comparados."],
+    aportePorCausa: [{ factor: "Relación entre ventas e inventario", dimension: "ventas-inventario", aporte: Math.abs(metrics.unitPanorama.change), unidad: "variación de unidades vendidas", evidencia: `Ventas ${percent(Math.abs(metrics.unitPanorama.change))} abajo e inventario ${percent(metrics.inventoryChange)} arriba.` }],
+    hipotesisPorValidar: ["Compras superiores a la necesidad.", "Menor demanda.", "Cambios de disponibilidad o reposición."],
+    limitaciones: ["La relación temporal observada no demuestra que una variable haya causado la otra."]
+  }, { impact: Math.min(100, (metrics.inventoryChange + Math.abs(metrics.unitPanorama.change)) * 180), urgency: 88, reach: 100, confidence: inventoryConfidence })];
+}
+
+const businessAnalysisModules = [salesAnalysisModule, inventoryAnalysisModule];
+const businessRelationshipAnalyzers = [salesInventoryRelationshipAnalysis];
+
+function runBusinessAnalysisModules(context, modules = businessAnalysisModules, relationships = businessRelationshipAnalyzers) {
+  const moduleFindings = modules.flatMap(analyzer => analyzer(context) || []);
+  const relationshipFindings = relationships.flatMap(analyzer => analyzer(context) || []);
+  return { moduleFindings, relationshipFindings, findings: [...moduleFindings, ...relationshipFindings] };
+}
+
+function prioritizeBusinessFindings(findings) {
+  return [...findings].sort((a, b) => b.prioridad - a.prioridad);
+}
+
+function businessAnalysisArchitecture(metrics, scope) {
+  const evidenceConfidence = Math.round(Math.max(0, Math.min(1, scope.completeness)) * 100);
+  const inventoryConfidence = Math.round(evidenceConfidence * Math.min(1, metrics.relationCoverage / .7));
+  const analysis = runBusinessAnalysisModules({ metrics, scope, evidenceConfidence, inventoryConfidence });
+  return { ...analysis, rankedFindings: prioritizeBusinessFindings(analysis.findings) };
+}
+
+function diagnosticDataLimitations(metrics, data) {
+  const sales = data.sales || [], inventory = data.inventory || [], limitations = [];
+  if (!sales.length) limitations.push("No encontramos ventas para analizar cambios en el negocio.");
+  if (sales.length && metrics.valueRate < .7) limitations.push(metrics.valueUnavailableReason);
+  if (sales.length && metrics.quantityRate < .7) limitations.push(metrics.quantityUnavailableReason);
+  if (!inventory.length) limitations.push("No encontramos inventario para comparar existencias con ventas.");
+  else if (!metrics.linkedProducts && sales.length) limitations.push("No pudimos relacionar con suficiente claridad los productos de ventas e inventario.");
+  if (!sales.some(row => String(row.cliente || "").trim())) limitations.push("No encontramos clientes identificados para medir cuáles dejaron de comprar.");
+  if (!sales.some(row => String(row.vendedor || "").trim())) limitations.push("No encontramos comerciales identificados para comparar su actividad.");
+  limitations.push("No contamos con información de competencia, visitas comerciales ni cambios del mercado.");
+  return [...new Set(limitations)];
+}
+
+function buildDiagnosticHandoff(primary, metrics, resultQuality, data) {
+  const sales = data.sales || [];
+  const panorama = metrics.panorama;
+  const salesComparison = panorama.reliable ? {
+    disponible: true,
+    periodoAnterior: panorama.prior.map(item => item.month),
+    periodoReciente: panorama.recent.map(item => item.month),
+    cambio: panorama.change,
+    unidad: panorama.basis === "value" ? "valor vendido" : "unidades vendidas"
+  } : { disponible: false, motivo: panorama.reason || "No hay dos periodos equivalentes para comparar." };
+  const comparison = primary?.dominio === "ventas-inventario" ? {
+    disponible: true,
+    ventas: salesComparison,
+    inventario: { cortes: metrics.inventoryHistory.length, cambio: metrics.inventoryChange, unidad: "unidades disponibles" }
+  } : primary?.dominio === "inventario" ? (metrics.inventoryHistory.length >= 2 ? {
+    disponible: true,
+    inventario: { cortes: metrics.inventoryHistory.length, cambio: metrics.inventoryChange, unidad: "unidades disponibles" }
+  } : { disponible: false, motivo: "Solo contamos con un corte actual de inventario; no afirmamos que las existencias hayan aumentado o disminuido." }) : salesComparison;
+  const generalLimitations = diagnosticDataLimitations(metrics, data);
+  return {
+    problemGeneral: primary?.problemaGeneral || primary?.title || "Información insuficiente para definir un problema general",
+    evidenciaProblema: primary?.evidencia || [primary?.reason, primary?.evidence].filter(Boolean),
+    causasObservadas: primary?.causasObservadas || [],
+    aportePorCausa: primary?.aportePorCausa || [],
+    hipotesisPorValidar: primary?.hipotesisPorValidar || [],
+    limitaciones: [...new Set([...(primary?.limitaciones || []), ...generalLimitations])],
+    calidadInformacion: { nivel: resultQuality.level[0] + resultQuality.level.slice(1).toLowerCase(), puntaje: resultQuality.score },
+    periodoAnalizado: primary?.periodo || (metrics.period ? `${metrics.period} días` : "Periodo no disponible"),
+    comparacionHistorica: comparison,
+    datosDisponibles: {
+      ventas: sales.length > 0,
+      inventario: (data.inventory || []).length > 0,
+      clientes: sales.some(row => String(row.cliente || "").trim()),
+      comerciales: sales.some(row => String(row.vendedor || "").trim()),
+      precios: sales.some(row => Number.isFinite(numericValue(row.precio))),
+      historialVentas: panorama.reliable,
+      historialInventario: metrics.inventoryHistory.length >= 2,
+      relacionVentasInventario: metrics.linkedProducts > 0,
+      compras: false,
+      visitasComerciales: false,
+      competencia: false
+    }
+  };
 }
 
 function prioritize(metrics, scope) {
-  const findings = [], general = [];
-  const evidenceConfidence = Math.round(Math.max(0, Math.min(1, scope.completeness)) * 100);
-  const inventoryConfidence = Math.round(evidenceConfidence * Math.min(1, metrics.relationCoverage / .7));
+  const findings = [];
+  const { evidenceConfidence, inventoryConfidence } = (() => {
+    const evidence = Math.round(Math.max(0, Math.min(1, scope.completeness)) * 100);
+    return { evidenceConfidence: evidence, inventoryConfidence: Math.round(evidence * Math.min(1, metrics.relationCoverage / .7)) };
+  })();
   const panorama = metrics.panorama;
-  const measureName = panorama.basis === "value" ? "valor vendido" : "unidades vendidas";
   const amount = value => panorama.basis === "value" ? money.format(value) : `${readableNumber(value)} unidades`;
-  const productDecliners = metrics.productDrivers.filter(item => item.delta < 0);
-  const dimensionDecliners = [...metrics.customerDrivers, ...metrics.sellerDrivers].filter(item => item.delta < 0).sort((a, b) => b.contribution - a.contribution);
-  const topDecliners = [productDecliners[0], dimensionDecliners.find(item => item.contribution >= .25) || productDecliners[1]].filter(Boolean);
-  const topGrowers = metrics.productDrivers.filter(item => item.delta > 0);
-  if (scope.hasSales && panorama.reliable && panorama.status === "VENTAS EN DESCENSO") general.push(scored({
-    type: "business-decline", level: "general", title: "Tus ventas vienen bajando.",
-    reason: `En los últimos tres meses vendiste ${percent(Math.abs(panorama.change))} menos que en los tres meses anteriores.`,
-    evidence: `El promedio mensual pasó de ${amount(panorama.priorAverage)} a ${amount(panorama.recentAverage)}.`,
-    meaning: "Esto significa que el negocio está vendiendo menos de lo que venía vendiendo.",
-    action: "Revisa primero qué productos explican la mayor parte de la reducción.",
-    indicator: panorama.basis === "value" ? "Valor vendido en los próximos tres meses." : "Unidades vendidas en los próximos tres meses.",
-    drivers: topDecliners
-  }, { impact: Math.min(100, Math.abs(panorama.change) * 260), urgency: 85, reach: 100, confidence: evidenceConfidence }));
-  if (scope.hasSales && scope.hasInventory && metrics.inventoryChange !== null && metrics.inventoryChange >= .10 && metrics.unitPanorama.reliable && metrics.unitPanorama.status === "VENTAS EN DESCENSO") general.push(scored({
-    type: "inventory-accumulation", level: "general", title: "Las existencias están creciendo mientras vendes menos.",
-    reason: `Las existencias aumentaron ${percent(metrics.inventoryChange)} y las unidades vendidas bajaron ${percent(Math.abs(metrics.unitPanorama.change))}.`,
-    evidence: `Comparamos ${metrics.inventoryHistory.length} cortes de inventario y dos periodos de tres meses completos de ventas.`,
-    meaning: "Esto significa que la mercancía está creciendo más rápido que las ventas.",
-    action: "Revisa los productos que explican la mayor parte de las existencias altas antes de volver a pedirlos.",
-    indicator: "Unidades disponibles frente a unidades vendidas.", items: metrics.excessItems
-  }, { impact: Math.min(100, (metrics.inventoryChange + Math.abs(metrics.unitPanorama.change)) * 180), urgency: 88, reach: 100, confidence: inventoryConfidence }));
-  if (scope.hasSales && scope.hasInventory && metrics.linkedProducts && metrics.inventoryChange === null && metrics.excessInventoryShare >= .30) general.push(scored({
-    type: "inventory-excess", level: "general", title: "Las existencias son altas frente a lo que vendes.",
-    reason: `${percent(metrics.excessInventoryShare)} de las unidades disponibles está en productos con poco o ningún movimiento reciente.`,
-    evidence: `Comparamos la fotografía actual del inventario con las unidades vendidas en los últimos ${Math.max(1, metrics.unitPanorama.recent?.length || 3)} meses completos.`,
-    meaning: "Esto significa que hay muchas unidades guardadas frente a lo que se está vendiendo.",
-    action: "Revisa esos productos antes de volver a comprarlos.",
-    indicator: "Unidades disponibles de los productos con poco movimiento.", items: metrics.excessItems
-  }, { impact: Math.min(100, metrics.excessInventoryShare * 130), urgency: 78, reach: metrics.excessInventoryShare * 100, confidence: inventoryConfidence }));
-  if (scope.hasSales && scope.hasInventory && metrics.linkedProducts && metrics.riskSalesShare >= .20) general.push(scored({
-    type: "stock-risk-general", level: "general", title: "Podrías quedarte sin productos que hoy sostienen tus ventas.",
-    reason: `Los productos con pocas existencias representan ${percent(metrics.riskSalesShare)} de las unidades vendidas recientemente.`,
-    evidence: `${metrics.riskItems.length === 1 ? "Un producto tiene" : `${metrics.riskItems.length} productos tienen`} existencias para cerca de un mes o menos al ritmo reciente de ventas.`,
-    meaning: "Si se agotan, pueden afectar una parte importante de tus ventas.",
-    action: "Confirma las existencias y los tiempos de entrega antes del siguiente pedido.",
-    indicator: "Unidades disponibles de los productos que más se venden.", items: metrics.riskItems
-  }, { impact: Math.min(100, metrics.riskSalesShare * 140), urgency: 96, reach: metrics.riskSalesShare * 100, confidence: inventoryConfidence }));
-  const concentration = scored({
-    type: "concentration",
-    title: `Gran parte de tus ventas depende de ${metrics.ranked[0]?.[0] || "un solo producto"}.`,
-    reason: `${metrics.ranked[0]?.[0] || "El producto principal"} representa ${percent(metrics.topShare)} ${metrics.rankingBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}.`,
-    evidence: metrics.rankingBasis === "value" ? `De ${money.format(metrics.revenue)} vendidos, ${money.format(metrics.ranked[0]?.[1].revenue || 0)} provienen de ese producto.` : `De ${metrics.units} unidades vendidas, ${metrics.ranked[0]?.[1].units || 0} corresponden a ese producto.`,
-    meaning: "Una caída en ese producto puede afectar una parte importante de las ventas observadas.",
-    action: "Comprueba si el patrón continúa y elige dos productos complementarios que puedas ofrecer junto al principal.",
-    indicator: "Porcentaje del valor vendido que representa el producto principal."
-  }, { impact: metrics.topShare * 100, urgency: 45, reach: metrics.topShare * 100, confidence: evidenceConfidence });
-  if (!scope.hasSales && scope.hasInventory) findings.push(scored({
-    type: "inventory-only",
-    title: "Agrega ventas antes de decidir qué producto atender.",
-    reason: `Encontramos ${metrics.products} productos y ${metrics.inventoryUnits} unidades disponibles, pero ninguna venta.`,
-    evidence: metrics.inventoryValue ? `El costo registrado del inventario es ${money.format(metrics.inventoryValue)}.` : "No hay ventas que permitan comparar movimiento por producto.",
-    meaning: "Sin ventas o movimientos no podemos afirmar qué producto se vende, permanece almacenado o podría agotarse.",
-    action: "Busca un archivo con fecha, producto, cantidad y valor vendido para completar el análisis.",
-    indicator: "Número de registros de ventas agregados al próximo análisis."
-  }, { impact: 80, urgency: 90, reach: 100, confidence: 100 }));
+  const observed = observedSalesCauses(metrics);
+  const topDecliners = observed.drivers;
+  const architecture = businessAnalysisArchitecture(metrics, scope);
+  const centrallyRanked = architecture.rankedFindings;
+  const general = centrallyRanked.filter(item => ["business-decline", "inventory-accumulation", "inventory-excess", "stock-risk-general"].includes(item.type));
+  const concentration = centrallyRanked.find(item => item.type === "concentration");
+  const inventoryOnly = centrallyRanked.find(item => item.type === "inventory-only");
+  if (inventoryOnly) findings.push(inventoryOnly);
   if (general.length) {
-    const main = general.sort((a, b) => b.priorityScore - a.priorityScore)[0];
+    const main = general[0];
     findings.push(main);
     if (main.type === "business-decline") {
       for (const driver of topDecliners.slice(0, 2)) {
@@ -2108,7 +2348,7 @@ function prioritize(metrics, scope) {
   }, { impact: Math.min(100, Math.abs(localized.change) * localized.recentShare * 220), urgency: 80, reach: localized.recentShare * 100, confidence: evidenceConfidence }));
   const localRisk = metrics.riskItems.find(item => item.recentSalesShare >= .10);
   if (localRisk) findings.push(scored({ type: "stockout", level: "localized", title: `Podrías quedarte sin ${localRisk.producto}.`, reason: `${localRisk.producto} representa ${percent(localRisk.recentSalesShare)} de las unidades vendidas recientemente.`, evidence: `${readableNumber(localRisk.stock)} unidades disponibles frente a ${readableNumber(localRisk.recentSold)} vendidas recientemente.`, meaning: "Si se agota, puede afectar una parte relevante de tus ventas.", action: "Confirma las existencias y el siguiente pedido.", indicator: "Unidades disponibles del producto.", item: localRisk }, { impact: localRisk.recentSalesShare * 100, urgency: 95, reach: localRisk.recentSalesShare * 100, confidence: inventoryConfidence }));
-  if (scope.hasSales && metrics.topShare >= .6) findings.push(concentration);
+  if (scope.hasSales && concentration) findings.push(concentration);
   const fallbacks = [
     {
       type: "review",
@@ -2272,6 +2512,7 @@ function executiveSummaryHtml() {
   const presentation = finding ? priorityPresentation(finding) : null;
   const secondary = stageThreeSecondaryFindings();
   const limitations = analysisLimitations();
+  const hypotheses = app.analysis.diagnostico?.hipotesisPorValidar || [];
   const cards = stageThreeSummaryCards();
   const comparison = trendComparison(metrics.monthly, metrics.chartBasis);
   const recent = metrics.monthly.slice(-6);
@@ -2290,7 +2531,7 @@ function executiveSummaryHtml() {
     <section><h2>Qué pasó en el último mes completo</h2><p>${safe(latestText)}</p>${chart}</section>
     <section><h2>Productos que más aportan</h2><ul>${products}</ul></section>${prioritySection}
     ${secondary.length ? `<section><h2>También encontramos</h2><ul>${secondary.map(item => `<li>${safe(item.sentence)}</li>`).join("")}</ul></section>` : ""}
-    <section><h2>Lo que no pudimos concluir</h2>${limitations.length ? `<ul>${limitations.map(item => `<li>${safe(item)}</li>`).join("")}</ul>` : "<p>No encontramos una limitación importante para las conclusiones mostradas.</p>"}</section>
+    <section><h2>Lo que todavía no podemos saber</h2>${hypotheses.length ? `<p><strong>Posibles explicaciones por confirmar:</strong></p><ul>${hypotheses.map(item => `<li>${safe(item)}</li>`).join("")}</ul><p>Estas posibilidades no están demostradas por los datos.</p>` : ""}${limitations.length ? `<p><strong>Información que limita el diagnóstico:</strong></p><ul>${limitations.map(item => `<li>${safe(item)}</li>`).join("")}</ul>` : "<p>No encontramos una limitación importante para las conclusiones mostradas.</p>"}</section>
     <button onclick="window.print()">Imprimir o guardar como PDF</button></body></html>`;
 }
 

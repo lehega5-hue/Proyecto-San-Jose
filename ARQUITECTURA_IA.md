@@ -81,3 +81,32 @@ Una respuesta diferente, error de red, URL no HTTPS o timeout activa automática
 - Una fórmula explícita ordena hallazgos por impacto, urgencia, alcance y confianza.
 - San José explica evidencia y limitaciones.
 - La decisión final corresponde al empresario.
+
+## Arquitectura del análisis empresarial
+
+La Etapa 3 usa una metodología común, independiente del dominio:
+
+```text
+Analizador de Ventas ──────┐
+                           ├─→ Hallazgos con contrato común
+Analizador de Inventario ──┤         ↓
+                           │   Relaciones válidas entre módulos
+Módulos futuros ───────────┘         ↓
+                               Motor central de prioridad
+                                      ↓
+                         Diagnóstico estructurado para acciones
+```
+
+Cada analizador describe lo observado, su magnitud, evidencia, factores asociados, aportes, hipótesis, limitaciones y calidad. No elige la prioridad final. El motor central compara todos los hallazgos mediante impacto, urgencia, alcance y calidad de la evidencia.
+
+El contrato común contiene:
+
+- `dominio`, `tipoProblema` y `problemaGeneral`;
+- `magnitud`, `unidad`, `periodo` y `evidencia`;
+- `causasObservadas` y `aportePorCausa`;
+- `hipotesisPorValidar` y `limitaciones`;
+- `calidadInformacion`, `impacto`, `urgencia`, `alcance` y `prioridad`.
+
+Los cruces entre dominios se ejecutan por analizadores de relaciones separados. Ventas e Inventario solo se combinan cuando las referencias de producto tienen cobertura suficiente. Una relación observada nunca se presenta como causa demostrada.
+
+La salida `diagnostico` separa el problema general de las causas observadas y de las hipótesis. Esta salida alimenta la etapa posterior, que es la responsable de construir acciones. Para agregar Cartera, Caja u otro dominio futuro basta con entregar hallazgos bajo el mismo contrato y registrarlos en el conjunto de analizadores; el motor de prioridad no cambia.
