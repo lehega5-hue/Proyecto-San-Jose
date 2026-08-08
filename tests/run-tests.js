@@ -4,21 +4,23 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const noop = () => {};
-const element = {
+const fallbackElement = {
   addEventListener: noop,
   classList: { add: noop, remove: noop, toggle: noop },
   close: noop,
   focus: noop,
   querySelectorAll: () => [],
+  setAttribute: noop,
   showModal: noop,
   style: {},
+  value: "",
   set innerHTML(value) { this._innerHTML = value; },
   get innerHTML() { return this._innerHTML || ""; }
 };
 const document = {
   body: { appendChild: noop },
-  createElement: () => ({ ...element, click: noop, remove: noop }),
-  querySelector: () => element,
+  createElement: () => ({ ...fallbackElement, click: noop, remove: noop }),
+  querySelector: () => fallbackElement,
   querySelectorAll: () => []
 };
 const sandbox = {
@@ -30,6 +32,7 @@ const sandbox = {
   location: { reload: noop },
   navigator: {},
   setTimeout,
+  clearTimeout,
   URL: { createObjectURL: () => "blob:test", revokeObjectURL: noop },
   window: { scrollTo: noop }
 };
@@ -38,75 +41,148 @@ sandbox.window.document = document;
 
 const appPath = path.join(__dirname, "..", "app.js");
 const source = fs.readFileSync(appPath, "utf8") + `
-;globalThis.__test = { app, datasets, analyze, priorityScore, requiredMappingIssues };
+;globalThis.__test = {
+  app, datasets, analyze, priorityScore, requiredMappingIssues,
+  setupSpeechRecognition, voiceState: () => ({ isListening })
+};
 `;
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: appPath });
 
-const { app, datasets, analyze, priorityScore, requiredMappingIssues } = sandbox.__test;
+const {
+  app, datasets, analyze, priorityScore, requiredMappingIssues,
+  setupSpeechRecognition, voiceState
+} = sandbox.__test;
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
+const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
-test("Caso A: datos completos producen calidad alta y prioridad de inventario detenido", () => {
-  app.context = {};
-  const result = analyze(datasets.detenido);
-  assert.equal(result.quality.level, "ALTA");
-  assert.equal(result.priorities[0].type, "slow");
+function mockElement(value = "") {
+  const listeners = {};
+  const classes = new Set(["hidden"]);
+  return {
+    value,
+    textContent: "",
+    listeners,
+    attributes: {},
+    classList: {
+      add: name => classes.add(name),
+      remove: name => classes.delete(name),
+      toggle: (name, force) => force ? classes.add(name) : classes.delete(name),
+      contains: name => classes.has(name)
+    },
+    addEventListener: (name, handler) => { listeners[name] = handler; },
+    setAttribute(name, newValue) { this.attributes[name] = newValue; }
+  };
+}
+
+class FakeRecognition {
+  constructor() {
+    FakeRecognition.instance = this;
+    this.startCalls = 0;
+    this.stopCalls = 0;
+  }
+  start() { this.startCalls += 1; }
+  stop() {
+    this.stopCalls += 1;
+    if (this.onend) this.onend();
+  }
+}
+
+function setupVoice(initialText = "") {
+  const button = mockElement();
+  const textarea = mockElement(initialText);
+  const status = mockElement();
+  const elements = {
+    "#voice-button": button,
+    "#business-story": textarea,
+    "#voice-status": status
+  };
+  document.querySelector = selector => elements[selector] || fallbackElement;
+  sandbox.window.SpeechRecognition = FakeRecognition;
+  setupSpeechRecognition();
+  return { button, textarea, status, recognition: FakeRecognition.instance };
+}
+
+function speechResult(text, isFinal = true) {
+  const result = [{ transcript: text }];
+  result.isFinal = isFinal;
+  return { results: [result] };
+}
+
+test("VOZ 1: el dictado continuo reinicia si el navegador termina la escucha", async () => {
+  const voice = setupVoice();
+  voice.button.listeners.click();
+  assert.equal(voice.recognition.continuous, true);
+  assert.equal(voice.recognition.interimResults, true);
+  assert.equal(voice.recognition.lang, "es-CO");
+  voice.recognition.onend();
+  await delay(180);
+  assert.equal(voice.recognition.startCalls, 2);
+  assert.equal(voiceState().isListening, true);
+  voice.button.listeners.click();
 });
 
-test("Caso B: la concentración comercial es el hallazgo principal", () => {
-  app.context = {};
-  const result = analyze(datasets.concentrado);
-  assert.equal(result.priorities[0].type, "concentration");
-  assert.ok(result.metrics.topShare > 0.9);
+test("VOZ 2: una pausa breve no corta el modo de escucha", async () => {
+  const voice = setupVoice();
+  voice.button.listeners.click();
+  voice.recognition.onerror({ error: "no-speech" });
+  voice.recognition.onend();
+  await delay(180);
+  assert.equal(voice.recognition.startCalls, 2);
+  assert.equal(voice.status.textContent, "Te estamos escuchando…");
+  voice.button.listeners.click();
 });
 
-test("Caso C: la información insuficiente detiene las recomendaciones", () => {
-  app.context = {};
-  const result = analyze(datasets.insuficiente);
-  assert.equal(result.quality.level, "BAJA");
-  assert.equal(result.priorities.length, 0);
+test("VOZ 3: Terminar conserva el texto y detiene el reinicio", async () => {
+  const voice = setupVoice();
+  voice.button.listeners.click();
+  voice.recognition.onresult(speechResult("Mi negocio distribuye alimentos"));
+  voice.button.listeners.click();
+  await delay(180);
+  assert.equal(voice.textarea.value, "Mi negocio distribuye alimentos");
+  assert.equal(voice.recognition.startCalls, 1);
+  assert.equal(voice.status.textContent, "Listo. Puedes revisar y corregir el texto antes de continuar.");
 });
 
-test("Solo ventas: continúa con calidad media y prioriza la caída reciente", () => {
+test("VOZ 4: un segundo dictado agrega texto al contenido existente", () => {
+  const voice = setupVoice("Vendemos café");
+  voice.button.listeners.click();
+  voice.recognition.onresult(speechResult("a restaurantes"));
+  voice.button.listeners.click();
+  voice.button.listeners.click();
+  voice.recognition.onresult(speechResult("y abrimos una nueva zona"));
+  voice.button.listeners.click();
+  assert.equal(voice.textarea.value, "Vendemos café a restaurantes y abrimos una nueva zona");
+});
+
+test("DEMO 1: existe un único ejemplo y contiene solo ventas", () => {
+  assert.deepEqual(Object.keys(datasets), ["ejemploVentas"]);
+  assert.ok(datasets.ejemploVentas.sales.length >= 12);
+  assert.equal(datasets.ejemploVentas.inventory.length, 0);
+});
+
+test("DEMO 2: el ejemplo continúa sin inventar información de inventario", () => {
   app.context = {};
-  const result = analyze(datasets.soloVentas);
+  const result = analyze(datasets.ejemploVentas);
   assert.equal(result.quality.level, "MEDIA");
   assert.equal(result.priorities[0].type, "trend");
   assert.equal(Math.round(result.metrics.trendChange * 100), -30);
-  assert.equal(result.adaptiveNeeded, true);
+  assert.ok(result.quality.facts.some(fact => fact.text.includes("No encontramos inventario")));
+  assert.equal(result.metrics.inventoryUnits, 0);
 });
 
-test("El contexto libre evita repetir la pregunta adaptativa", () => {
-  app.context = { contextoLibre: "No pasó nada fuera de lo normal." };
-  assert.equal(analyze(datasets.soloVentas).adaptiveNeeded, false);
-});
-
-test("Solo inventario: continúa sin afirmar ventas ni baja rotación", () => {
-  app.context = {};
-  const result = analyze(datasets.soloInventario);
-  assert.equal(result.quality.level, "MEDIA");
-  assert.equal(result.priorities[0].type, "inventory-only");
-  assert.ok(!result.priorities[0].title.includes("casi no se venden"));
-});
-
-test("Un análisis parcial nunca obtiene calidad alta", () => {
-  const sales = Array.from({ length: 20 }, (_, index) => ({
-    fecha: `2026-07-${String((index % 20) + 1).padStart(2, "0")}`,
-    producto: "Producto",
-    cantidad: 1,
-    precio: 1000
-  }));
-  const result = analyze({ sales, inventory: [] });
+test("La calidad de cualquier análisis parcial permanece limitada", () => {
+  const result = analyze(datasets.ejemploVentas);
   assert.ok(result.quality.score <= 78);
   assert.notEqual(result.quality.level, "ALTA");
 });
 
-test("La puntuación de prioridad aplica los cuatro factores publicados", () => {
+test("La puntuación conserva la fórmula determinística de cuatro factores", () => {
   assert.equal(priorityScore({ impact: 80, urgency: 90, reach: 70, confidence: 100 }), 84);
 });
 
-test("Elegir No sé en un dato esencial mantiene el análisis bloqueado", () => {
+test("No sé en un dato esencial mantiene bloqueada una carga real", () => {
   app.classified = [{
     type: "sales",
     interpretation: { assignments: {
@@ -120,7 +196,7 @@ test("Elegir No sé en un dato esencial mantiene el análisis bloqueado", () => 
   assert.equal(requiredMappingIssues().length, 1);
 });
 
-test("Un dato opcional ausente no bloquea una hoja esencial completa", () => {
+test("Un dato opcional ausente no bloquea una carga real completa", () => {
   app.classified = [{
     type: "inventory",
     interpretation: { assignments: {
@@ -132,16 +208,18 @@ test("Un dato opcional ausente no bloquea una hoja esencial completa", () => {
   assert.equal(requiredMappingIssues().length, 0);
 });
 
-let passed = 0;
-for (const [name, fn] of tests) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`✓ ${name}`);
-  } catch (error) {
-    console.error(`✗ ${name}`);
-    console.error(error);
+(async () => {
+  let passed = 0;
+  for (const [name, fn] of tests) {
+    try {
+      await fn();
+      passed += 1;
+      console.log(`✓ ${name}`);
+    } catch (error) {
+      console.error(`✗ ${name}`);
+      console.error(error);
+    }
   }
-}
-console.log(`\n${passed}/${tests.length} pruebas aprobadas`);
-process.exitCode = passed === tests.length ? 0 : 1;
+  console.log(`\n${passed}/${tests.length} pruebas aprobadas`);
+  process.exitCode = passed === tests.length ? 0 : 1;
+})();

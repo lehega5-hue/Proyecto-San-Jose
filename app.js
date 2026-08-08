@@ -36,6 +36,10 @@ const app = {
   }
 };
 
+let speechRecognition = null;
+let speechRestartTimer = null;
+let isListening = false;
+
 const stepNames = [
   "Bienvenida",
   "Cuéntanos lo esencial",
@@ -57,71 +61,10 @@ const stageNames = [
 ];
 
 const datasets = {
-  detenido: {
-    name: "Caso A · Productos almacenados que casi no se venden",
-    expected: "Identificar productos con existencias altas y pocas ventas.",
-    description: "Hay productos almacenados durante el periodo con muy pocas salidas.",
-    sales: [
-      ["2026-04-05", "Cafetera clásica", 2, 185000],
-      ["2026-04-18", "Licuadora práctica", 7, 142000],
-      ["2026-05-02", "Cafetera clásica", 1, 185000],
-      ["2026-05-12", "Juego de ollas", 12, 265000],
-      ["2026-05-26", "Licuadora práctica", 8, 142000],
-      ["2026-06-04", "Vajilla blanca", 1, 198000],
-      ["2026-06-15", "Juego de ollas", 15, 265000],
-      ["2026-06-28", "Licuadora práctica", 9, 142000],
-      ["2026-07-03", "Cafetera clásica", 1, 185000],
-      ["2026-07-11", "Juego de ollas", 13, 265000],
-      ["2026-07-19", "Licuadora práctica", 8, 142000],
-      ["2026-07-25", "Vajilla blanca", 1, 198000]
-    ].map(row => ({ fecha: row[0], producto: row[1], cantidad: row[2], precio: row[3] })),
-    inventory: [
-      ["Cafetera clásica", 64, 128000],
-      ["Licuadora práctica", 18, 97000],
-      ["Juego de ollas", 16, 181000],
-      ["Vajilla blanca", 48, 136000],
-      ["Sartén antiadherente", 7, 68000]
-    ].map(row => ({ producto: row[0], stock: row[1], costo: row[2] }))
-  },
-  concentrado: {
-    name: "Caso B · Gran parte de las ventas depende de pocos productos",
-    expected: "Identificar una dependencia comercial alta.",
-    description: "Un producto representa gran parte del valor vendido.",
-    sales: [
-      ["2026-04-03", "Arroz premium 5 kg", 42, 24500],
-      ["2026-04-16", "Arroz premium 5 kg", 48, 24500],
-      ["2026-05-01", "Arroz premium 5 kg", 55, 24500],
-      ["2026-05-18", "Aceite vegetal 1 L", 8, 11900],
-      ["2026-05-27", "Arroz premium 5 kg", 51, 24500],
-      ["2026-06-02", "Arroz premium 5 kg", 60, 24500],
-      ["2026-06-14", "Café molido 500 g", 4, 18900],
-      ["2026-06-29", "Arroz premium 5 kg", 57, 24500],
-      ["2026-07-05", "Arroz premium 5 kg", 62, 24500],
-      ["2026-07-14", "Azúcar 1 kg", 5, 4800],
-      ["2026-07-21", "Arroz premium 5 kg", 58, 24500],
-      ["2026-07-27", "Aceite vegetal 1 L", 6, 11900]
-    ].map(row => ({ fecha: row[0], producto: row[1], cantidad: row[2], precio: row[3] })),
-    inventory: [
-      ["Arroz premium 5 kg", 70, 18700],
-      ["Aceite vegetal 1 L", 4, 8200],
-      ["Café molido 500 g", 22, 13400],
-      ["Azúcar 1 kg", 35, 3500]
-    ].map(row => ({ producto: row[0], stock: row[1], costo: row[2] }))
-  },
-  insuficiente: {
-    name: "Caso C · Información insuficiente",
-    expected: "Detener el análisis y explicar qué información hace falta.",
-    description: "Faltan cantidades, productos y valores esenciales.",
-    sales: [
-      { fecha: "fecha desconocida", producto: "Cuaderno grande", cantidad: "", precio: 8500 },
-      { fecha: "2026-07-10", producto: "", cantidad: -3, precio: "sin dato" }
-    ],
-    inventory: [{ producto: "Cuaderno grande", stock: "", costo: 4200 }]
-  },
-  soloVentas: {
-    name: "Caso D · Ventas con una caída reciente",
+  ejemploVentas: {
+    name: "Ejemplo de ventas",
     expected: "Continuar sin inventario y priorizar una caída reciente sostenida.",
-    description: "Incluye seis meses de ventas, pero no incluye inventario.",
+    description: "Usa este ejemplo si todavía no tienes un archivo para probar San José.",
     sales: [
       ["2026-01-10", "Producto A", 6, 100000], ["2026-01-20", "Producto B", 4, 100000],
       ["2026-02-10", "Producto A", 6, 100000], ["2026-02-20", "Producto B", 4, 100000],
@@ -131,18 +74,6 @@ const datasets = {
       ["2026-06-10", "Producto A", 4, 100000], ["2026-06-20", "Producto B", 2, 100000]
     ].map(row => ({ fecha: row[0], producto: row[1], cantidad: row[2], precio: row[3] })),
     inventory: []
-  },
-  soloInventario: {
-    name: "Caso E · Solo información de inventario",
-    expected: "No inventar ventas y orientar a agregar información comercial.",
-    description: "Incluye existencias y costos, pero no incluye ventas.",
-    sales: [],
-    inventory: [
-      ["Producto A", 42, 52000],
-      ["Producto B", 18, 38000],
-      ["Producto C", 65, 21000],
-      ["Producto D", 9, 79000]
-    ].map(row => ({ producto: row[0], stock: row[1], costo: row[2] }))
   }
 };
 
@@ -272,13 +203,13 @@ function contextScreen() {
         <div>
           <p class="eyebrow">Opcional</p>
           <h2>Cuéntanos tu negocio con tus palabras</h2>
-          <p>Esto es opcional. Puedes contarnos brevemente qué hace tu empresa y cualquier situación reciente que creas importante. Nos ayudará a entender mejor tus datos.</p>
+          <p>Puedes escribir o hablar. Cuéntanos brevemente qué hace tu negocio y cualquier situación reciente que creas importante.</p>
         </div>
         <div class="context-guide"><strong>Si quieres, puedes contarnos:</strong><ul><li>qué vende o hace tu negocio;</li><li>quiénes son tus principales clientes;</li><li>si pasó algo importante recientemente.</li></ul></div>
-        <label for="business-story">Escribir<textarea id="business-story" name="contextoLibre" rows="5" placeholder="Escribe aquí. Podrás editar también una transcripción de voz."></textarea></label>
-        <button id="voice-button" class="button secondary hidden" type="button">Hablar</button>
+        <label for="business-story">Escribir o dictar<textarea id="business-story" name="contextoLibre" rows="5" placeholder="Escribe aquí. Podrás revisar y corregir el texto antes de continuar."></textarea></label>
+        <button id="voice-button" class="button secondary hidden" type="button" aria-pressed="false">🎙️ Empezar a hablar</button>
         <p id="voice-status" class="message" role="status"></p>
-        <small>No almacenamos audio. Si usas voz, solo conservamos la transcripción en este formulario durante la sesión.</small>
+        <small>Solo conservamos la transcripción textual en este formulario durante la sesión.</small>
       </section>
       <div class="actions">
         <button class="button secondary" id="back-to-welcome" type="button">← Volver</button>
@@ -307,14 +238,11 @@ function dataScreen() {
       ${fileList}
       <p id="upload-error" class="message error" role="alert"></p>
     </section>
-    <div class="case-divider"><span>o prueba un caso ficticio</span></div>
-    <div class="choice-grid">
-      ${Object.entries(datasets).map(([key, dataset]) => `<button class="choice-card ${app.source === key ? "selected" : ""}" type="button" data-dataset="${key}">
-        <span class="case-tag">Datos ficticios</span>
-        <strong>${safe(dataset.name)}</strong>
-        <span>${safe(dataset.description)}</span>
-      </button>`).join("")}
-    </div>
+    <div class="case-divider"><span>Probar con un ejemplo</span></div>
+    <section class="single-example">
+      <div><span class="case-tag">Ejemplo de ventas</span><h2>Ejemplo de ventas</h2><p>Usa este ejemplo si todavía no tienes un archivo para probar San José.</p></div>
+      <button class="button secondary" type="button" data-dataset="ejemploVentas">Probar con ejemplo de ventas</button>
+    </section>
     ${app.semanticPending ? interpretationPanel() : app.dataset ? datasetScopePanel() : nav(2, null)}`;
 }
 
@@ -322,7 +250,7 @@ function datasetScopePanel() {
   const hasSales = app.dataset.sales.length > 0;
   const hasInventory = app.dataset.inventory.length > 0;
   if (hasSales && hasInventory) return `<div class="scope-message success-scope"><h2>Perfecto. Encontramos ventas e inventario.</h2><p>Podemos relacionar ambas fuentes y realizar el análisis completo.</p></div>${nav(2, 4, "Revisar información")}`;
-  if (hasSales) return `<div class="scope-message"><h2>Encontramos ventas, pero no inventario.</h2><p>Sí podemos ayudarte con tus ventas: revisar cambios, productos principales y dependencia comercial.</p><p>Sin inventario no podremos saber si tienes productos acumulados o si podrías quedarte sin existencias.</p></div><div class="partial-actions"><button class="button secondary" type="button" data-focus-upload>Agregar inventario</button><button class="button gold" type="button" data-go="4">Sí, analizar mis ventas →</button></div>`;
+  if (hasSales) return `<div class="scope-message"><h2>Encontramos información de ventas, pero no encontramos inventario.</h2><h3>Sí podemos ayudarte con tus ventas.</h3><p>Podemos revisar cambios en el tiempo, productos relevantes y concentración de las ventas.</p><p>Sin inventario no podremos saber si tienes productos acumulados o si podrías quedarte sin existencias.</p><p><strong>¿Quieres continuar solo con tus ventas?</strong></p></div><div class="partial-actions"><button class="button secondary" type="button" data-focus-upload>Agregar inventario</button><button class="button gold" type="button" data-go="4">Sí, analizar mis ventas →</button></div>`;
   if (hasInventory) return `<div class="scope-message"><h2>Encontramos inventario, pero no ventas.</h2><p>Podemos revisar la información disponible, pero necesitamos ventas para saber qué productos se venden y cuáles permanecen almacenados.</p></div><div class="partial-actions"><button class="button secondary" type="button" data-focus-upload>Agregar ventas</button><button class="button gold" type="button" data-go="4">Continuar con lo que tenemos →</button></div>`;
   return "";
 }
@@ -628,6 +556,11 @@ function toggleOtherBusiness() {
 
 function saveContext(event) {
   event.preventDefault();
+  if (isListening && speechRecognition) {
+    isListening = false;
+    clearTimeout(speechRestartTimer);
+    speechRecognition.stop();
+  }
   app.context = Object.fromEntries(new FormData(event.currentTarget));
   app.completed.form = true;
   go(3);
@@ -644,23 +577,90 @@ function setupSpeechRecognition() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const button = $("#voice-button");
   if (!Recognition || !button) return;
+  const textarea = $("#business-story");
+  const status = $("#voice-status");
+  let baseText = "";
+  let finalTranscript = "";
+  let interimTranscript = "";
+
   button.classList.remove("hidden");
+  speechRecognition = new Recognition();
+  speechRecognition.lang = "es-CO";
+  speechRecognition.interimResults = true;
+  speechRecognition.continuous = true;
+
+  const updateTranscript = () => {
+    const dictated = [finalTranscript.trim(), interimTranscript.trim()].filter(Boolean).join(" ");
+    textarea.value = [baseText.trim(), dictated].filter(Boolean).join(" ");
+  };
+  const showIdleButton = () => {
+    button.textContent = "🎙️ Empezar a hablar";
+    button.setAttribute("aria-pressed", "false");
+    button.classList.remove("listening");
+  };
+  const startRecognition = () => {
+    if (!isListening) return;
+    try {
+      speechRecognition.start();
+    } catch (error) {
+      if (error.name !== "InvalidStateError") {
+        isListening = false;
+        showIdleButton();
+        status.textContent = "No pudimos usar el micrófono. Puedes escribir tu contexto.";
+      }
+    }
+  };
+
+  speechRecognition.onresult = event => {
+    finalTranscript = "";
+    interimTranscript = "";
+    Array.from(event.results).forEach(result => {
+      const text = result[0]?.transcript || "";
+      if (result.isFinal) finalTranscript += `${text} `;
+      else interimTranscript += `${text} `;
+    });
+    updateTranscript();
+  };
+  speechRecognition.onerror = event => {
+    if (event.error === "no-speech" && isListening) {
+      status.textContent = "Te estamos escuchando…";
+      return;
+    }
+    if (event.error === "aborted" && !isListening) return;
+    isListening = false;
+    clearTimeout(speechRestartTimer);
+    showIdleButton();
+    status.textContent = ["not-allowed", "service-not-allowed"].includes(event.error)
+      ? "No tenemos permiso para usar el micrófono. Puedes continuar escribiendo."
+      : "No pudimos usar el micrófono. Puedes escribir tu contexto.";
+  };
+  speechRecognition.onend = () => {
+    if (!isListening) return;
+    baseText = textarea.value.trim();
+    finalTranscript = "";
+    interimTranscript = "";
+    status.textContent = "Te estamos escuchando…";
+    speechRestartTimer = setTimeout(startRecognition, 150);
+  };
+
   button.addEventListener("click", () => {
-    const recognition = new Recognition();
-    recognition.lang = "es-CO";
-    recognition.interimResults = false;
-    recognition.continuous = false;
-    $("#voice-status").textContent = "Escuchando…";
-    button.disabled = true;
-    recognition.onresult = event => {
-      const transcript = Array.from(event.results).map(result => result[0].transcript).join(" ");
-      const textarea = $("#business-story");
-      textarea.value = [textarea.value.trim(), transcript].filter(Boolean).join(" ");
-      $("#voice-status").textContent = "Transcripción lista. Puedes editarla antes de continuar.";
-    };
-    recognition.onerror = () => { $("#voice-status").textContent = "No pudimos transcribir. Puedes escribir el contexto."; };
-    recognition.onend = () => { button.disabled = false; };
-    recognition.start();
+    if (isListening) {
+      isListening = false;
+      clearTimeout(speechRestartTimer);
+      speechRecognition.stop();
+      showIdleButton();
+      status.textContent = "Listo. Puedes revisar y corregir el texto antes de continuar.";
+      return;
+    }
+    baseText = textarea.value.trim();
+    finalTranscript = "";
+    interimTranscript = "";
+    isListening = true;
+    button.textContent = "■ Terminar";
+    button.setAttribute("aria-pressed", "true");
+    button.classList.add("listening");
+    status.textContent = "Te estamos escuchando…";
+    startRecognition();
   });
 }
 

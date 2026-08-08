@@ -26,7 +26,8 @@ La aplicación es estática y compatible con GitHub Pages. No requiere cuenta, b
 ## Qué cambió en V4
 
 - Contexto reducido a tres preguntas obligatorias y un campo libre opcional.
-- Dictado opcional con `SpeechRecognition` cuando el navegador lo soporta.
+- Dictado opcional controlado por el usuario, con transcripción intermedia y reinicio automático mientras siga escuchando.
+- Un único ejemplo visible de ventas para demostrar el análisis sin inventario.
 - Flujos parciales: ventas sin inventario e inventario sin ventas.
 - Aclaraciones humanas de columnas, una por una, con muestras y la opción **No sé**.
 - Clasificación explícita de hojas como ventas, inventario, complementaria o desconocida.

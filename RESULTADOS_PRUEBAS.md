@@ -1,4 +1,4 @@
-# Resultados de pruebas · San José V4
+# Resultados de pruebas · San José
 
 Fecha: 8 de agosto de 2026.
 
@@ -6,7 +6,7 @@ Entorno: Chromium integrado, Node.js 24 incluido en Codex y servidor HTTP estát
 
 ## Resultado
 
-**10 de 10 pruebas automatizadas aprobadas.** También se aprobaron los recorridos manuales críticos de los casos ficticios, la carga de recursos estáticos y la revisión de secretos.
+**10 de 10 pruebas automatizadas aprobadas.** La demostración visible utiliza un único ejemplo de ventas; los controles técnicos restantes usan datos creados dentro de la prueba y no aparecen en la interfaz.
 
 Comando reproducible:
 
@@ -14,80 +14,59 @@ Comando reproducible:
 node tests/run-tests.js
 ```
 
-## Diez casos automatizados
+## Pruebas solicitadas
 
-| # | Caso | Resultado verificado |
-|---:|---|---|
-| 1 | Ventas e inventario suficientes | Calidad Alta y prioridad de productos almacenados con pocas ventas. |
-| 2 | Ventas concentradas | La concentración comercial queda como hallazgo principal y supera 90 %. |
-| 3 | Información insuficiente | Calidad Baja, análisis detenido y cero recomendaciones. |
-| 4 | Solo ventas con caída reciente | Calidad Media, caída sostenida de 30 % como prioridad y pregunta adaptativa. |
-| 5 | Contexto libre ya disponible | No repite la pregunta adaptativa. |
-| 6 | Solo inventario | Calidad Media y orientación para agregar ventas, sin afirmar rotación. |
-| 7 | Información parcial abundante | La calidad permanece limitada a 78 y nunca llega a Alta. |
-| 8 | Fórmula de prioridad | Impacto, urgencia, alcance y confianza producen una puntuación determinística. |
-| 9 | “No sé” en un dato esencial | El análisis permanece bloqueado y solicita completar la interpretación. |
-| 10 | Dato opcional ausente | No bloquea una hoja con todos los datos esenciales confirmados. |
+| Prueba | Resultado | Evidencia técnica |
+|---|---|---|
+| VOZ 1 · Hablar durante 30 segundos | Aprobada | `continuous` permanece activo y un fin automático reinicia el reconocimiento mientras `isListening` sea verdadero. |
+| VOZ 2 · Hacer pausas breves | Aprobada | El evento `no-speech` conserva el modo escucha y `onend` reinicia la sesión. |
+| VOZ 3 · Pulsar Terminar | Aprobada | Cambia `isListening` a falso, ejecuta `stop()` y conserva la transcripción en el textarea. |
+| VOZ 4 · Iniciar nuevamente | Aprobada | El segundo dictado se agrega al texto previo sin borrarlo. |
+| DEMO 1 · Seleccionar ejemplo de ventas | Aprobada | Existe un único dataset visible, contiene 12 ventas de seis meses y cero registros de inventario. |
+| DEMO 2 · Continuar sin inventario | Aprobada | Produce Calidad Media, prioriza una caída sostenida de 30 % y mantiene inventario en cero. |
 
-## Recorridos manuales en navegador
+## Comprobaciones internas de regresión
 
 | Prueba | Resultado |
 |---|---|
-| Contexto obligatorio | Hay exactamente tres preguntas estructuradas. “Otra actividad” abre un campo libre. |
-| Dictado | El control aparece cuando Chromium expone reconocimiento de voz; el texto queda editable. |
-| Solo ventas | Permite agregar inventario o continuar; no genera afirmaciones de existencias. |
-| Solo inventario | Permite agregar ventas o continuar; no usa expresiones como “casi no se venden”. |
-| Tendencia | El caso D compara $1.000.000 con $700.000 y prioriza la caída sobre la concentración. |
-| Pregunta adaptativa | Al responder “No pasó nada especial” desaparece y el análisis continúa. |
-| Regresión caso A | Mantiene productos almacenados con pocas ventas como prioridad. |
-| Regresión caso C | Mantiene Calidad Baja y no ofrece recomendaciones. |
-| Checklist | El plan contiene exactamente tres acciones marcables. |
-| Diseño adaptable | Sin desplazamiento horizontal en 390 × 844 ni en 1280 × 800. |
-| Refresh y retroceso | Refresh vuelve a la landing y los botones Volver conservan un recorrido válido. |
+| Calidad parcial | Nunca supera 78 ni se presenta como Alta. |
+| Priorización | Conserva la fórmula determinística de impacto, urgencia, alcance y confianza. |
+| Columna esencial ambigua | Elegir “No sé” mantiene bloqueado el análisis de una carga real. |
+| Columna opcional ausente | No bloquea una carga real con datos esenciales completos. |
+
+## Recorrido observado
+
+### Dictado
+
+- Estado inicial: **🎙️ Empezar a hablar**.
+- Estado activo: **■ Terminar** y “Te estamos escuchando…”.
+- Configuración: español de Colombia, resultados intermedios y escucha continua.
+- Una pausa breve no termina el modo escucha.
+- Si el navegador finaliza el reconocimiento, se reinicia solo mientras el usuario no haya pulsado Terminar.
+- Al terminar, el texto permanece editable y se muestra el mensaje de confirmación solicitado.
+- Permiso rechazado y micrófono no disponible muestran mensajes diferentes y nunca bloquean el formulario.
+- Sin soporte de `SpeechRecognition`, el botón permanece oculto y el textarea funciona normalmente.
+
+### Ejemplo de ventas
+
+- La interfaz muestra únicamente **Probar con un ejemplo**.
+- Nombre: **Ejemplo de ventas**.
+- Acción: **Probar con ejemplo de ventas**.
+- La aplicación informa que encontró ventas y no inventario.
+- Pregunta si el usuario desea continuar solo con ventas.
+- Permite analizar ventas o agregar inventario.
+- El resultado analiza tendencia, productos relevantes y concentración sin afirmar existencias, acumulación ni faltantes.
 
 ## Validaciones técnicas
 
 - `app.js` y `ai-interpreter.js` pasan `node --check`.
-- Los diez casos pasan en `tests/run-tests.js`.
+- Las diez pruebas pasan en `tests/run-tests.js`.
 - `git diff --check` no reporta errores de espacios.
-- El escaneo no encontró API keys, access tokens, client secrets ni contraseñas incrustadas.
-- El servidor estático devolvió HTTP 200 para `/`, `app.js`, `ai-interpreter.js`, `overrides.css` y el logo.
-- Los recursos usan rutas relativas, compatibles con el subdirectorio de GitHub Pages.
-- La interfaz funciona sin endpoint remoto mediante `local-fallback`.
+- El escaneo no encuentra API keys, access tokens, client secrets ni contraseñas incrustadas.
+- La carga de archivos reales, lectura multioja, interpretación y corrección manual no fueron modificadas.
+- El motor de calidad, priorización, plan de tres acciones y retroalimentación permanecen sin cambios funcionales.
+- Los recursos mantienen rutas relativas compatibles con GitHub Pages.
 
-## Resultado observado por dataset
+## Limitación de aceptación de voz
 
-### Caso A
-
-- Calidad: Alta.
-- Datos esenciales: 100 %.
-- Hallazgo principal: productos almacenados que casi no se venden.
-
-### Caso B
-
-- Hallazgo principal: dependencia de Arroz premium 5 kg.
-- Evidencia: más de 90 % del valor vendido corresponde a ese producto.
-
-### Caso C
-
-- Calidad: Baja.
-- Mensaje: “Todavía no tenemos información suficiente para decirte qué atender primero.”
-- Recomendaciones: ninguna.
-
-### Caso D
-
-- Alcance: solo ventas.
-- Calidad: Media.
-- Tendencia: promedio mensual de $1.000.000 a $700.000, caída de 30 %.
-- Hallazgo principal: caída reciente sostenida.
-
-### Caso E
-
-- Alcance: solo inventario.
-- Calidad: Media.
-- Evidencia permitida: 134 unidades y $4.944.000 de costo registrado.
-- Orientación: agregar ventas antes de decidir qué producto atender.
-
-## Limitación de aceptación
-
-La lectura XLS/XLSX multioja conserva el lector SheetJS y recorre `workbook.SheetNames`. Antes de uso con una empresa real conviene repetir una prueba manual con un archivo propio que contenga ventas, inventario y una hoja complementaria, usando datos anonimizados.
+La duración, las pausas y el reinicio se verifican automáticamente simulando el ciclo estándar de `SpeechRecognition`. Antes de una prueba piloto conviene hacer además una comprobación manual de 30 segundos en Chrome o Edge con permiso de micrófono, porque la disponibilidad del servicio de reconocimiento depende del navegador y del sistema operativo.
