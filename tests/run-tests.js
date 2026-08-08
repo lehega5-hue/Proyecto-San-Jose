@@ -48,7 +48,8 @@ const source = fs.readFileSync(appPath, "utf8") + `
   handleInterpretationAction, selectRoleColumn, interpretationRow,
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
   roleDisplayLabel, primaryReviewProgress, interpretationPanel, mappingCard,
-  stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation
+  stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
+  executiveSummaryHtml, managementDetailHtml, analysisLimitations
 };
 `;
 vm.createContext(sandbox);
@@ -61,7 +62,8 @@ const {
   selectRoleColumn, interpretationRow, columnChooser, columnOptionValue,
   columnDataQuality, columnIdentification, roleDisplayLabel,
   primaryReviewProgress, interpretationPanel, mappingCard,
-  stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation
+  stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
+  executiveSummaryHtml, managementDetailHtml, analysisLimitations
 } = sandbox.__test;
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -642,10 +644,10 @@ function stageThreeSales({ months = 6, rowsPerMonth = 4, products = ["A", "B", "
   return rows;
 }
 
-function setStageThree(data) {
+function setStageThree(data, referenceDate = new Date("2026-08-08T12:00:00Z")) {
   app.context = {};
   app.dataset = data;
-  app.analysis = analyze(data);
+  app.analysis = analyze(data, referenceDate);
   return app.analysis;
 }
 
@@ -663,8 +665,12 @@ test("ETAPA 3 A: ventas, cantidades e inventario completos producen resumen, cal
   assert.ok(html.indexOf("Ver mis 3 acciones") < html.indexOf("También encontramos"));
   assert.ok(html.indexOf("También encontramos") < html.indexOf("Ver detalle del análisis"));
   assert.equal((html.match(/class="result-chart(?: chart|\")/g) || []).length, 2);
+  assert.equal((html.match(/class="result-stat"/g) || []).length, 4);
   assert.ok(html.includes("Ver mis 3 acciones"));
   assert.ok(html.includes("Ver detalle del análisis"));
+  assert.ok(html.includes("Resumen para tomar decisiones"));
+  assert.ok(html.includes("Lo que todavía no podemos saber"));
+  assert.ok(html.indexOf("Ver detalle del análisis") < html.indexOf("Descargar resumen ejecutivo"));
 });
 
 test("ETAPA 3 B: sin valor monetario utiliza únicamente unidades en cifras y gráficos", () => {
@@ -691,8 +697,8 @@ test("ETAPA 3 D: ventas e inventario sin relación no generan conclusiones cruza
   const result = setStageThree({ sales, inventory });
   assert.equal(result.metrics.linkedProducts, 0);
   assert.ok(!result.priorities.some(finding => ["slow", "stockout"].includes(finding.type)));
-  assert.ok(resultsScreen().includes("0 productos relacionados"));
-  assert.ok(resultsScreen().includes("No comparamos ventas e inventario"));
+  assert.ok(resultsScreen().includes("No pudimos comparar ventas e inventario"));
+  assert.ok(resultsScreen().includes("no tienen una referencia que podamos relacionar"));
 });
 
 test("ETAPA 3 E: un mes sin registros no se convierte en ventas iguales a cero", () => {
@@ -752,6 +758,106 @@ test("ETAPA 3 J: una medida crítica incompleta vuelve prudente la recomendació
   const presentation = priorityPresentation(slow);
   assert.equal(presentation.strength, "BAJA");
   assert.ok(presentation.title.includes("información incompleta"));
+});
+
+test("ETAPA 3 FINAL A: solo ventas con cantidad conserva unidades y explica la ausencia de dinero", () => {
+  const result = setStageThree({ sales: stageThreeSales({ value: false }), inventory: [] });
+  assert.equal(result.metrics.chartBasis, "quantity");
+  assert.ok(resultsScreen().includes("unidades vendidas"));
+  assert.ok(resultsScreen().includes("No encontramos una columna de valor total"));
+});
+
+test("ETAPA 3 FINAL B: ventas con cantidad y valor usa pesos sin mezclarlos con unidades", () => {
+  const result = setStageThree({ sales: stageThreeSales(), inventory: [] });
+  assert.equal(result.metrics.chartBasis, "value");
+  assert.ok(trendChartHtml().includes("pesos vendidos por mes"));
+  assert.ok(productChartHtml().includes("del valor vendido"));
+});
+
+test("ETAPA 3 FINAL C: calidad alta conserva la fórmula determinística y habilita prioridad", () => {
+  const result = setStageThree({ sales: stageThreeSales(), inventory: ["A", "B", "C", "D"].map(producto => ({ producto, stock: 12 })) });
+  assert.equal(result.resultQuality.level, "ALTA");
+  assert.ok(result.priorities.length > 0);
+  assert.ok(resultsScreen().includes(`${result.resultQuality.score} % · Alta`));
+});
+
+test("ETAPA 3 FINAL D: calidad media comunica cautela y no certeza", () => {
+  const sales = stageThreeSales({ months: 3 });
+  sales.forEach((row, index) => { if (index % 2 === 0) row.fecha = ""; if (index % 2 === 1) row.producto = ""; });
+  const result = setStageThree({ sales, inventory: [] });
+  assert.equal(result.resultQuality.level, "MEDIA");
+  assert.ok(resultsScreen().includes("algunos datos incompletos"));
+});
+
+test("ETAPA 3 FINAL E: calidad insuficiente no genera prioridad ni descarga", () => {
+  const result = setStageThree({ sales: [{ fecha: "", producto: "", cantidad: "" }], inventory: [] });
+  const html = resultsScreen();
+  assert.equal(result.resultQuality.level, "BAJA");
+  assert.equal(result.priorities.length, 0);
+  assert.ok(html.includes("Todavía no tenemos información suficiente"));
+  assert.ok(html.includes("Descargar resumen ejecutivo</button>"));
+  assert.ok(html.includes("disabled"));
+});
+
+test("ETAPA 3 FINAL F: ventas e inventario relacionados sustentan cifras cruzadas", () => {
+  const sales = stageThreeSales({ products: ["A", "B"] });
+  const result = setStageThree({ sales, inventory: [{ producto: "A", stock: 40 }, { producto: "B", stock: 3 }] });
+  assert.equal(result.metrics.linkedProducts, 2);
+  assert.ok(result.priorities.some(finding => ["slow", "stockout"].includes(finding.type)));
+});
+
+test("ETAPA 3 FINAL G: inventario sin relación válida solo aparece como limitación", () => {
+  const result = setStageThree({ sales: stageThreeSales({ products: ["A", "B"] }), inventory: [{ producto: "X", stock: 40 }, { producto: "Y", stock: 3 }] });
+  assert.equal(result.metrics.linkedProducts, 0);
+  assert.ok(!result.priorities.some(finding => ["slow", "stockout"].includes(finding.type)));
+  assert.ok(analysisLimitations().some(item => item.includes("No pudimos comparar ventas e inventario")));
+});
+
+test("ETAPA 3 FINAL H: el mes actual incompleto queda fuera de comparaciones y gráficos", () => {
+  const sales = [];
+  for (let month = 4; month <= 8; month += 1) sales.push({ fecha: `2026-${String(month).padStart(2, "0")}-05`, producto: "A", cantidad: month * 10, valorTotal: month * 100000 });
+  const result = setStageThree({ sales, inventory: [] }, new Date("2026-08-08T12:00:00Z"));
+  assert.equal(result.metrics.currentMonthExcluded, true);
+  assert.equal(result.metrics.lastCompleteMonth, "2026-07");
+  assert.ok(!result.metrics.monthly.some(item => item.month === "2026-08"));
+  assert.ok(trendChartHtml().includes("julio de 2026"));
+  assert.ok(!trendChartHtml().includes("ago 2026"));
+});
+
+test("ETAPA 3 FINAL I: un producto dominante muestra su porcentaje real", () => {
+  const sales = stageThreeSales({ products: ["Líder", "Líder", "Líder", "Otro"] }).map((row, index) => ({ ...row, cantidad: index % 4 === 3 ? 1 : 20, valorTotal: index % 4 === 3 ? 10000 : 200000 }));
+  const result = setStageThree({ sales, inventory: [] });
+  assert.ok(result.metrics.topShare > .6);
+  assert.ok(productChartHtml().includes("productos principales representan"));
+});
+
+test("ETAPA 3 FINAL J: un producto que se deteriora puede convertirse en la misma prioridad del detalle", () => {
+  const sales = [];
+  const quantities = [100, 90, 80, 20];
+  quantities.forEach((quantity, index) => {
+    sales.push({ fecha: `2026-0${index + 1}-10`, producto: "Producto en baja", cantidad: quantity, valorTotal: quantity * 1000 });
+    sales.push({ fecha: `2026-0${index + 1}-11`, producto: "Producto estable", cantidad: 50, valorTotal: 50000 });
+  });
+  const result = setStageThree({ sales, inventory: [] });
+  const decline = result.priorities.find(finding => finding.type === "product-decline");
+  assert.ok(decline);
+  const presentation = priorityPresentation(decline);
+  assert.ok(presentation.title.includes("Producto en baja"));
+  assert.ok(managementDetailHtml(decline, presentation, false).includes(presentation.title));
+});
+
+test("ETAPA 3 FINAL K: valor monetario ausente siempre muestra la causa específica", () => {
+  setStageThree({ sales: stageThreeSales({ value: false }), inventory: [] });
+  assert.ok(resultsScreen().includes("No encontramos una columna de valor total ni información suficiente de cantidad y precio para calcularlo."));
+  assert.ok(executiveSummaryHtml().includes("No encontramos una columna de valor total"));
+});
+
+test("ETAPA 3 FINAL L: sin inventario no genera análisis de existencias", () => {
+  const result = setStageThree({ sales: stageThreeSales(), inventory: [] });
+  assert.equal(result.metrics.inv.length, 0);
+  assert.ok(!result.priorities.some(finding => ["slow", "stockout"].includes(finding.type)));
+  assert.ok(analysisLimitations().some(item => item.includes("No encontramos inventario")));
+  assert.ok(!resultsScreen().includes("Productos con más unidades disponibles"));
 });
 
 (async () => {

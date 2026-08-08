@@ -285,8 +285,8 @@ p { text-wrap: pretty; }
 .result-section { margin-top: 44px; }
 .result-section > h2, .also-found > h2 { margin: 0 0 18px; color: var(--navy); font: 500 clamp(1.65rem, 3vw, 2.25rem)/1.15 Georgia, serif; }
 .section-kicker { margin: 0 0 9px; color: var(--gold-dark); font-size: .72rem; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
-.result-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-.result-stat { min-width: 0; padding: 22px; border-top: 3px solid var(--gold); background: var(--white); box-shadow: 0 8px 24px rgba(1,18,53,.05); }
+.result-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 14px; }
+.result-stat { display: flex; flex-direction: column; min-width: 0; height: 100%; padding: 22px; border-top: 3px solid var(--gold); background: var(--white); box-shadow: 0 8px 24px rgba(1,18,53,.05); }
 .result-stat strong { display: block; overflow-wrap: anywhere; color: var(--navy); font: 600 clamp(1.45rem, 2.6vw, 2rem)/1.1 Georgia, serif; }
 .result-stat span { display: block; margin-top: 10px; color: var(--ink); font-weight: 750; }
 .result-stat small { display: block; margin-top: 9px; color: var(--muted); font-size: .78rem; }
@@ -311,7 +311,7 @@ p { text-wrap: pretty; }
 .month-bar i { display: block; width: min(34px, 72%); height: var(--bar-height); min-height: 3px; margin: 0 auto; background: var(--navy); border-radius: 3px 3px 0 0; }
 .month-bar:last-child i { background: var(--gold); }
 .month-bar b { padding-top: 8px; color: var(--muted); font-size: .67rem; font-weight: 750; text-align: center; text-transform: capitalize; }
-.bar-value { position: absolute; top: -39px; left: 50%; width: 86px; transform: translateX(-50%) rotate(-25deg); color: var(--navy); font-size: .62rem; font-weight: 800; text-align: center; white-space: nowrap; }
+.latest-bar-value { position: absolute; top: -34px; left: 50%; width: 110px; transform: translateX(-50%); color: var(--navy); font-size: .68rem; font-weight: 850; text-align: center; white-space: nowrap; }
 .product-bars { display: grid; gap: 15px; margin-top: 24px; }
 .product-bar-row { display: grid; grid-template-columns: minmax(95px, .8fr) minmax(110px, 1.4fr) auto; gap: 10px; align-items: center; }
 .product-bar-row > span { overflow: hidden; color: var(--ink); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -336,8 +336,32 @@ p { text-wrap: pretty; }
 .also-found .secondary-finding { border: 0; border-top: 3px solid var(--gold); box-shadow: 0 7px 22px rgba(1,18,53,.05); }
 .also-found .secondary-finding p { margin-top: 0; color: var(--ink); font-size: 1rem; }
 .analysis-details { margin-top: 38px; padding: 20px; border: 1px solid var(--line); background: var(--white); }
-.analysis-details .stats-grid { margin-bottom: 24px; }
-.analysis-details .button { margin-top: 10px; }
+.analysis-details > summary { font-size: 1.05rem; }
+.management-report { display: grid; gap: 0; margin-top: 24px; }
+.management-report > header { padding: clamp(24px, 4vw, 38px); border-top: 4px solid var(--gold); background: var(--navy); color: var(--white); }
+.management-report > header h2 { margin: 5px 0 12px; color: var(--white); font: 500 clamp(2rem, 3.6vw, 3rem)/1.08 Georgia, serif; }
+.management-report > header p:last-child { max-width: 720px; margin-bottom: 0; color: #e5e7eb; }
+.management-report > section { padding: 28px clamp(20px, 4vw, 38px); border-bottom: 1px solid var(--line); }
+.management-report > section h3 { margin: 0 0 14px; color: var(--navy); font: 500 clamp(1.4rem, 2.4vw, 1.85rem)/1.2 Georgia, serif; }
+.management-report > section h4 { margin: 22px 0 8px; color: var(--navy); }
+.management-report > section p { max-width: 790px; }
+.management-report > section p:last-child { margin-bottom: 0; }
+.management-report ul { padding-left: 20px; color: var(--muted); }
+.compact-chart { display: flex; align-items: end; gap: 10px; min-height: 175px; padding-top: 12px; border-bottom: 1px solid #aeb8c6; }
+.compact-month { display: grid; grid-template-rows: 125px auto; align-items: end; flex: 1; min-width: 42px; text-align: center; }
+.compact-month i { display: block; width: min(34px, 70%); height: var(--bar-height); min-height: 4px; margin: 0 auto; background: #aeb8c6; }
+.compact-month i.latest { background: var(--gold); }
+.compact-month b { padding-top: 7px; color: var(--muted); font-size: .67rem; text-transform: capitalize; }
+.detail-unavailable { padding: 16px; border-left: 3px solid var(--gold); background: #fffaf0; color: var(--muted); }
+.detail-quality { max-width: 560px; margin-top: 16px; padding: 14px 16px; background: #f7f8fa; }
+.detail-quality summary { cursor: pointer; color: var(--navy); font-weight: 850; }
+.detail-quality ul { margin: 12px 0 0; padding: 0; list-style: none; }
+.detail-quality li { display: flex; justify-content: space-between; gap: 18px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.detail-quality strong { color: var(--navy); }
+.download-explanation { border-bottom: 0 !important; }
+.download-summary-action { display: flex; align-items: center; gap: 16px; margin-top: 16px; }
+.download-summary-action p { margin: 0; color: var(--muted); font-size: .82rem; }
+.download-summary-action button:disabled { cursor: not-allowed; opacity: .55; }
 .insufficient-priority { margin-top: 48px; padding: 30px; border-left: 5px solid var(--gold); background: #fffaf0; }
 .insufficient-priority h2 { max-width: 800px; margin: 8px 0 12px; font: 500 clamp(1.8rem, 3.4vw, 2.8rem)/1.12 Georgia, serif; }
 .insufficient-priority p:last-child { margin-bottom: 0; color: var(--muted); }
@@ -419,6 +443,8 @@ p { text-wrap: pretty; }
   .result-quality { padding: 22px; }
   .quality-detail-list li { align-items: flex-start; flex-direction: column; gap: 3px; }
   .result-chart { padding: 20px 16px; }
+  .download-summary-action { align-items: stretch; flex-direction: column; }
+  .download-summary-action .button { width: 100%; }
   .product-bar-row { grid-template-columns: minmax(80px, .8fr) minmax(90px, 1.2fr) auto; }
   .preliminary { flex-direction: column; }
   .decision-note { font-size: .7rem; }

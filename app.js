@@ -640,7 +640,7 @@ function summaryCardsHtml() {
 function resultQualityHtml() {
   const quality = app.analysis.resultQuality;
   const reasons = quality.reasons.length ? quality.reasons.map(reason => `<li>${safe(reason)}</li>`).join("") : "<li>No encontramos una limitación importante en los datos utilizados.</li>";
-  const details = quality.details.map(item => `<li><span>${safe(item.label)}</span><strong>${readablePercent(item.rate)} utilizable</strong></li>`).join("");
+  const details = quality.details.slice(0, 4).map(item => `<li><span>${safe(item.label)}</span><strong>${readablePercent(item.rate)} utilizable</strong></li>`).join("");
   return `<section class="result-quality" aria-labelledby="result-quality-title">
     <div><p class="section-kicker">Calidad de la información</p><h2 id="result-quality-title">${quality.score} % · ${safe(quality.level[0] + quality.level.slice(1).toLowerCase())}</h2><p>${safe(resultQualityCopy(quality))}</p></div>
     <details><summary>¿Por qué?</summary><p>Encontramos:</p><ul>${reasons}</ul><h3>Información que pudimos utilizar</h3><ul class="quality-detail-list">${details}</ul></details>
@@ -649,6 +649,10 @@ function resultQualityHtml() {
 
 function monthName(key) {
   return monthLabel.format(new Date(`${key}-01T00:00:00Z`)).replace(" de ", " ");
+}
+
+function longMonthName(key) {
+  return new Intl.DateTimeFormat("es-CO", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${key}-01T00:00:00Z`));
 }
 
 function consecutiveMonths(items) {
@@ -660,19 +664,28 @@ function consecutiveMonths(items) {
   });
 }
 
-function trendMeaning(monthly, basis) {
-  if (monthly.length < 2) return "No tenemos suficientes meses con información para explicar un cambio.";
+function trendComparison(monthly, basis) {
+  if (monthly.length < 2) return { available: false, reason: "No tenemos suficientes meses completos con información para explicar un cambio." };
   const window = monthly.slice(-Math.min(4, monthly.length));
-  if (!consecutiveMonths(window)) return "Hay meses sin registros dentro del periodo. No los interpretamos como meses con ventas en cero.";
+  if (!consecutiveMonths(window)) return { available: false, reason: "Hay meses sin registros dentro del periodo. No los interpretamos como meses con ventas en cero." };
   const latest = window.at(-1), previous = window.slice(0, -1);
   const average = previous.reduce((sum, item) => sum + item.value, 0) / previous.length;
-  const latestText = basis === "value" ? money.format(latest.value) : `${readableNumber(latest.value)} unidades`;
+  const previousMonth = previous.at(-1);
+  const currentText = basis === "value" ? money.format(latest.value) : `${readableNumber(latest.value)} unidades`;
+  const averageChange = average ? (latest.value - average) / average : null;
+  const previousChange = previousMonth?.value ? (latest.value - previousMonth.value) / previousMonth.value : null;
+  return { available: true, latest, previous, average, previousMonth, currentText, averageChange, previousChange };
+}
+
+function trendMeaning(monthly, basis) {
+  const comparison = trendComparison(monthly, basis);
+  if (!comparison.available) return comparison.reason;
+  const { latest, previous, average, currentText, averageChange } = comparison;
   if (!average) return latest.value
-    ? `En ${monthName(latest.month)} registraste ${latestText}; los ${previous.length === 1 ? "datos del mes anterior" : `${previous.length} meses anteriores`} tenían valor cero.`
-    : `En ${monthName(latest.month)} y en los meses anteriores con registros, el valor fue cero.`;
-  const change = (latest.value - average) / average;
-  if (Math.abs(change) < .05) return `En ${monthName(latest.month)} registraste ${latestText}; el resultado se mantuvo cerca del promedio de los ${previous.length} meses anteriores.`;
-  return `En ${monthName(latest.month)} registraste ${latestText}, ${readablePercent(Math.abs(change))} ${change < 0 ? "menos" : "más"} que el promedio de los ${previous.length} meses anteriores.`;
+    ? `En ${monthName(latest.month)} registraste ${currentText}; los meses anteriores completos tenían un valor registrado de cero.`
+    : `En ${monthName(latest.month)} y en los meses anteriores completos, el valor registrado fue cero.`;
+  if (Math.abs(averageChange) < .05) return `En ${monthName(latest.month)} registraste ${currentText}. Las ventas se mantuvieron cerca del promedio de los ${previous.length} meses completos anteriores.`;
+  return `En el último mes completo vendiste ${readablePercent(Math.abs(averageChange))} ${averageChange < 0 ? "menos" : "más"} que el promedio de los ${previous.length} meses completos anteriores.`;
 }
 
 function trendChartHtml() {
@@ -685,11 +698,11 @@ function trendChartHtml() {
   if (data.length < 2) return `<article class="result-chart chart-unavailable"><h3>Así se han movido tus ventas</h3><p>No mostramos una tendencia porque encontramos información utilizable en menos de dos meses.</p></article>`;
   const maximum = Math.max(...data.map(item => item.value), 1);
   const unit = metrics.chartBasis === "value" ? "pesos vendidos por mes" : "unidades vendidas por mes";
-  const bars = data.map(item => {
+  const bars = data.map((item, index) => {
     const label = metrics.chartBasis === "value" ? money.format(item.value) : `${readableNumber(item.value)} unidades`;
-    return `<div class="month-bar"><span class="bar-value">${safe(label)}</span><i style="--bar-height:${Math.max(3, item.value / maximum * 100)}%" aria-hidden="true"></i><b>${safe(monthName(item.month))}</b></div>`;
+    return `<div class="month-bar" title="${safe(`${monthName(item.month)}: ${label}`)}" aria-label="${safe(`${monthName(item.month)}: ${label}`)}">${index === data.length - 1 ? `<span class="latest-bar-value">${safe(label)}</span>` : ""}<i style="--bar-height:${Math.max(3, item.value / maximum * 100)}%" aria-hidden="true"></i><b>${safe(monthName(item.month))}</b></div>`;
   }).join("");
-  return `<article class="result-chart"><h3>Así se han movido tus ventas</h3><p class="chart-subtitle">${safe(unit)} · últimos ${data.length} meses con registros</p><div class="monthly-bars" role="img" aria-label="${safe(unit)}">${bars}</div><p class="chart-meaning"><strong>Esto significa:</strong> ${safe(trendMeaning(data, metrics.chartBasis))}</p></article>`;
+  return `<article class="result-chart"><h3>Así se han movido tus ventas</h3><p class="chart-subtitle">${safe(unit)} · Último mes completo analizado: ${safe(longMonthName(metrics.lastCompleteMonth))}.</p><div class="monthly-bars" role="img" aria-label="${safe(unit)}">${bars}</div><p class="chart-meaning"><strong>Esto significa:</strong> ${safe(trendMeaning(data, metrics.chartBasis))}</p></article>`;
 }
 
 function productChartHtml() {
@@ -705,13 +718,13 @@ function productChartHtml() {
   const rows = visible.map((item, index) => `<div class="product-bar-row"><span>${safe(item.label)}</span><div><i style="--bar-width:${item.value / total * 100}%" class="${index === 0 ? "highlight" : ""}"></i></div><strong>${readablePercent(item.value / total)}</strong></div>`).join("");
   const topThree = ranked.slice(0, 3).reduce((sum, item) => sum + valueOf(item), 0) / total;
   const measure = metrics.chartBasis === "value" ? "valor vendido" : "unidades vendidas";
-  return `<article class="result-chart"><h3>Productos que más aportan a tus ventas</h3><p class="chart-subtitle">Participación sobre el ${safe(measure)}</p><div class="product-bars" role="img" aria-label="Participación de los productos sobre el ${safe(measure)}">${rows}</div><p class="chart-meaning"><strong>Esto significa:</strong> Los ${Math.min(3, ranked.length)} productos principales representan ${readablePercent(topThree)} del ${safe(measure)}.</p></article>`;
+  return `<article class="result-chart"><h3>Productos que más aportan a tus ventas</h3><p class="chart-subtitle">Porcentaje del ${safe(measure)}</p><div class="product-bars" role="img" aria-label="Porcentaje de los productos sobre el ${safe(measure)}">${rows}</div><p class="chart-meaning"><strong>Esto significa:</strong> Los ${Math.min(3, ranked.length)} productos principales representan ${readablePercent(topThree)} del ${safe(measure)}.</p></article>`;
 }
 
 function recommendationStrength(finding, quality) {
   const rates = quality.rates;
   const measureRate = app.analysis.metrics.chartBasis === "value" ? rates.value : rates.quantity;
-  const critical = finding?.type === "trend" ? Math.min(rates.date, measureRate)
+  const critical = ["trend", "product-decline"].includes(finding?.type) ? Math.min(rates.date, rates.product, measureRate)
     : finding?.type === "concentration" || finding?.type === "review" || finding?.type === "maintain" ? Math.min(rates.product, measureRate)
       : ["slow", "stockout"].includes(finding?.type) ? Math.min(rates.product, rates.quantity, rates.inventoryProduct, rates.stock) : quality.score / 100;
   const criticalLevel = critical >= .85 ? "ALTA" : critical >= .65 ? "MEDIA" : "BAJA";
@@ -742,6 +755,13 @@ function priorityPresentation(finding) {
     const measure = metrics.chartBasis === "value" ? "valor de las ventas" : "unidades vendidas";
     return { title: lead(`la caída reciente en el ${measure}`), metrics: [`${readablePercent(Math.abs(metrics.trendChange))} menos que el periodo anterior`, `${metrics.monthly.length} meses con registros`], found: finding.reason, important: finding.evidence, action: "Confirma si ocurrió algo fuera de lo normal y revisa qué productos explican el cambio.", strength };
   }
+  if (finding.type === "product-decline") {
+    const item = finding.productChange;
+    const measure = metrics.chartBasis === "value" ? "valor vendido" : "unidades vendidas";
+    const latest = metrics.chartBasis === "value" ? `${money.format(item.latest)} vendidos` : `${readableNumber(item.latest)} unidades vendidas`;
+    const previous = metrics.chartBasis === "value" ? money.format(item.previousAverage) : `${readableNumber(item.previousAverage)} unidades`;
+    return { title: lead(`el producto ${item.product}`), metrics: [latest, `${readablePercent(Math.abs(item.change))} menos que su promedio reciente`, `${previous} de promedio mensual anterior`], found: `${item.product} registró ${latest} en el último mes completo.`, important: `El resultado fue ${readablePercent(Math.abs(item.change))} menor que su promedio de los tres meses completos anteriores.`, action: "Revisa qué cambió en sus ventas antes de ajustar compras, precio o exhibición.", strength };
+  }
   if (finding.type === "maintain" && metrics.ranked[0]) {
     const [product, values] = metrics.ranked[0];
     const amount = metrics.rankingBasis === "value" ? `${money.format(values.revenue)} vendidos` : `${readableNumber(values.units)} unidades vendidas`;
@@ -760,16 +780,80 @@ function resultEvidenceHtml(presentation) {
   return `<section class="priority-evidence" id="priority-evidence"><article><span>¿Qué encontramos?</span><p>${safe(presentation.found)}</p></article><article><span>¿Por qué es importante?</span><p>${safe(presentation.important)}</p></article><article><span>¿Qué puedes hacer?</span><p>${safe(presentation.action)}</p></article></section>`;
 }
 
-function stageThreeSecondaryFinding(finding, index) {
-  if (!finding || finding.type === "data") return "";
+function stageThreeSecondaryFindings() {
   const metrics = app.analysis.metrics;
-  let sentence = finding.title;
-  if (finding.type === "concentration") sentence = `${metrics.ranked[0]?.[0] || "El producto principal"} representa ${readablePercent(metrics.topShare)} ${metrics.rankingBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}.`;
-  if (finding.type === "trend") sentence = `El promedio de tus ventas recientes bajó ${readablePercent(Math.abs(metrics.trendChange))} frente al periodo anterior.`;
-  if (finding.type === "slow") sentence = `${metrics.slowItems.length} ${metrics.slowItems.length === 1 ? "producto mantiene" : "productos mantienen"} ${readableNumber(metrics.slowUnits)} unidades disponibles después de vender ${readableNumber(metrics.slowSales)} unidades.`;
-  if (finding.type === "stockout") sentence = `${metrics.stockout.producto} tiene ${readableNumber(metrics.stockout.stock)} unidades disponibles después de vender ${readableNumber(metrics.stockout.sold)} unidades.`;
-  if (finding.type === "maintain" && metrics.ranked[0]) sentence = `${metrics.ranked[0][0]} lidera con ${readableNumber(metrics.ranked[0][1].units)} unidades vendidas.`;
-  return `<article class="secondary-finding"><p>${safe(sentence)}</p><button class="text-link" type="button" data-priority="${index}" data-go="6">Ver detalle →</button></article>`;
+  const findings = [];
+  const comparison = trendComparison(metrics.monthly, metrics.chartBasis);
+  if (metrics.chartBasis && comparison.available && comparison.averageChange !== null) findings.push({
+    key: "sales",
+    sentence: `En el último mes completo vendiste ${readablePercent(Math.abs(comparison.averageChange))} ${comparison.averageChange < 0 ? "menos" : "más"} que tu promedio reciente.`
+  });
+  if (metrics.chartBasis && metrics.ranked.length) {
+    const valueOf = item => metrics.chartBasis === "value" ? item[1].revenue : item[1].units;
+    const total = metrics.chartBasis === "value" ? metrics.revenue : metrics.units;
+    const topThree = total ? metrics.ranked.slice(0, 3).reduce((sum, item) => sum + valueOf(item), 0) / total : 0;
+    findings.push({ key: "products", sentence: `Tus ${Math.min(3, metrics.ranked.length)} productos principales generan ${readablePercent(topThree)} ${metrics.chartBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}.` });
+  }
+  return findings.slice(0, 2);
+}
+
+function analysisLimitations() {
+  const metrics = app.analysis.metrics;
+  const sales = app.dataset?.sales || [], inventory = app.dataset?.inventory || [];
+  const limitations = [];
+  if (!sales.length) limitations.push("No encontramos ventas, por eso no podemos explicar qué pasó con ellas.");
+  if (sales.length && metrics.valueRate < .7) limitations.push(metrics.valueUnavailableReason);
+  if (sales.length && metrics.quantityRate < .7) limitations.push(metrics.quantityUnavailableReason);
+  if (!inventory.length) limitations.push("No encontramos inventario, por eso no podemos decir si tienes exceso o falta de existencias.");
+  else if (!metrics.inv.length) limitations.push("No usamos el inventario porque no encontramos productos con existencias utilizables.");
+  else if (!metrics.linkedProducts) limitations.push("No pudimos comparar ventas e inventario porque los productos de ambos archivos no tienen una referencia que podamos relacionar con suficiente claridad.");
+  if (metrics.monthly.length < 2) limitations.push("No encontramos suficientes meses completos para comparar el comportamiento reciente de las ventas.");
+  else if (!consecutiveMonths(metrics.monthly.slice(-Math.min(4, metrics.monthly.length)))) limitations.push("Hay meses sin registros. No asumimos que esos meses tuvieron ventas en cero.");
+  return [...new Set(limitations)];
+}
+
+function compactRecentChartHtml() {
+  const metrics = app.analysis.metrics;
+  const data = metrics.monthly.slice(-6);
+  if (!metrics.chartBasis || data.length < 2) return `<p class="detail-unavailable">No mostramos este gráfico porque la información disponible no es suficiente para hacerlo de forma confiable.</p>`;
+  const maximum = Math.max(...data.map(item => item.value), 1);
+  const bars = data.map((item, index) => {
+    const label = metrics.chartBasis === "value" ? money.format(item.value) : `${readableNumber(item.value)} unidades`;
+    return `<div class="compact-month" title="${safe(`${monthName(item.month)}: ${label}`)}"><i style="--bar-height:${Math.max(4, item.value / maximum * 100)}%" class="${index === data.length - 1 ? "latest" : ""}"></i><b>${safe(monthName(item.month))}</b></div>`;
+  }).join("");
+  return `<div class="compact-chart" role="img" aria-label="Ventas de los últimos seis meses completos">${bars}</div><p class="chart-meaning"><strong>Esto significa:</strong> ${safe(trendMeaning(data, metrics.chartBasis))}</p>`;
+}
+
+function managementSalesHtml() {
+  const metrics = app.analysis.metrics;
+  const comparison = trendComparison(metrics.monthly, metrics.chartBasis);
+  if (!metrics.chartBasis || !comparison.available) return `<section><h3>Qué pasó con tus ventas</h3><p><strong>No podemos decir todavía si las ventas están mejorando o bajando.</strong></p><p>${safe(comparison.reason || "No encontramos una medida de ventas suficientemente completa.")}</p>${compactRecentChartHtml()}</section>`;
+  const direction = Math.abs(comparison.averageChange) < .05 ? "se mantienen" : comparison.averageChange < 0 ? "vienen bajando" : "vienen aumentando";
+  const previousText = comparison.previousChange === null ? "" : ` Fueron ${readablePercent(Math.abs(comparison.previousChange))} ${comparison.previousChange < 0 ? "menos" : "más"} que el mes anterior.`;
+  return `<section><h3>Qué pasó con tus ventas</h3><p><strong>Tus ventas ${direction}.</strong></p><p>En ${safe(monthName(comparison.latest.month))} registraste ${safe(comparison.currentText)}.${safe(previousText)}</p><p>Frente al promedio de los ${comparison.previous.length} meses completos anteriores, el cambio fue de ${readablePercent(Math.abs(comparison.averageChange))} ${comparison.averageChange < 0 ? "menos" : "más"}.</p><p>Esto significa que las ventas recientes ${comparison.averageChange < -.05 ? "están por debajo" : comparison.averageChange > .05 ? "están por encima" : "se mantienen cerca"} del comportamiento que venías teniendo.</p><h4>Últimos 6 meses</h4>${compactRecentChartHtml()}</section>`;
+}
+
+function managementProductsHtml() {
+  const metrics = app.analysis.metrics;
+  if (!metrics.chartBasis || !metrics.ranked.length) return `<section><h3>Qué productos están sosteniendo tus ventas</h3><p><strong>No pudimos comparar el aporte de los productos.</strong></p><p>No encontramos una medida de ventas suficientemente completa para hacerlo de forma confiable.</p></section>`;
+  const valueOf = item => metrics.chartBasis === "value" ? item[1].revenue : item[1].units;
+  const total = metrics.chartBasis === "value" ? metrics.revenue : metrics.units;
+  const leaders = metrics.ranked.slice(0, 3);
+  const combined = leaders.reduce((sum, item) => sum + valueOf(item), 0) / total;
+  const first = valueOf(leaders[0]) / total;
+  return `<section><h3>Qué productos están sosteniendo tus ventas</h3><p><strong>${combined >= .6 ? "Gran parte de tus ventas depende de pocos productos." : "Tus ventas están repartidas entre varios productos."}</strong></p><p>${safe(leaders.map(item => item[0]).join(", "))} representan ${readablePercent(combined)} ${metrics.chartBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}.</p><p>${safe(leaders[0][0])} representa por sí solo ${readablePercent(first)}.</p><p>Esto significa que si uno de estos productos vende menos, puede afectar una parte importante de tus ventas.</p></section>`;
+}
+
+function managementDetailHtml(main, presentation, insufficient) {
+  const quality = app.analysis.resultQuality;
+  const limitations = analysisLimitations();
+  const details = quality.details.filter(item => ["Fecha de venta", "Producto de ventas", "Cantidad vendida", "Valor de la venta"].includes(item.label)).slice(0, 4);
+  return `<div class="management-report"><header><p class="section-kicker">Mini informe gerencial</p><h2>Resumen para tomar decisiones</h2><p>Revisamos tu información. Estos son los puntos más importantes para entender qué está pasando.</p></header>
+    ${managementSalesHtml()}${managementProductsHtml()}
+    <section><h3>Qué deberías revisar primero</h3>${insufficient ? `<p><strong>Todavía no tenemos información suficiente para decirte qué atender primero.</strong></p><p>${safe(quality.reasons[0] || resultQualityCopy(quality))}</p>` : `<p><strong>${safe(presentation.title)}</strong></p><p>${safe(presentation.found)}</p><p>${safe(presentation.important)}</p><p>Por eso San José lo coloca como la primera situación a revisar.</p>`}</section>
+    <section><h3>Lo que todavía no podemos saber</h3>${limitations.length ? `<ul>${limitations.map(item => `<li>${safe(item)}</li>`).join("")}</ul>` : "<p>No encontramos una limitación importante para las conclusiones mostradas.</p>"}</section>
+    <section><h3>Calidad de la información</h3><p><strong>Calidad de la información: ${quality.score} % · ${safe(quality.level[0] + quality.level.slice(1).toLowerCase())}</strong></p><p>${safe(resultQualityCopy(quality))}</p><details class="detail-quality"><summary>Ver por qué</summary><ul>${details.map(item => `<li><span>${safe(item.label.replace(" de venta", ""))}</span><strong>${readablePercent(item.rate)} utilizable</strong></li>`).join("")}</ul></details></section>
+    <section class="download-explanation"><h3>Descargar resumen ejecutivo</h3><p>Guarda estas conclusiones en un informe corto para revisarlas con tu equipo.</p></section></div>`;
 }
 
 function resultsScreen() {
@@ -778,7 +862,7 @@ function resultsScreen() {
   const quality = app.analysis.resultQuality || app.analysis.quality;
   const main = app.analysis.priorities[0];
   const insufficient = quality.level === "BAJA" || !main;
-  const secondary = app.analysis.priorities.map((finding, index) => ({ finding, index })).slice(1).filter(item => item.finding.type !== "data").slice(0, 2);
+  const secondary = stageThreeSecondaryFindings();
   const presentation = main ? priorityPresentation(main) : null;
   return `<p class="eyebrow">Lo más importante que encontramos</p>
     <h1 class="screen-title">Esto muestran tus datos</h1>
@@ -787,8 +871,9 @@ function resultsScreen() {
     ${resultQualityHtml()}
     <section class="result-section" aria-labelledby="charts-title"><h2 id="charts-title">Lo que pasó con tus ventas</h2><div class="result-charts">${trendChartHtml()}${productChartHtml()}</div></section>
     ${insufficient ? `<section class="insufficient-priority"><p class="section-kicker">Resultado del análisis</p><h2>Todavía no tenemos información suficiente para decirte qué atender primero.</h2><p>${safe(quality.reasons[0] || "No encontramos suficientes datos utilizables para comparar productos o periodos.")}</p></section>` : `<section class="result-section priority-section" aria-labelledby="priority-title"><p class="section-kicker">Atiende esto primero</p><article class="main-priority"><h2 id="priority-title">${safe(presentation.title)}</h2><div class="priority-metrics">${presentation.metrics.slice(0, 4).map(metric => `<span>${safe(metric)}</span>`).join("")}</div><p class="quality-notice">${presentation.strength === "MEDIA" ? `Esta recomendación utiliza información con ${quality.score} % de calidad. Ten en cuenta las limitaciones indicadas.` : presentation.strength === "BAJA" ? `Esta recomendación se basa en información con ${quality.score} % de calidad y debe tomarse como una señal inicial.` : `Basado en información con ${quality.score} % de calidad.`}</p></article></section>${resultEvidenceHtml(presentation)}<div class="priority-actions"><button class="button gold" type="button" data-go="7">Ver mis 3 acciones</button><button class="button secondary" type="button" data-priority="0" data-go="6">Ver evidencia</button></div>`}
-    ${secondary.length ? `<section class="result-section also-found"><h2>También encontramos</h2><div class="secondary-findings">${secondary.map(item => stageThreeSecondaryFinding(item.finding, item.index)).join("")}</div></section>` : ""}
-    <details class="analysis-details"><summary>Ver detalle del análisis</summary><div class="stats-grid">${metricCards()}</div><h3>Para mantener este análisis útil</h3><p>Mantén tus ventas e inventario actualizados.</p><button id="download-summary" class="button secondary" type="button">Descargar resumen ejecutivo</button></details>
+    ${secondary.length ? `<section class="result-section also-found"><h2>También encontramos</h2><div class="secondary-findings">${secondary.map(item => `<article class="secondary-finding"><p>${safe(item.sentence)}</p></article>`).join("")}</div></section>` : ""}
+    <details class="analysis-details"><summary>Ver detalle del análisis</summary>${managementDetailHtml(main, presentation, insufficient)}</details>
+    <div class="download-summary-action"><button id="download-summary" class="button secondary" type="button" ${insufficient ? "disabled" : ""}>Descargar resumen ejecutivo</button>${insufficient ? "<p>Podrás descargarlo cuando exista información suficiente para sustentar una conclusión.</p>" : ""}</div>
     ${nav(4, null)}`;
 }
 
@@ -1614,7 +1699,7 @@ function stageThreeQuality(sales, inventory) {
   };
 }
 
-function analyze(data) {
+function analyze(data, referenceDate = new Date()) {
   const sales = data.sales || [], inventory = data.inventory || [];
   const hasSales = sales.length > 0, hasInventory = inventory.length > 0;
   const saleValue = row => Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : Number.isFinite(numericValue(row.precio)) && Number.isFinite(numericValue(row.cantidad)) ? numericValue(row.precio) * numericValue(row.cantidad) : NaN;
@@ -1679,7 +1764,7 @@ function analyze(data) {
     missing: missingParts.length ? `Necesitamos corregir o completar: ${missingParts.join("; ")}.` : "Necesitamos al menos ventas utilizables o un inventario con productos y existencias.",
     nextStep: "Busca esas columnas o registros en el archivo que ya utiliza tu negocio, complétalos y vuelve a cargarlo."
   };
-  const metrics = calculateMetrics(sales, inventory, period);
+  const metrics = calculateMetrics(sales, inventory, period, referenceDate);
   const priorities = level === "BAJA" ? [] : prioritize(metrics, { hasSales, hasInventory, completeness });
   const freeContext = normalize(`${app.context.contextoLibre || ""} ${app.context.eventoReciente || ""}`);
   const trendFirst = priorities[0]?.type === "trend";
@@ -1687,8 +1772,8 @@ function analyze(data) {
   return { quality, resultQuality, metrics, priorities, adaptiveNeeded: trendFirst && !contextMentionsChange };
 }
 
-function calculateMetrics(sales, inventory, period) {
-  const byProduct = {}, salesByKey = {};
+function calculateMetrics(sales, inventory, period, referenceDate = new Date()) {
+  const byProduct = {}, salesByKey = {}, productMonthly = {};
   let revenue = 0, units = 0, quantityRows = 0, valueRows = 0;
   sales.forEach(row => {
     const quantity = numericValue(row.cantidad);
@@ -1719,20 +1804,38 @@ function calculateMetrics(sales, inventory, period) {
     const date = new Date(row.fecha), quantity = numericValue(row.cantidad);
     const value = Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : quantity * numericValue(row.precio);
     if (Number.isNaN(date.getTime())) return;
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
     if (Number.isFinite(value) && value >= 0) monthlyValue[key] = (monthlyValue[key] || 0) + value;
     if (Number.isFinite(quantity) && quantity >= 0) monthlyUnits[key] = (monthlyUnits[key] || 0) + quantity;
+    const product = String(row.producto || "").trim();
+    if (product) {
+      productMonthly[product] ||= {};
+      productMonthly[product][key] ||= { units: 0, revenue: 0 };
+      if (Number.isFinite(value) && value >= 0) productMonthly[product][key].revenue += value;
+      if (Number.isFinite(quantity) && quantity >= 0) productMonthly[product][key].units += quantity;
+    }
   });
   const chartBasis = valueRate >= .7 ? "value" : quantityRate >= .7 ? "quantity" : null;
   const monthlyMap = chartBasis === "value" ? monthlyValue : chartBasis === "quantity" ? monthlyUnits : {};
-  const monthly = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value }));
+  const currentMonth = `${referenceDate.getFullYear()}-${String(referenceDate.getMonth() + 1).padStart(2, "0")}`;
+  const allMonthly = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value }));
+  const monthly = allMonthly.filter(item => item.month < currentMonth);
   const windowSize = monthly.length >= 6 ? 3 : monthly.length >= 4 ? 2 : 0;
   const priorMonths = windowSize ? monthly.slice(-windowSize * 2, -windowSize) : [];
   const recentMonths = windowSize ? monthly.slice(-windowSize) : [];
   const average = values => values.length ? values.reduce((sum, item) => sum + item.value, 0) / values.length : 0;
   const priorAverage = average(priorMonths), recentAverage = average(recentMonths);
   const trendChange = priorAverage ? (recentAverage - priorAverage) / priorAverage : 0;
-  const trendSustained = recentMonths.length > 1 && recentMonths.every(item => item.value < priorAverage) && recentMonths.every((item, index) => index === 0 || item.value <= recentMonths[index - 1].value);
+  const trendSustained = recentMonths.length > 1 && consecutiveMonths([...priorMonths, ...recentMonths]) && recentMonths.every(item => item.value < priorAverage) && recentMonths.every((item, index) => index === 0 || item.value <= recentMonths[index - 1].value);
+  const productChanges = Object.entries(productMonthly).map(([product, values]) => {
+    const series = monthly.slice(-4).map(item => ({ month: item.month, value: values[item.month]?.[chartBasis === "value" ? "revenue" : "units"] ?? null }));
+    if (!chartBasis || series.length < 4 || series.some(item => item.value === null)) return null;
+    const latest = series.at(-1).value;
+    const previous = series.slice(0, 3);
+    const previousAverage = previous.reduce((sum, item) => sum + item.value, 0) / 3;
+    const change = previousAverage ? (latest - previousAverage) / previousAverage : 0;
+    return { product, latest, previousAverage, change, series };
+  }).filter(Boolean).sort((a, b) => a.change - b.change);
   const inventoryKeyCounts = inventory.reduce((counts, row) => {
     const key = normalize(row.producto);
     if (key) counts[key] = (counts[key] || 0) + 1;
@@ -1760,8 +1863,11 @@ function calculateMetrics(sales, inventory, period) {
   const inventoryUnits = inv.reduce((sum, row) => sum + row.stock, 0);
   return {
     revenue, units, quantityRows, valueRows, quantityRate, valueRate, ranked, rankingBasis, chartBasis, topShare,
-    monthly, monthlyValue: Object.entries(monthlyValue).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value })),
-    monthlyUnits: Object.entries(monthlyUnits).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value })),
+    monthly, allMonthly, currentMonthExcluded: allMonthly.some(item => item.month === currentMonth),
+    lastCompleteMonth: monthly.at(-1)?.month || null,
+    monthlyValue: Object.entries(monthlyValue).sort(([a], [b]) => a.localeCompare(b)).filter(([month]) => month < currentMonth).map(([month, value]) => ({ month, value })),
+    monthlyUnits: Object.entries(monthlyUnits).sort(([a], [b]) => a.localeCompare(b)).filter(([month]) => month < currentMonth).map(([month, value]) => ({ month, value })),
+    productChanges,
     priorAverage, recentAverage, trendChange, trendSustained, inv, inventoryValue, inventoryUnits, slowItems, slowUnits,
     slowValue, slowSales, stockout, period, products: inv.length, salesProducts: ranked.length, linkedProducts,
     relationCoverage,
@@ -1784,6 +1890,19 @@ function scored(finding, factors) {
 
 function prioritize(metrics, scope) {
   const findings = [];
+  const decliningProduct = metrics.productChanges.find(item => item.change <= -.30 && item.previousAverage > 0);
+  if (scope.hasSales && decliningProduct) findings.push(scored({
+    type: "product-decline",
+    title: `Las ventas de ${decliningProduct.product} vienen bajando.`,
+    reason: `${decliningProduct.product} terminó el último mes completo ${percent(Math.abs(decliningProduct.change))} por debajo de su promedio de los tres meses anteriores.`,
+    evidence: metrics.chartBasis === "value"
+      ? `Pasó de un promedio de ${money.format(decliningProduct.previousAverage)} a ${money.format(decliningProduct.latest)} vendidos.`
+      : `Pasó de un promedio de ${readableNumber(decliningProduct.previousAverage)} a ${readableNumber(decliningProduct.latest)} unidades vendidas.`,
+    meaning: "El cambio reciente de este producto puede estar afectando una parte relevante de las ventas.",
+    action: "Revisa qué cambió en sus ventas antes de ajustar compras, precio o exhibición.",
+    indicator: metrics.chartBasis === "value" ? "Valor vendido del producto cada mes." : "Unidades vendidas del producto cada mes.",
+    productChange: decliningProduct
+  }, { impact: Math.min(100, Math.abs(decliningProduct.change) * 160), urgency: 85, reach: 70, confidence: 90 }));
   if (scope.hasSales && metrics.trendSustained && metrics.trendChange <= -.15) findings.push(scored({
     type: "trend",
     title: `Tus ventas bajaron ${percent(Math.abs(metrics.trendChange))} en los meses más recientes.`,
@@ -1965,20 +2084,42 @@ function showTestSummary() {
   $("#test-dialog").showModal();
 }
 
-function downloadExecutiveSummary() {
-  if (!app.analysis || app.analysis.quality.level === "BAJA") return;
+function executiveSummaryHtml() {
+  if (!app.analysis) return "";
+  const { metrics, resultQuality: quality } = app.analysis;
   const finding = app.analysis.priorities[0];
-  const plan = getPlan();
-  const context = Object.entries(app.context).filter(([, value]) => value).map(([key, value]) => `<li><strong>${safe(key)}:</strong> ${safe(value)}</li>`).join("");
-  const actions = plan.map(item => `<tr><td>${safe(item.when)}</td><td>${safe(item.action)}</td><td>${safe(finding.indicator)}</td></tr>`).join("");
-  const reportQualityLevel = app.analysis.quality.level[0] + app.analysis.quality.level.slice(1).toLowerCase();
-  const reportHtml = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Resumen ejecutivo · San José</title><style>body{font-family:Arial,sans-serif;color:#1f2937;max-width:900px;margin:40px auto;padding:0 20px;line-height:1.5}h1,h2{font-family:Georgia,serif;color:#011235}header{border-bottom:4px solid #D8A63A;padding-bottom:18px}.tag{color:#9a6500;font-weight:700;text-transform:uppercase;letter-spacing:.08em}section{margin:28px 0}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid #E5E7EB;padding:10px;text-align:left;vertical-align:top}.priority{background:#f8f2e4;border-left:5px solid #D8A63A;padding:20px}button{background:#011235;color:#fff;border:0;padding:12px 18px}@media print{button{display:none}body{margin:15mm;padding:0}}</style></head><body><header><p class="tag">San José · Transformación Estratégica</p><h1>Resumen ejecutivo</h1><p>Tus datos te muestran qué atender primero.</p><small>${new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date())}</small></header><section><h2>Calidad de la información</h2><p><strong>Calidad de los datos: ${reportQualityLevel} · ${app.analysis.quality.score}/100</strong></p><p>${safe(app.analysis.quality.summary)}</p></section><section class="priority"><p class="tag">Atiende esto primero</p><h2>${safe(finding.title)}</h2><p>${safe(finding.evidence)}</p><p><strong>Por qué importa:</strong> ${safe(finding.meaning)}</p></section><section><h2>Plan de 3 acciones</h2><table><thead><tr><th>Momento</th><th>Acción</th><th>Qué observar</th></tr></thead><tbody>${actions}</tbody></table></section><section><h2>Limitaciones</h2><ul><li>El análisis se concentra en ventas e inventario.</li><li>Las cifras dependen de la calidad y cobertura de los archivos.</li><li>La IA, cuando está disponible, interpreta; el código determinístico calcula.</li><li>La decisión final corresponde al empresario.</li></ul></section><button onclick="window.print()">Imprimir o guardar como PDF</button></body></html>`;
-  const reportHtmlWithContext = reportHtml.replace("</header>", `</header><section><h2>Contexto</h2><ul>${context}</ul></section>`);
-  const blob = new Blob([reportHtmlWithContext], { type: "text/html;charset=utf-8" });
+  const presentation = finding ? priorityPresentation(finding) : null;
+  const secondary = stageThreeSecondaryFindings();
+  const limitations = analysisLimitations();
+  const cards = stageThreeSummaryCards();
+  const comparison = trendComparison(metrics.monthly, metrics.chartBasis);
+  const recent = metrics.monthly.slice(-6);
+  const maximum = Math.max(...recent.map(item => item.value), 1);
+  const chart = recent.length >= 2 ? `<div class="report-chart">${recent.map((item, index) => `<div><i style="height:${Math.max(4, item.value / maximum * 100)}%" class="${index === recent.length - 1 ? "latest" : ""}"></i><span>${safe(monthName(item.month))}</span></div>`).join("")}</div>` : `<p>No mostramos un gráfico porque no encontramos suficientes meses completos.</p>`;
+  const valueOf = item => metrics.chartBasis === "value" ? item[1].revenue : item[1].units;
+  const total = metrics.chartBasis === "value" ? metrics.revenue : metrics.units;
+  const products = metrics.chartBasis && total ? metrics.ranked.slice(0, 5).map(item => `<li><strong>${safe(item[0])}</strong>: ${readablePercent(valueOf(item) / total)} ${metrics.chartBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}</li>`).join("") : "<li>No encontramos información suficiente para comparar productos.</li>";
+  const dates = (app.dataset?.sales || []).map(row => new Date(row.fecha)).filter(date => !Number.isNaN(date.getTime())).sort((a, b) => a - b);
+  const periodText = dates.length ? `${new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(dates[0])} a ${new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(dates.at(-1))}` : "No pudimos calcular el periodo porque no encontramos fechas utilizables.";
+  const latestText = comparison.available ? trendMeaning(metrics.monthly, metrics.chartBasis) : comparison.reason;
+  const prioritySection = presentation ? `<section class="priority"><p class="tag">Lo primero que deberías revisar</p><h2>${safe(presentation.title)}</h2><ul>${presentation.metrics.slice(0, 4).map(item => `<li>${safe(item)}</li>`).join("")}</ul><p><strong>Por qué:</strong> ${safe(presentation.important)}</p></section>` : `<section class="priority"><h2>Todavía no podemos indicar una prioridad</h2><p>${safe(quality.reasons[0] || resultQualityCopy(quality))}</p></section>`;
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Resumen del análisis · San José</title><style>@page{margin:14mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;max-width:820px;margin:28px auto;padding:0 18px;line-height:1.4;font-size:13px}h1,h2{font-family:Georgia,serif;color:#011235}h1{font-size:30px;margin:5px 0}h2{font-size:20px;margin-bottom:8px}header{border-bottom:4px solid #D8A63A;padding-bottom:14px}.tag{color:#9a6500;font-weight:800;text-transform:uppercase;letter-spacing:.08em}section{margin:20px 0;break-inside:avoid}.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.card{padding:12px;border-top:3px solid #D8A63A;background:#f7f7f6}.card strong{display:block;color:#011235;font-size:17px}.priority{padding:16px;border-left:5px solid #D8A63A;background:#f8f2e4}.report-chart{height:150px;display:flex;align-items:end;gap:10px;border-bottom:1px solid #aeb8c6;padding-top:10px}.report-chart div{height:120px;flex:1;display:grid;grid-template-rows:1fr auto;align-items:end;text-align:center}.report-chart i{display:block;width:60%;min-height:3px;margin:auto auto 0;background:#011235}.report-chart i.latest{background:#D8A63A}.report-chart span{font-size:10px;margin-top:5px}ul{padding-left:20px}li{margin:5px 0}button{background:#011235;color:#fff;border:0;padding:10px 14px}@media print{button{display:none}body{margin:0;padding:0}.page-break{break-before:page}}</style></head><body><header><p class="tag">San José · Transformación Estratégica</p><h1>Resumen del análisis</h1><p>Una explicación corta para tomar decisiones.</p><small>${new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date())}</small></header>
+    <section><h2>Periodo revisado</h2><p>${safe(periodText)}</p><p><strong>Calidad de la información: ${quality.score} % · ${safe(quality.level[0] + quality.level.slice(1).toLowerCase())}</strong><br>${safe(resultQualityCopy(quality))}</p></section>
+    <section><h2>Cifras principales</h2><div class="cards">${cards.map(card => `<div class="card"><strong>${safe(card.value)}</strong><span>${safe(card.label)}</span>${card.note ? `<small>${safe(card.note)}</small>` : ""}</div>`).join("")}</div></section>
+    <section><h2>Qué pasó en el último mes completo</h2><p>${safe(latestText)}</p>${chart}</section>
+    <section><h2>Productos que más aportan</h2><ul>${products}</ul></section>${prioritySection}
+    ${secondary.length ? `<section><h2>También encontramos</h2><ul>${secondary.map(item => `<li>${safe(item.sentence)}</li>`).join("")}</ul></section>` : ""}
+    <section><h2>Lo que no pudimos concluir</h2>${limitations.length ? `<ul>${limitations.map(item => `<li>${safe(item)}</li>`).join("")}</ul>` : "<p>No encontramos una limitación importante para las conclusiones mostradas.</p>"}</section>
+    <button onclick="window.print()">Imprimir o guardar como PDF</button></body></html>`;
+}
+
+function downloadExecutiveSummary() {
+  if (!app.analysis || app.analysis.resultQuality.level === "BAJA") return;
+  const blob = new Blob([executiveSummaryHtml()], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "resumen-ejecutivo-san-jose-v4.html";
+  link.download = "resumen-ejecutivo-san-jose.html";
   document.body.appendChild(link);
   link.click();
   link.remove();
