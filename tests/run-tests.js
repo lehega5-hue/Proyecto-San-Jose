@@ -1016,6 +1016,104 @@ test("ARQUITECTURA 5: el cruce Ventas e Inventario exige productos relacionados"
   assert.ok(valid.businessFindings.find(finding => finding.dominio === "ventas-inventario").limitaciones.some(item => item.includes("no demuestra")));
 });
 
+test("DIAGNÓSTICO 1: una caída de 90 % activa atención inmediata y cuantifica la pérdida", () => {
+  const sales = businessRows({ A: [100, 100, 100, 10, 10, 10] });
+  const result = setStageThree({ sales, inventory: [] });
+  const main = result.priorities[0];
+  const presentation = priorityPresentation(main);
+  assert.equal(main.type, "business-decline");
+  assert.equal(main.nivelUrgencia, "Crítico");
+  assert.equal(Math.round(main.magnitudDetalle.unidadesDejadasDeVender), 270);
+  assert.equal(Math.round(main.magnitudDetalle.valorDejadoDeVender), 270000);
+  assert.ok(presentation.title.includes("atención inmediata") || presentation.title.includes("revisión inmediata"));
+  assert.ok(presentation.metrics.some(item => item.includes("270 unidades")));
+  assert.ok(!resultsScreen().includes("Espera para confirmar"));
+});
+
+test("DIAGNÓSTICO 2: limita a tres focos y conserva evidencia y aporte alineados", () => {
+  const sales = [];
+  for (let month = 1; month <= 6; month += 1) {
+    const recent = month > 3;
+    sales.push({ fecha: `2026-0${month}-10`, producto: "A", cliente: "Cliente Norte", vendedor: "Comercial 1", cantidad: recent ? 10 : 70, valorTotal: (recent ? 10 : 70) * 1000, utilidad: (recent ? 2 : 20) * 1000 });
+    sales.push({ fecha: `2026-0${month}-11`, producto: "B", cliente: "Cliente Sur", vendedor: "Comercial 2", cantidad: recent ? 20 : 30, valorTotal: (recent ? 20 : 30) * 1000, utilidad: (recent ? 4 : 10) * 1000 });
+  }
+  const result = setStageThree({ sales, inventory: [] });
+  const main = result.priorities[0];
+  assert.ok(main.focosPrioritarios.length <= 3);
+  assert.equal(main.causasObservadas.length, main.aportePorCausa.length);
+  assert.equal(main.causasObservadas.length, main.focosPrioritarios.length);
+  assert.ok(main.causasObservadas.every(item => /%|\$|unidades/.test(item)));
+  assert.equal(result.diagnostico.focosPrioritarios.length, main.focosPrioritarios.length);
+});
+
+test("DIAGNÓSTICO 3: clientes incompletos no explican la prioridad", () => {
+  const sales = businessRows({ A: [100, 100, 100, 40, 40, 40] });
+  sales[0].cliente = "Cliente parcial";
+  const result = setStageThree({ sales, inventory: [] });
+  assert.ok(result.metrics.customerRate < .70);
+  assert.ok(!result.priorities[0].aportePorCausa.some(item => item.dimension === "cliente"));
+  assert.equal(result.diagnostico.datosDisponibles.clientes, false);
+  assert.ok(result.diagnostico.limitaciones.some(item => item.includes("clientes están incompletos")));
+});
+
+test("DIAGNÓSTICO 4: utilidad solo se analiza cuando tiene calidad suficiente", () => {
+  const sales = [];
+  for (let month = 1; month <= 6; month += 1) sales.push({ fecha: `2026-0${month}-10`, producto: "A", cantidad: 100, valorTotal: 100000, utilidad: month <= 3 ? 30000 : 10000 });
+  const result = setStageThree({ sales, inventory: [] });
+  assert.equal(result.metrics.panorama.status, "VENTAS ESTABLES");
+  assert.equal(result.metrics.utilityRate, 1);
+  assert.equal(result.priorities[0].type, "profit-decline");
+  assert.equal(result.diagnostico.datosDisponibles.utilidad, true);
+  assert.ok(result.priorities[0].reason.includes("utilidad"));
+});
+
+test("DIAGNÓSTICO 5: diferencia unidades y valor sin inventar una causa", () => {
+  const sales = [];
+  for (let month = 1; month <= 6; month += 1) {
+    const quantity = month <= 3 ? 100 : 80;
+    const value = month <= 3 ? 100000 : 50000;
+    sales.push({ fecha: `2026-0${month}-10`, producto: "A", cantidad: quantity, valorTotal: value });
+  }
+  const result = setStageThree({ sales, inventory: [] });
+  const comparison = result.priorities[0].causasObservadas.find(item => item.includes("unidades bajaron"));
+  assert.ok(comparison.includes("20 %"));
+  assert.ok(comparison.includes("50 %"));
+  assert.ok(result.priorities[0].hipotesisPorValidar.some(item => item.includes("precios") || item.includes("descuentos")));
+});
+
+test("DIAGNÓSTICO 6: fecha de último movimiento permite detectar inventario inmóvil", () => {
+  const inventory = [
+    { producto: "A", stock: 80, ultimoMovimiento: "2025-10-01" },
+    { producto: "B", stock: 20, ultimoMovimiento: "2026-07-20" }
+  ];
+  const result = setStageThree({ sales: [], inventory });
+  assert.equal(result.metrics.inventoryStatus, "INVENTARIO SIN MOVIMIENTO");
+  assert.equal(result.priorities[0].type, "inventory-no-movement");
+  assert.ok(result.priorities[0].focosPrioritarios[0].evidencia.includes("días desde su último movimiento"));
+});
+
+test("DIAGNÓSTICO 7: el contrato para acciones incluye urgencia, magnitud y focos", () => {
+  const result = setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  const diagnosis = result.diagnostico;
+  ["dominio", "problemGeneral", "nivelUrgencia", "magnitud", "evidencia", "causasObservadas", "aportePorCausa", "focosPrioritarios", "hipotesisPorValidar", "limitaciones", "calidadInformacion"].forEach(field => assert.ok(Object.hasOwn(diagnosis, field), `falta ${field}`));
+  assert.ok(diagnosis.focosPrioritarios.length <= 3);
+  assert.equal(diagnosis.nivelUrgencia, result.priorities[0].nivelUrgencia);
+});
+
+test("DIAGNÓSTICO 8: un margen porcentual no se suma ni se presenta como dinero", () => {
+  const sales = [];
+  for (let month = 1; month <= 6; month += 1) sales.push({ fecha: `2026-0${month}-10`, producto: "A", cantidad: 100, valorTotal: 100000, utilidad: month <= 3 ? 30 : 10 });
+  const result = setStageThree({ sales, inventory: [] });
+  const main = result.priorities[0];
+  const presentation = priorityPresentation(main);
+  assert.equal(result.metrics.utilityMode, "margin-percent");
+  assert.equal(main.type, "profit-decline");
+  assert.ok(main.evidence.includes("30 %"));
+  assert.ok(main.evidence.includes("10 %"));
+  assert.ok(!presentation.metrics[1].includes("$"));
+  assert.equal(main.magnitudDetalle.valorDejadoDeGenerar, null);
+});
+
 (async () => {
   let passed = 0;
   for (const [name, fn] of tests) {

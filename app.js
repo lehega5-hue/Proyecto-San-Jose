@@ -724,9 +724,9 @@ function productChartHtml() {
 function recommendationStrength(finding, quality) {
   const rates = quality.rates;
   const measureRate = app.analysis.metrics.chartBasis === "value" ? rates.value : rates.quantity;
-  const critical = ["trend", "business-decline", "product-decline", "sales-decline-cause"].includes(finding?.type) ? Math.min(rates.date, rates.product, measureRate)
+  const critical = ["trend", "business-decline", "profit-decline", "product-decline", "sales-decline-cause"].includes(finding?.type) ? Math.min(rates.date, rates.product, measureRate)
     : finding?.type === "concentration" || finding?.type === "review" || finding?.type === "maintain" ? Math.min(rates.product, measureRate)
-      : ["slow", "stockout", "inventory-accumulation", "inventory-excess", "stock-risk-general"].includes(finding?.type) ? Math.min(rates.product, rates.quantity, rates.inventoryProduct, rates.stock) : quality.score / 100;
+      : ["slow", "stockout", "inventory-no-movement", "inventory-accumulation", "inventory-excess", "stock-risk-general"].includes(finding?.type) ? Math.min(rates.product, finding?.type === "inventory-no-movement" ? rates.inventoryProduct : rates.quantity, rates.inventoryProduct, rates.stock) : quality.score / 100;
   const criticalLevel = critical >= .85 ? "ALTA" : critical >= .65 ? "MEDIA" : "BAJA";
   return [quality.level, criticalLevel].includes("BAJA") ? "BAJA" : [quality.level, criticalLevel].includes("MEDIA") ? "MEDIA" : "ALTA";
 }
@@ -738,17 +738,33 @@ function priorityPresentation(finding) {
   if (finding.type === "business-decline") {
     const panorama = metrics.panorama;
     const amount = value => panorama.basis === "value" ? money.format(value) : `${readableNumber(value)} unidades`;
-    const title = strength === "ALTA" ? "Tus ventas vienen bajando." : strength === "MEDIA" ? "Los datos muestran que tus ventas vienen bajando." : "Hay señales de una reducción en las ventas, pero falta información para confirmarla.";
-    return { title, metrics: [`${readablePercent(Math.abs(panorama.change))} menos en los últimos tres meses`, `${amount(panorama.recentAverage)} de promedio mensual reciente`, `${amount(panorama.priorAverage)} de promedio mensual anterior`], found: finding.reason, important: finding.meaning, action: finding.action, strength };
+    const title = finding.nivelUrgencia === "Crítico"
+      ? strength === "ALTA" ? "Tus ventas requieren atención inmediata." : "Hay señales de una caída crítica en tus ventas. Esto requiere revisión inmediata."
+      : strength === "ALTA" ? "Tus ventas vienen bajando." : strength === "MEDIA" ? "Los datos muestran que tus ventas vienen bajando." : "Hay señales de una reducción en las ventas, pero falta información para confirmarla.";
+    const magnitude = finding.magnitudDetalle || {};
+    const magnitudeMetrics = [`${readablePercent(Math.abs(panorama.change))} menos en los últimos tres meses`];
+    if (magnitude.unidadesDejadasDeVender !== null && magnitude.unidadesDejadasDeVender > 0) magnitudeMetrics.push(`${readableNumber(magnitude.unidadesDejadasDeVender)} unidades menos frente al periodo anterior`);
+    if (magnitude.valorDejadoDeVender !== null && magnitude.valorDejadoDeVender > 0) magnitudeMetrics.push(`${money.format(magnitude.valorDejadoDeVender)} menos en ventas frente al periodo anterior`);
+    if (magnitudeMetrics.length < 4 && metrics.latestComparison.reliable && metrics.latestComparison.change !== null) magnitudeMetrics.push(`El último mes quedó ${readablePercent(Math.abs(metrics.latestComparison.change))} ${metrics.latestComparison.change < 0 ? "por debajo" : "por encima"} del promedio de los tres anteriores`);
+    if (magnitudeMetrics.length < 4) magnitudeMetrics.push(`${amount(panorama.recentAverage)} de promedio mensual reciente`);
+    return { title, metrics: magnitudeMetrics.slice(0, 4), found: finding.reason, important: finding.meaning, action: finding.action, strength };
   }
-  if (["inventory-accumulation", "inventory-excess", "stock-risk-general"].includes(finding.type)) {
+  if (finding.type === "profit-decline") {
+    const title = strength === "ALTA" ? finding.title : `Los datos indican que ${finding.title.charAt(0).toLowerCase() + finding.title.slice(1)}`;
+    const utilityMetric = utilityName(metrics);
+    const difference = metrics.utilityMode === "amount" ? `${money.format(metrics.utilityPanorama.priorTotal - metrics.utilityPanorama.recentTotal)} menos frente al periodo anterior` : `De ${utilityDisplay(metrics, metrics.utilityPanorama.priorAverage)} a ${utilityDisplay(metrics, metrics.utilityPanorama.recentAverage)} de margen promedio`;
+    return { title, metrics: [`${readablePercent(Math.abs(metrics.utilityPanorama.change))} menos ${utilityMetric}`, difference, `Urgencia: ${finding.nivelUrgencia}`], found: finding.reason, important: finding.meaning, action: finding.action, strength };
+  }
+  if (["inventory-no-movement", "inventory-accumulation", "inventory-excess", "stock-risk-general"].includes(finding.type)) {
     const title = strength === "ALTA" ? finding.title : strength === "MEDIA" ? `Los datos indican que ${finding.title.charAt(0).toLowerCase() + finding.title.slice(1)}` : `Hay señales de esta situación, pero encontramos información incompleta que puede afectar la conclusión.`;
-    const metricsList = finding.type === "inventory-accumulation"
+    const metricsList = finding.type === "inventory-no-movement"
+      ? [`${readablePercent(metrics.staleMovementShare)} de las existencias sin movimiento reciente`, `${metrics.staleMovementItems.length} ${metrics.staleMovementItems.length === 1 ? "producto señalado" : "productos señalados"}`]
+      : finding.type === "inventory-accumulation"
       ? [`${readablePercent(metrics.inventoryChange)} más unidades en inventario`, `${readablePercent(Math.abs(metrics.unitPanorama.change))} menos unidades vendidas`]
       : finding.type === "inventory-excess"
         ? [`${readablePercent(metrics.excessInventoryShare)} de las existencias con poco movimiento`, `${readableNumber(metrics.inventoryUnits)} unidades disponibles`]
         : [`${readablePercent(metrics.riskSalesShare)} de las ventas recientes en riesgo`, `${metrics.riskItems.length} ${metrics.riskItems.length === 1 ? "producto con pocas existencias" : "productos con pocas existencias"}`];
-    return { title, metrics: metricsList, found: finding.reason, important: finding.meaning, action: finding.action, strength };
+    return { title, metrics: [...metricsList, `Urgencia: ${finding.nivelUrgencia}`].slice(0, 4), found: finding.reason, important: finding.meaning, action: finding.action, strength };
   }
   if (finding.type === "sales-decline-cause") return { title: finding.title, metrics: [`${readablePercent(finding.driver.contribution)} de la reducción`, `${readablePercent(finding.driver.recentShare)} de las ventas recientes`], found: finding.reason, important: finding.meaning, action: finding.action, strength };
   if (finding.type === "slow") {
@@ -873,7 +889,7 @@ function managementObservedCausesHtml() {
   const causes = diagnosis?.causasObservadas || [];
   const main = app.analysis.priorities[0];
   if (!causes.length) return `<section><h3>Qué está explicando el cambio</h3><p><strong>Todavía no encontramos factores observados suficientes para explicarlo.</strong></p><p>No convertimos posibles explicaciones en hechos cuando los archivos no pueden demostrarlas.</p></section>`;
-  return `<section><h3>Qué está explicando el cambio</h3><ul>${causes.map(item => `<li>${safe(item)}</li>`).join("")}</ul><p><strong>En conjunto:</strong> ${safe(main?.meaning || "Estos factores están asociados con el resultado observado.")}</p></section>`;
+  return `<section><h3>Qué está explicando el cambio</h3><ul>${causes.slice(0, 3).map(item => `<li>${safe(item)}</li>`).join("")}</ul><h4>Qué significa</h4><p>${safe(main?.meaning || "Estos factores están asociados con el resultado observado.")}</p></section>`;
 }
 
 function managementDetailHtml(main, presentation, insufficient) {
@@ -881,10 +897,11 @@ function managementDetailHtml(main, presentation, insufficient) {
   const limitations = analysisLimitations();
   const diagnosis = app.analysis.diagnostico;
   const hypotheses = diagnosis?.hipotesisPorValidar || [];
+  const foci = diagnosis?.focosPrioritarios || [];
   const details = quality.details.filter(item => ["Fecha de venta", "Producto de ventas", "Cantidad vendida", "Valor de la venta"].includes(item.label)).slice(0, 4);
   return `<div class="management-report"><header><p class="section-kicker">Mini informe gerencial</p><h2>Resumen para tomar decisiones</h2><p>Revisamos tu información. Estos son los puntos más importantes para entender qué está pasando.</p></header>
     ${managementSalesHtml()}${managementObservedCausesHtml()}
-    <section><h3>Qué deberías revisar primero</h3>${insufficient ? `<p><strong>Todavía no tenemos información suficiente para decirte qué atender primero.</strong></p><p>${safe(quality.reasons[0] || resultQualityCopy(quality))}</p>` : `<p><strong>${safe(presentation.title)}</strong></p><p>${safe(presentation.found)}</p><p>${safe(presentation.important)}</p><p>Por eso San José lo coloca como la primera situación a revisar.</p>`}</section>
+    <section><h3>Qué deberías revisar primero</h3>${insufficient ? `<p><strong>Todavía no tenemos información suficiente para decirte qué atender primero.</strong></p><p>${safe(quality.reasons[0] || resultQualityCopy(quality))}</p>` : `<p><strong>${safe(presentation.title)}</strong></p><p>${safe(presentation.found)}</p>${foci.length ? `<ol>${foci.slice(0, 3).map(item => `<li><strong>${safe(item.categoria)}</strong><br>${safe(item.evidencia)}</li>`).join("")}</ol>` : `<p>${safe(diagnosticReviewText(main))}</p>`}<p>${safe(urgencyReviewPrefix(main.nivelUrgencia))}</p>`}</section>
     <section><h3>Lo que todavía no podemos saber</h3>${hypotheses.length ? `<p><strong>Posibles explicaciones por confirmar:</strong></p><ul>${hypotheses.map(item => `<li>${safe(item)}</li>`).join("")}</ul><p>Estas posibilidades no están demostradas por los datos.</p>` : ""}${limitations.length ? `<p><strong>Información que limita el diagnóstico:</strong></p><ul>${limitations.map(item => `<li>${safe(item)}</li>`).join("")}</ul>` : "<p>No encontramos una limitación importante para las conclusiones mostradas.</p>"}</section>
     <section><h3>Calidad de la información</h3><p><strong>Calidad de la información: ${quality.score} % · ${safe(quality.level[0] + quality.level.slice(1).toLowerCase())}</strong></p><p>${safe(resultQualityCopy(quality))}</p><details class="detail-quality"><summary>Ver por qué</summary><ul>${details.map(item => `<li><span>${safe(item.label.replace(" de venta", ""))}</span><strong>${readablePercent(item.rate)} utilizable</strong></li>`).join("")}</ul></details></section>
     <section class="download-explanation"><h3>Descargar resumen ejecutivo</h3><p>Guarda estas conclusiones en un informe corto para revisarlas con tu equipo.</p></section></div>`;
@@ -1827,15 +1844,64 @@ function salesPanorama(series, basis) {
   const priorTotal = total(prior), recentTotal = total(recent);
   const change = priorTotal ? (recentTotal - priorTotal) / priorTotal : recentTotal ? null : 0;
   const status = change === null ? "VENTAS EN CRECIMIENTO" : change <= -.10 ? "VENTAS EN DESCENSO" : change >= .10 ? "VENTAS EN CRECIMIENTO" : "VENTAS ESTABLES";
+  const classification = change !== null && change <= -.50 ? "CAÍDA CRÍTICA"
+    : change !== null && change <= -.20 ? "CAÍDA IMPORTANTE" : status;
   const priorAverage = priorTotal / 3, recentAverage = recentTotal / 3;
   const duration = status === "VENTAS EN DESCENSO" ? recent.filter(item => item.value < priorAverage).length
     : status === "VENTAS EN CRECIMIENTO" ? recent.filter(item => item.value > priorAverage).length : 0;
-  return { status, reliable: true, basis, window, prior, recent, priorTotal, recentTotal, priorAverage, recentAverage, change, duration, lastMonth: recent.at(-1) };
+  return { status, classification, reliable: true, basis, window, prior, recent, priorTotal, recentTotal, priorAverage, recentAverage, change, duration, lastMonth: recent.at(-1) };
+}
+
+function latestVsPreviousThree(series) {
+  const window = series.slice(-4);
+  if (window.length < 4 || !consecutiveMonths(window)) return { reliable: false, reason: "Necesitamos cuatro meses completos y consecutivos." };
+  const latest = window.at(-1), previous = window.slice(0, 3);
+  const previousAverage = previous.reduce((sum, item) => sum + item.value, 0) / 3;
+  const change = previousAverage ? (latest.value - previousAverage) / previousAverage : latest.value ? null : 0;
+  return { reliable: true, latest, previous, previousAverage, change, difference: latest.value - previousAverage };
+}
+
+function urgencyLevel(score) {
+  return score >= 75 ? "Crítico" : score >= 45 ? "Importante" : "Observación";
+}
+
+function salesUrgency(panorama, latestComparison, confidence) {
+  if (!panorama.reliable || panorama.status !== "VENTAS EN DESCENSO") return { score: 20, level: "Observación" };
+  const magnitude = Math.abs(panorama.change || 0);
+  const magnitudePoints = magnitude >= .70 ? 65 : magnitude >= .50 ? 55 : magnitude >= .30 ? 40 : magnitude >= .15 ? 27 : 15;
+  const durationPoints = Math.min(15, (panorama.duration || 0) * 5);
+  const latestDrop = latestComparison.reliable && latestComparison.change !== null ? Math.abs(Math.min(0, latestComparison.change)) : 0;
+  const speedPoints = latestDrop >= .50 ? 15 : latestDrop >= .25 ? 9 : latestDrop >= .10 ? 4 : 0;
+  const evidenceAdjustment = confidence < 65 ? -12 : confidence < 85 ? -4 : 0;
+  const score = Math.max(0, Math.min(100, magnitudePoints + durationPoints + speedPoints + 10 + evidenceAdjustment));
+  return { score, level: urgencyLevel(score), magnitude, duration: panorama.duration || 0, latestDrop };
+}
+
+function inventoryUrgency(type, metrics, confidence) {
+  let magnitude = 0, speed = 0, base = 20;
+  if (type === "stock-risk-general") {
+    magnitude = metrics.riskSalesShare;
+    const minimumCoverage = Math.min(...metrics.riskItems.map(item => item.coverageMonths ?? 99), 99);
+    speed = minimumCoverage <= .5 ? 18 : minimumCoverage <= 1 ? 10 : 4;
+    base = magnitude >= .60 ? 58 : magnitude >= .35 ? 44 : 30;
+  } else if (type === "inventory-accumulation") {
+    magnitude = Math.max(metrics.inventoryChange || 0, Math.abs(metrics.unitPanorama.change || 0));
+    speed = (metrics.inventoryChange || 0) >= .30 ? 15 : 8;
+    base = magnitude >= .50 ? 58 : magnitude >= .30 ? 44 : 32;
+  } else {
+    magnitude = metrics.excessInventoryShare;
+    const noMovement = Math.max(metrics.noMovementShare || 0, metrics.staleMovementShare || 0);
+    speed = noMovement >= .50 ? 15 : noMovement >= .30 ? 9 : 3;
+    base = magnitude >= .70 ? 55 : magnitude >= .50 ? 42 : 30;
+  }
+  const evidenceAdjustment = confidence < 65 ? -12 : confidence < 85 ? -4 : 0;
+  const score = Math.max(0, Math.min(100, base + speed + Math.min(20, magnitude * 20) + evidenceAdjustment));
+  return { score, level: urgencyLevel(score), magnitude };
 }
 
 function productChangeDrivers(productMonthly, panorama) {
   if (!panorama.reliable) return [];
-  const field = panorama.basis === "value" ? "revenue" : "units";
+  const field = panorama.basis === "value" ? "revenue" : panorama.basis === "profit" ? "profit" : "units";
   const priorMonths = panorama.prior.map(item => item.month), recentMonths = panorama.recent.map(item => item.month);
   const businessDelta = panorama.recentTotal - panorama.priorTotal;
   return Object.values(productMonthly).map(item => {
@@ -1854,19 +1920,40 @@ function productChangeDrivers(productMonthly, panorama) {
 
 function calculateMetrics(sales, inventory, period, referenceDate = new Date()) {
   const byProduct = {}, salesByKey = {}, productMonthly = {}, customerMonthly = {}, sellerMonthly = {};
-  let revenue = 0, units = 0, quantityRows = 0, valueRows = 0;
+  const utilityValues = sales.map(row => numericValue(row.utilidad)).filter(Number.isFinite);
+  const comparableSalesValues = sales.map(row => {
+    const quantity = numericValue(row.cantidad);
+    return Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : quantity * numericValue(row.precio);
+  }).filter(value => Number.isFinite(value) && value >= 0);
+  const averageSalesValue = comparableSalesValues.length ? comparableSalesValues.reduce((sum, value) => sum + value, 0) / comparableSalesValues.length : 0;
+  const utilityMode = utilityValues.length && utilityValues.every(value => Math.abs(value) <= 1) ? "margin-decimal"
+    : utilityValues.length && averageSalesValue > 1000 && utilityValues.every(value => Math.abs(value) <= 100) ? "margin-percent" : "amount";
+  let revenue = 0, units = 0, utility = 0, quantityRows = 0, valueRows = 0, utilityRows = 0;
+  let utilityWeightedValue = 0, utilityWeight = 0;
   sales.forEach(row => {
     const quantity = numericValue(row.cantidad);
     const value = Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : quantity * numericValue(row.precio);
+    const rowUtility = numericValue(row.utilidad);
     const validQuantity = Number.isFinite(quantity) && quantity >= 0;
     const validValue = Number.isFinite(value) && value >= 0;
+    const validUtility = Number.isFinite(rowUtility);
     if (validValue) { revenue += value; valueRows += 1; }
     if (validQuantity) { units += quantity; quantityRows += 1; }
+    if (validUtility) {
+      utilityRows += 1;
+      if (utilityMode === "amount") utility += rowUtility;
+      else if (validValue) {
+        const margin = utilityMode === "margin-percent" ? rowUtility / 100 : rowUtility;
+        utilityWeightedValue += margin * value;
+        utilityWeight += value;
+      }
+    }
     const product = String(row.producto || "").trim();
     if (!product || (!validQuantity && !validValue)) return;
-    byProduct[product] ||= { units: 0, revenue: 0 };
+    byProduct[product] ||= { units: 0, revenue: 0, utility: 0 };
     if (validQuantity) byProduct[product].units += quantity;
     if (validValue) byProduct[product].revenue += value;
+    if (validUtility && utilityMode === "amount") byProduct[product].utility += rowUtility;
     const productKey = normalize(product);
     salesByKey[productKey] ||= { units: 0, revenue: 0, label: product };
     if (validQuantity) salesByKey[productKey].units += quantity;
@@ -1874,26 +1961,40 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
   });
   const quantityRate = sales.length ? quantityRows / sales.length : 0;
   const valueRate = sales.length ? valueRows / sales.length : 0;
+  const utilityRate = sales.length ? utilityRows / sales.length : 0;
+  if (utilityMode !== "amount") utility = utilityWeight ? utilityWeightedValue / utilityWeight : NaN;
+  const customerRate = sales.length ? sales.filter(row => String(row.cliente || "").trim()).length / sales.length : 0;
+  const sellerRate = sales.length ? sales.filter(row => String(row.vendedor || "").trim()).length / sales.length : 0;
   const rankingBasis = valueRate >= .7 ? "value" : quantityRate >= .7 ? "quantity" : valueRows > quantityRows ? "value" : "quantity";
   const basisValue = item => rankingBasis === "value" ? item.revenue : item.units;
   const ranked = Object.entries(byProduct).sort((a, b) => basisValue(b[1]) - basisValue(a[1]));
   const basisTotal = rankingBasis === "value" ? revenue : units;
   const topShare = basisTotal && ranked[0] ? basisValue(ranked[0][1]) / basisTotal : 0;
-  const monthlyValue = {}, monthlyUnits = {};
+  const monthlyValue = {}, monthlyUnits = {}, monthlyUtility = {}, monthlyUtilityWeighted = {}, monthlyUtilityWeights = {};
   sales.forEach(row => {
     const date = new Date(row.fecha), quantity = numericValue(row.cantidad);
     const value = Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : quantity * numericValue(row.precio);
+    const rowUtility = numericValue(row.utilidad);
     if (Number.isNaN(date.getTime())) return;
     const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
     if (Number.isFinite(value) && value >= 0) monthlyValue[key] = (monthlyValue[key] || 0) + value;
     if (Number.isFinite(quantity) && quantity >= 0) monthlyUnits[key] = (monthlyUnits[key] || 0) + quantity;
+    if (Number.isFinite(rowUtility)) {
+      if (utilityMode === "amount") monthlyUtility[key] = (monthlyUtility[key] || 0) + rowUtility;
+      else if (Number.isFinite(value) && value >= 0) {
+        const margin = utilityMode === "margin-percent" ? rowUtility / 100 : rowUtility;
+        monthlyUtilityWeighted[key] = (monthlyUtilityWeighted[key] || 0) + margin * value;
+        monthlyUtilityWeights[key] = (monthlyUtilityWeights[key] || 0) + value;
+      }
+    }
     const product = String(row.producto || "").trim();
     if (product) {
       const productKey = normalize(product);
       productMonthly[productKey] ||= { key: productKey, label: product, months: {} };
-      productMonthly[productKey].months[key] ||= { units: 0, revenue: 0 };
+      productMonthly[productKey].months[key] ||= { units: 0, revenue: 0, profit: 0 };
       if (Number.isFinite(value) && value >= 0) productMonthly[productKey].months[key].revenue += value;
       if (Number.isFinite(quantity) && quantity >= 0) productMonthly[productKey].months[key].units += quantity;
+      if (Number.isFinite(rowUtility) && utilityMode === "amount") productMonthly[productKey].months[key].profit += rowUtility;
     }
     [["cliente", customerMonthly], ["vendedor", sellerMonthly]].forEach(([role, collection]) => {
       const label = String(row[role] || "").trim();
@@ -1905,6 +2006,7 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
       if (Number.isFinite(quantity) && quantity >= 0) collection[dimensionKey].months[key].units += quantity;
     });
   });
+  if (utilityMode !== "amount") for (const [key, weightedValue] of Object.entries(monthlyUtilityWeighted)) if (monthlyUtilityWeights[key]) monthlyUtility[key] = weightedValue / monthlyUtilityWeights[key];
   const chartBasis = valueRate >= .7 ? "value" : quantityRate >= .7 ? "quantity" : null;
   const monthlyMap = chartBasis === "value" ? monthlyValue : chartBasis === "quantity" ? monthlyUnits : {};
   const currentMonth = `${referenceDate.getFullYear()}-${String(referenceDate.getMonth() + 1).padStart(2, "0")}`;
@@ -1912,10 +2014,17 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
   const monthly = allMonthly.filter(item => item.month < currentMonth);
   const completeMonthlyValue = Object.entries(monthlyValue).sort(([a], [b]) => a.localeCompare(b)).filter(([month]) => month < currentMonth).map(([month, value]) => ({ month, value }));
   const completeMonthlyUnits = Object.entries(monthlyUnits).sort(([a], [b]) => a.localeCompare(b)).filter(([month]) => month < currentMonth).map(([month, value]) => ({ month, value }));
+  const completeMonthlyUtility = Object.entries(monthlyUtility).sort(([a], [b]) => a.localeCompare(b)).filter(([month]) => month < currentMonth).map(([month, value]) => ({ month, value }));
   const panorama = salesPanorama(monthly, chartBasis);
   const unitPanorama = salesPanorama(completeMonthlyUnits, quantityRate >= .7 ? "quantity" : null);
   const valuePanorama = salesPanorama(completeMonthlyValue, valueRate >= .7 ? "value" : null);
+  const utilityPanorama = salesPanorama(completeMonthlyUtility, utilityRate >= .7 ? utilityMode === "amount" ? "profit" : "margin" : null);
+  const latestComparison = latestVsPreviousThree(monthly);
+  const latestUnitComparison = latestVsPreviousThree(completeMonthlyUnits);
+  const latestValueComparison = latestVsPreviousThree(completeMonthlyValue);
+  const latestUtilityComparison = latestVsPreviousThree(completeMonthlyUtility);
   const productDrivers = productChangeDrivers(productMonthly, panorama);
+  const utilityDrivers = utilityMode === "amount" ? productChangeDrivers(productMonthly, utilityPanorama).map(item => ({ ...item, dimension: "utilidad" })) : [];
   const customerDrivers = productChangeDrivers(customerMonthly, panorama).map(item => ({ ...item, dimension: "cliente" }));
   const sellerDrivers = productChangeDrivers(sellerMonthly, panorama).map(item => ({ ...item, dimension: "vendedor" }));
   productDrivers.forEach(item => { item.dimension = "producto"; });
@@ -1961,6 +2070,8 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
     const recentSold = linked ? recentUnitMonths.reduce((sum, month) => sum + (productMonthly[key]?.months[month]?.units || 0), 0) : null;
     const recentMonthlyAverage = recentUnitMonths.length && recentSold !== null ? recentSold / recentUnitMonths.length : null;
     const stock = numericValue(row.stock);
+    const lastMovementDate = new Date(row.ultimoMovimiento);
+    const daysSinceLastMovement = Number.isNaN(lastMovementDate.getTime()) ? null : Math.max(0, Math.floor((referenceDate - lastMovementDate) / 86400000));
     return {
       ...row,
       stock,
@@ -1971,6 +2082,7 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
       stockShare: currentInventoryUnits ? stock / currentInventoryUnits : 0,
       recentSalesShare: recentUnitsTotal && recentSold !== null ? recentSold / recentUnitsTotal : 0,
       coverageMonths: recentMonthlyAverage > 0 ? stock / recentMonthlyAverage : null,
+      daysSinceLastMovement,
       linked
     };
   });
@@ -1980,14 +2092,16 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
   const excessItems = canCompareInventoryMovement ? inv.filter(row => row.linked && row.stock > 0 && (row.recentSold === 0 || row.coverageMonths >= 6 || (row.stockShare >= .15 && row.recentSalesShare <= .05))).sort((a, b) => b.stockShare - a.stockShare) : [];
   const riskItems = canCompareInventoryMovement ? inv.filter(row => row.linked && row.recentSold > 0 && row.coverageMonths !== null && row.coverageMonths <= 1.5 && row.recentSalesShare >= .05).sort((a, b) => b.recentSalesShare - a.recentSalesShare) : [];
   const noMovementItems = canCompareInventoryMovement ? inv.filter(row => row.linked && row.stock > 0 && row.recentSold === 0).sort((a, b) => b.stock - a.stock) : [];
+  const staleMovementItems = inv.filter(row => row.stock > 0 && row.daysSinceLastMovement !== null && row.daysSinceLastMovement >= 180).sort((a, b) => b.stock - a.stock);
   const excessInventoryShare = currentInventoryUnits ? excessItems.reduce((sum, row) => sum + row.stock, 0) / currentInventoryUnits : 0;
   const riskSalesShare = recentUnitsTotal ? riskItems.reduce((sum, row) => sum + row.recentSold, 0) / recentUnitsTotal : 0;
   const noMovementShare = currentInventoryUnits ? noMovementItems.reduce((sum, row) => sum + row.stock, 0) / currentInventoryUnits : 0;
+  const staleMovementShare = currentInventoryUnits ? staleMovementItems.reduce((sum, row) => sum + row.stock, 0) / currentInventoryUnits : 0;
   const inventoryChange = inventoryHistory.length >= 2 && inventoryHistory.at(-2).units
     ? (inventoryHistory.at(-1).units - inventoryHistory.at(-2).units) / inventoryHistory.at(-2).units : null;
   const inventoryStatus = !inv.length ? "INFORMACIÓN INSUFICIENTE"
     : !linkedProducts && sales.length ? "INFORMACIÓN INSUFICIENTE"
-      : noMovementShare >= .30 ? "INVENTARIO SIN MOVIMIENTO"
+      : Math.max(noMovementShare, staleMovementShare) >= .30 ? "INVENTARIO SIN MOVIMIENTO"
         : excessInventoryShare >= .30 ? "EXCESO DE INVENTARIO"
           : riskSalesShare >= .20 ? "RIESGO DE FALTA DE INVENTARIO" : "INVENTARIO EQUILIBRADO";
   const slowItems = excessItems;
@@ -1997,18 +2111,18 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
   const stockout = riskItems[0];
   const inventoryValue = inv.reduce((sum, row) => sum + (Number.isFinite(row.cost) ? row.stock * row.cost : 0), 0);
   const inventoryUnits = inv.reduce((sum, row) => sum + row.stock, 0);
+  const inventoryCostRate = inv.length ? inv.filter(row => Number.isFinite(row.cost) && row.cost >= 0).length / inv.length : 0;
   return {
-    revenue, units, quantityRows, valueRows, quantityRate, valueRate, ranked, rankingBasis, chartBasis, topShare,
+    revenue, units, utility, utilityMode, quantityRows, valueRows, utilityRows, quantityRate, valueRate, utilityRate, customerRate, sellerRate, ranked, rankingBasis, chartBasis, topShare,
     monthly, allMonthly, currentMonthExcluded: allMonthly.some(item => item.month === currentMonth),
     lastCompleteMonth: monthly.at(-1)?.month || null,
-    monthlyValue: Object.entries(monthlyValue).sort(([a], [b]) => a.localeCompare(b)).filter(([month]) => month < currentMonth).map(([month, value]) => ({ month, value })),
-    monthlyUnits: Object.entries(monthlyUnits).sort(([a], [b]) => a.localeCompare(b)).filter(([month]) => month < currentMonth).map(([month, value]) => ({ month, value })),
-    panorama, unitPanorama, valuePanorama, productDrivers, customerDrivers, sellerDrivers, productChanges,
+    monthlyValue: completeMonthlyValue, monthlyUnits: completeMonthlyUnits, monthlyUtility: completeMonthlyUtility,
+    panorama, unitPanorama, valuePanorama, utilityPanorama, latestComparison, latestUnitComparison, latestValueComparison, latestUtilityComparison, productDrivers, customerDrivers, sellerDrivers, utilityDrivers, productChanges,
     priorAverage, recentAverage, trendChange, trendSustained, inv, inventoryValue, inventoryUnits, slowItems, slowUnits,
-    slowValue, slowSales, stockout, excessItems, riskItems, noMovementItems, excessInventoryShare, riskSalesShare, noMovementShare,
+    slowValue, slowSales, stockout, excessItems, riskItems, noMovementItems, staleMovementItems, excessInventoryShare, riskSalesShare, noMovementShare, staleMovementShare,
     inventoryHistory: inventoryHistory.map(item => ({ date: item.date, units: item.units })), inventoryChange, inventoryStatus,
     recentUnitsTotal, period, products: inv.length, salesProducts: ranked.length, linkedProducts,
-    relationCoverage,
+    relationCoverage, inventoryCostRate,
     valueUnavailableReason: valueRows === 0
       ? "No encontramos una columna de valor total ni información suficiente de cantidad y precio para calcularlo."
       : `${readablePercent(1 - valueRate)} de los registros no tiene un valor de venta utilizable.`,
@@ -2037,9 +2151,11 @@ function scored(finding, factors) {
     aportePorCausa: finding.aportePorCausa || [],
     hipotesisPorValidar: finding.hipotesisPorValidar || [],
     limitaciones: finding.limitaciones || [],
+    focosPrioritarios: (finding.focosPrioritarios || []).slice(0, 3),
     calidadInformacion: finding.calidadInformacion || { nivel: factors.confidence >= 85 ? "Alta" : factors.confidence >= 65 ? "Media" : "Baja", porcentaje: Math.round(factors.confidence) },
     impacto: Math.round(factors.impact),
     urgencia: Math.round(factors.urgency),
+    nivelUrgencia: finding.nivelUrgencia || urgencyLevel(factors.urgency),
     alcance: Math.round(factors.reach),
     prioridad: score,
     priorityFactors: factors,
@@ -2047,40 +2163,85 @@ function scored(finding, factors) {
   };
 }
 
+function utilityDisplay(metrics, value) {
+  return metrics.utilityMode === "amount" ? money.format(value) : readablePercent(value);
+}
+
+function utilityName(metrics) {
+  return metrics.utilityMode === "amount" ? "utilidad" : "margen";
+}
+
 function observedSalesCauses(metrics) {
   const panorama = metrics.panorama;
-  if (!panorama.reliable || panorama.status !== "VENTAS EN DESCENSO") return { causes: [], contributions: [], drivers: [] };
+  if (!panorama.reliable || panorama.status !== "VENTAS EN DESCENSO") return { causes: [], contributions: [], drivers: [], foci: [] };
   const amount = value => panorama.basis === "value" ? money.format(value) : `${readableNumber(value)} unidades`;
-  const productDrivers = metrics.productDrivers.filter(item => item.delta < 0 && item.contribution >= .05).slice(0, 2);
-  const inactiveCustomers = metrics.customerDrivers.filter(item => item.priorTotal > 0 && item.recentTotal === 0);
-  const decliningCustomer = metrics.customerDrivers.filter(item => item.delta < 0).sort((a, b) => b.contribution - a.contribution)[0];
-  const seller = metrics.sellerDrivers.find(item => item.delta < 0 && item.contribution >= .10);
-  const causes = [], contributions = [];
-  productDrivers.forEach(driver => {
-    causes.push(`${driver.product} explica ${percent(driver.contribution)} de la reducción observada en las ventas.`);
-    contributions.push({ factor: driver.product, dimension: "producto", aporte: driver.contribution, unidad: "proporción de la reducción", evidencia: `Pasó de ${amount(driver.priorTotal)} a ${amount(driver.recentTotal)}.` });
-  });
+  const candidates = [];
+  metrics.productDrivers.filter(item => item.delta < 0 && item.contribution >= .05).slice(0, 3).forEach(driver => candidates.push({
+    categoria: "Productos", rank: driver.contribution, driver,
+    texto: `${driver.product} explica ${percent(driver.contribution)} de la reducción: pasó de ${amount(driver.priorTotal)} a ${amount(driver.recentTotal)} en los dos periodos comparados.`,
+    contribution: { factor: driver.product, dimension: "producto", aporte: driver.contribution, unidad: "proporción de la reducción", evidencia: `Dejó de aportar ${amount(Math.abs(driver.delta))}.` }
+  }));
+  const inactiveCustomers = metrics.customerRate >= .70 ? metrics.customerDrivers.filter(item => item.priorTotal > 0 && item.recentTotal === 0) : [];
+  const decliningCustomer = metrics.customerRate >= .70 ? metrics.customerDrivers.filter(item => item.delta < 0).sort((a, b) => b.contribution - a.contribution)[0] : null;
   if (inactiveCustomers.length) {
     const priorTotal = inactiveCustomers.reduce((sum, item) => sum + item.priorTotal, 0);
     const contribution = inactiveCustomers.reduce((sum, item) => sum + item.contribution, 0);
     const priorShare = panorama.priorTotal ? priorTotal / panorama.priorTotal : 0;
-    causes.push(`${inactiveCustomers.length} ${inactiveCustomers.length === 1 ? "cliente que antes compraba no registró" : "clientes que antes compraban no registraron"} ventas en los tres meses recientes; representaban ${percent(priorShare)} de las ventas anteriores.`);
-    contributions.push({ factor: "Clientes sin ventas recientes", dimension: "cliente", aporte: contribution, unidad: "proporción de la reducción", evidencia: `Representaban ${percent(priorShare)} de las ventas del periodo anterior.` });
+    candidates.push({ categoria: "Clientes", rank: contribution, driver: inactiveCustomers[0],
+      texto: `${inactiveCustomers.length} ${inactiveCustomers.length === 1 ? "cliente que antes compraba no registró" : "clientes que antes compraban no registraron"} ventas en los tres meses recientes; representaban ${percent(priorShare)} de las ventas anteriores.`,
+      contribution: { factor: "Clientes sin ventas recientes", dimension: "cliente", aporte: contribution, unidad: "proporción de la reducción", evidencia: `Antes aportaban ${amount(priorTotal)}.` }
+    });
   } else if (decliningCustomer && decliningCustomer.contribution >= .10) {
-    causes.push(`Las ventas de ${decliningCustomer.product} bajaron ${percent(Math.abs(decliningCustomer.change || 0))} entre los periodos comparados.`);
-    contributions.push({ factor: decliningCustomer.product, dimension: "cliente", aporte: decliningCustomer.contribution, unidad: "proporción de la reducción", evidencia: `Pasaron de ${amount(decliningCustomer.priorTotal)} a ${amount(decliningCustomer.recentTotal)}.` });
+    candidates.push({ categoria: "Clientes", rank: decliningCustomer.contribution, driver: decliningCustomer,
+      texto: `${decliningCustomer.product} explica ${percent(decliningCustomer.contribution)} de la reducción: sus compras pasaron de ${amount(decliningCustomer.priorTotal)} a ${amount(decliningCustomer.recentTotal)}.`,
+      contribution: { factor: decliningCustomer.product, dimension: "cliente", aporte: decliningCustomer.contribution, unidad: "proporción de la reducción", evidencia: `Sus compras bajaron ${percent(Math.abs(decliningCustomer.change || 0))}.` }
+    });
   }
-  if (seller) {
-    causes.push(`Las ventas asociadas con ${seller.product} bajaron ${percent(Math.abs(seller.change || 0))} entre los periodos comparados.`);
-    contributions.push({ factor: seller.product, dimension: "comercial", aporte: seller.contribution, unidad: "proporción de la reducción", evidencia: `Pasaron de ${amount(seller.priorTotal)} a ${amount(seller.recentTotal)}.` });
+  const sellers = metrics.sellerRate >= .70 ? metrics.sellerDrivers.filter(item => item.delta < 0 && item.contribution >= .05).slice(0, 2) : [];
+  if (sellers.length) {
+    const sellerContribution = sellers.reduce((sum, item) => sum + item.contribution, 0);
+    const sellerLoss = sellers.reduce((sum, item) => sum + Math.abs(item.delta), 0);
+    candidates.push({ categoria: "Comerciales", rank: sellerContribution, driver: sellers[0],
+      texto: `${sellers.length === 1 ? `Las ventas asociadas con ${sellers[0].product}` : `${sellers.length} comerciales`} explican ${percent(sellerContribution)} de la reducción, equivalente a ${amount(sellerLoss)}.`,
+      contribution: { factor: sellers.length === 1 ? sellers[0].product : "Comerciales con menor venta", dimension: "comercial", aporte: sellerContribution, unidad: "proporción de la reducción", evidencia: sellers.map(item => `${item.product}: ${percent(Math.abs(item.change || 0))} menos`).join("; ") }
+    });
   }
-  if (panorama.basis === "value" && metrics.unitPanorama.reliable && metrics.unitPanorama.change < 0) {
-    causes.push(`Las unidades vendidas bajaron ${percent(Math.abs(metrics.unitPanorama.change))}.`);
-    contributions.push({ factor: "Cantidad vendida", dimension: "cantidad", aporte: Math.abs(metrics.unitPanorama.change), unidad: "variación porcentual", evidencia: "Comparamos los mismos dos periodos de tres meses completos." });
+  if (metrics.unitPanorama.reliable && metrics.valuePanorama.reliable && (metrics.unitPanorama.change < 0 || metrics.valuePanorama.change < 0)) {
+    const unitDrop = Math.abs(Math.min(0, metrics.unitPanorama.change || 0));
+    const valueDrop = Math.abs(Math.min(0, metrics.valuePanorama.change || 0));
+    candidates.push({ categoria: "Cantidad y valor", rank: Math.max(unitDrop, valueDrop),
+      texto: `Las unidades bajaron ${percent(unitDrop)} y el valor vendido bajó ${percent(valueDrop)} en los mismos dos periodos de tres meses.`,
+      contribution: { factor: "Cantidad y valor vendido", dimension: "cantidad-valor", aporte: Math.max(unitDrop, valueDrop), unidad: "variación porcentual", evidencia: "La diferencia entre ambas variaciones merece revisión; no demuestra por sí sola un cambio de precio." }
+    });
   }
-  const commercialDriver = inactiveCustomers[0] || decliningCustomer || seller;
-  const drivers = [productDrivers[0], commercialDriver || productDrivers[1]].filter(Boolean);
-  return { causes: [...new Set(causes)], contributions, drivers };
+  if (metrics.utilityRate >= .70 && metrics.utilityPanorama.reliable && metrics.utilityPanorama.change < 0) {
+    candidates.push({ categoria: utilityName(metrics)[0].toUpperCase() + utilityName(metrics).slice(1), rank: Math.abs(metrics.utilityPanorama.change), driver: metrics.utilityDrivers.find(item => item.delta < 0),
+      texto: `El ${utilityName(metrics)} bajó ${percent(Math.abs(metrics.utilityPanorama.change))}: pasó de ${utilityDisplay(metrics, metrics.utilityPanorama.priorAverage)} a ${utilityDisplay(metrics, metrics.utilityPanorama.recentAverage)} en promedio mensual.`,
+      contribution: { factor: utilityName(metrics), dimension: "utilidad", aporte: Math.abs(metrics.utilityPanorama.change), unidad: "variación porcentual", evidencia: `Calculado únicamente con registros que incluyen ${utilityName(metrics)} utilizable.` }
+    });
+  }
+  if (metrics.relationCoverage >= .50 && metrics.excessInventoryShare >= .30) candidates.push({ categoria: "Inventario", rank: metrics.excessInventoryShare,
+    texto: `${percent(metrics.excessInventoryShare)} de las existencias está en productos con poco o ningún movimiento reciente.`,
+    contribution: { factor: "Existencias frente a ventas", dimension: "inventario", aporte: metrics.excessInventoryShare, unidad: "proporción de las existencias", evidencia: "Solo se compararon productos relacionados con suficiente claridad." }
+  });
+  const foci = candidates.sort((a, b) => b.rank - a.rank).slice(0, 3);
+  return { causes: foci.map(item => item.texto), contributions: foci.map(item => item.contribution), drivers: foci.map(item => item.driver).filter(Boolean), foci };
+}
+
+function salesHypotheses(foci) {
+  const dimensions = new Set(foci.map(item => item.contribution.dimension));
+  const hypotheses = [];
+  if (dimensions.has("cliente")) hypotheses.push("Cambios en las necesidades, precio, servicio, competencia o contacto comercial de los clientes señalados.");
+  if (dimensions.has("producto")) hypotheses.push("Cambios de disponibilidad, precio, competencia o demanda de los productos señalados.");
+  if (dimensions.has("comercial")) hypotheses.push("Cambios en clientes activos, actividad, oportunidades o cobertura de los comerciales señalados.");
+  if (dimensions.has("cantidad-valor")) hypotheses.push("Cambios en mezcla de productos, precios o descuentos.");
+  if (dimensions.has("utilidad")) hypotheses.push("Cambios en costos, descuentos o mezcla de productos.");
+  if (dimensions.has("inventario")) hypotheses.push("Cambios en demanda, reposición o disponibilidad.");
+  return hypotheses.slice(0, 4);
+}
+
+function urgencyReviewPrefix(level) {
+  return level === "Crítico" ? "Esto requiere atención inmediata." : level === "Importante" ? "Revisa esta situación esta semana." : "Conviene revisar esta situación.";
 }
 
 function salesAnalysisModule({ metrics, scope, evidenceConfidence }) {
@@ -2089,6 +2250,7 @@ function salesAnalysisModule({ metrics, scope, evidenceConfidence }) {
   const measureName = panorama.basis === "value" ? "valor vendido" : "unidades vendidas";
   const amount = value => panorama.basis === "value" ? money.format(value) : `${readableNumber(value)} unidades`;
   const observed = observedSalesCauses(metrics);
+  const urgency = salesUrgency(panorama, metrics.latestComparison, evidenceConfidence);
   if (panorama.reliable && panorama.status === "VENTAS EN DESCENSO") findings.push(scored({
     type: "business-decline", level: "general", dominio: "ventas", tipoProblema: "caida-general",
     title: "Tus ventas vienen bajando.", problemaGeneral: "Caída general de ventas",
@@ -2097,13 +2259,22 @@ function salesAnalysisModule({ metrics, scope, evidenceConfidence }) {
     reason: `En los últimos tres meses vendiste ${percent(Math.abs(panorama.change))} menos que en los tres meses anteriores.`,
     evidence: `El promedio mensual pasó de ${amount(panorama.priorAverage)} a ${amount(panorama.recentAverage)}.`,
     meaning: observed.causes.length > 1 ? "La reducción aparece en varios frentes observados y no está explicada por un único producto." : "El negocio está vendiendo menos de lo que venía vendiendo.",
-    reviewFocus: "La caída general y los factores observados que más aportan a ella.",
-    indicator: panorama.basis === "value" ? "Valor vendido en los próximos tres meses." : "Unidades vendidas en los próximos tres meses.",
+    reviewFocus: `${urgencyReviewPrefix(urgency.level)} ${observed.foci.length ? observed.foci.map(item => item.texto).join(" ") : "Revisa la caída general y la información que falta para explicarla."}`,
+    indicator: panorama.basis === "value" ? "Valor vendido del último mes completo y promedio mensual reciente." : "Unidades vendidas del último mes completo y promedio mensual reciente.",
+    nivelUrgencia: urgency.level,
+    magnitudDetalle: {
+      porcentaje: panorama.change,
+      unidadesDejadasDeVender: metrics.unitPanorama.reliable ? Math.max(0, metrics.unitPanorama.priorTotal - metrics.unitPanorama.recentTotal) : null,
+      valorDejadoDeVender: metrics.valuePanorama.reliable ? Math.max(0, metrics.valuePanorama.priorTotal - metrics.valuePanorama.recentTotal) : null,
+      mesesRecientesBajoPromedioAnterior: panorama.duration,
+      ultimoMesVsTresAnteriores: metrics.latestComparison.reliable ? metrics.latestComparison.change : null
+    },
     causasObservadas: observed.causes, aportePorCausa: observed.contributions, drivers: observed.drivers,
-    hipotesisPorValidar: ["Cambios de precio.", "Cambios en la actividad comercial o en el mercado.", "Problemas de disponibilidad.", "Cambios en las necesidades o decisiones de los clientes."],
+    focosPrioritarios: observed.foci.map(item => ({ categoria: item.categoria, evidencia: item.texto, aporte: item.contribution.aporte, unidad: item.contribution.unidad })),
+    hipotesisPorValidar: salesHypotheses(observed.foci),
     limitaciones: ["Los datos muestran qué cambió, pero no demuestran por sí solos por qué ocurrió."],
     datosAnalizados: { medida: measureName, meses: 6 }
-  }, { impact: Math.min(100, Math.abs(panorama.change) * 260), urgency: 85, reach: 100, confidence: evidenceConfidence }));
+  }, { impact: Math.min(100, Math.abs(panorama.change) * 260), urgency: urgency.score, reach: 100, confidence: evidenceConfidence }));
   if (panorama.reliable && panorama.status === "VENTAS EN CRECIMIENTO") findings.push(scored({
     type: "sales-growth", dominio: "ventas", tipoProblema: "crecimiento-general", title: "Tus ventas vienen aumentando.", problemaGeneral: "Crecimiento general de ventas",
     magnitud: panorama.change === null ? null : panorama.change * 100, unidad: "porcentaje", periodo: `${panorama.prior[0].month} a ${panorama.recent.at(-1).month}`,
@@ -2121,6 +2292,27 @@ function salesAnalysisModule({ metrics, scope, evidenceConfidence }) {
     meaning: "El total se mantiene cerca del periodo anterior, aunque algunos productos pueden haber cambiado.", reviewFocus: "Los cambios internos que pueden quedar ocultos detrás de un total estable.", indicator: panorama.basis === "value" ? "Valor vendido por mes." : "Unidades vendidas por mes.",
     causasObservadas: [], aportePorCausa: [], hipotesisPorValidar: [], limitaciones: ["Un total estable puede ocultar aumentos y reducciones entre productos."]
   }, { impact: 30, urgency: 25, reach: 100, confidence: evidenceConfidence }));
+  if (metrics.utilityRate >= .70 && metrics.utilityPanorama.reliable && metrics.utilityPanorama.change <= -.10) {
+    const utilityUrgency = salesUrgency(metrics.utilityPanorama, metrics.latestUtilityComparison, evidenceConfidence);
+    const utilityMetric = utilityName(metrics);
+    const utilityDrivers = metrics.utilityDrivers.filter(item => item.delta < 0 && item.contribution >= .05).slice(0, 3);
+    const utilityFoci = utilityDrivers.map(item => ({ categoria: "Productos", evidencia: `${item.product} explica ${percent(item.contribution)} de la reducción de la utilidad: pasó de ${money.format(item.priorTotal)} a ${money.format(item.recentTotal)}.`, aporte: item.contribution, unidad: "proporción de la reducción de utilidad" }));
+    findings.push(scored({
+      type: "profit-decline", level: "general", dominio: "ventas", tipoProblema: `caida-${utilityMetric}`, title: utilityUrgency.level === "Crítico" ? `El ${utilityMetric} requiere atención inmediata.` : `El ${utilityMetric} viene bajando.`, problemaGeneral: `Caída general de ${utilityMetric}`,
+      magnitud: Math.abs(metrics.utilityPanorama.change) * 100, unidad: "porcentaje", periodo: `${metrics.utilityPanorama.prior[0].month} a ${metrics.utilityPanorama.recent.at(-1).month}`,
+      reason: `En los últimos tres meses el ${utilityMetric} fue ${percent(Math.abs(metrics.utilityPanorama.change))} menor que en los tres meses anteriores.`,
+      evidence: metrics.utilityMode === "amount" ? `La utilidad pasó de ${money.format(metrics.utilityPanorama.priorTotal)} a ${money.format(metrics.utilityPanorama.recentTotal)} entre los periodos comparados.` : `El margen mensual promedio pasó de ${utilityDisplay(metrics, metrics.utilityPanorama.priorAverage)} a ${utilityDisplay(metrics, metrics.utilityPanorama.recentAverage)}.`,
+      meaning: metrics.valuePanorama.reliable && Math.abs(metrics.valuePanorama.change || 0) < .10 ? `El valor vendido se mantiene cerca del periodo anterior, pero el ${utilityMetric} es menor.` : `El ${utilityMetric} está disminuyendo junto con otros cambios observados en las ventas.`,
+      reviewFocus: `${urgencyReviewPrefix(utilityUrgency.level)} ${utilityFoci.length ? utilityFoci.map(item => item.evidencia).join(" ") : `Revisa la reducción general del ${utilityMetric}.`}`,
+      indicator: `${utilityMetric[0].toUpperCase() + utilityMetric.slice(1)} del último mes completo y promedio mensual reciente.`, nivelUrgencia: utilityUrgency.level,
+      magnitudDetalle: { porcentaje: metrics.utilityPanorama.change, valorDejadoDeGenerar: metrics.utilityMode === "amount" ? Math.max(0, metrics.utilityPanorama.priorTotal - metrics.utilityPanorama.recentTotal) : null, puntosPorcentuales: metrics.utilityMode === "amount" ? null : (metrics.utilityPanorama.recentAverage - metrics.utilityPanorama.priorAverage) * 100, mesesRecientesBajoPromedioAnterior: metrics.utilityPanorama.duration },
+      causasObservadas: utilityFoci.map(item => item.evidencia),
+      aportePorCausa: utilityFoci.map(item => ({ factor: item.evidencia.split(" explica")[0], dimension: "utilidad", aporte: item.aporte, unidad: item.unidad, evidencia: item.evidencia })),
+      focosPrioritarios: utilityFoci,
+      hipotesisPorValidar: ["Cambios en costos, descuentos, precios o mezcla de productos."],
+      limitaciones: [`El ${utilityMetric} muestra el resultado registrado, pero no explica por sí solo qué decisión lo produjo.`]
+    }, { impact: Math.min(100, Math.abs(metrics.utilityPanorama.change) * 240), urgency: utilityUrgency.score, reach: 100, confidence: evidenceConfidence }));
+  }
   if (metrics.ranked[0] && metrics.topShare >= .6) findings.push(scored({
     type: "concentration", dominio: "ventas", tipoProblema: "dependencia-producto", title: `Gran parte de tus ventas depende de ${metrics.ranked[0][0]}.`,
     problemaGeneral: "Dependencia de pocos productos", magnitud: metrics.topShare * 100, unidad: "porcentaje de las ventas", periodo: "Periodo completo disponible",
@@ -2149,8 +2341,27 @@ function inventoryAnalysisModule({ metrics, scope, inventoryConfidence, evidence
     meaning: "La mayor parte del inventario depende de pocos productos; esto no indica por sí solo si existe exceso.", reviewFocus: "Si esos productos también tienen movimiento de ventas suficiente.", indicator: "Porcentaje de las existencias concentrado en los principales productos.",
     causasObservadas: inventoryLeaders.map(item => `${item.producto} representa ${percent(item.stockShare)} de las existencias actuales.`),
     aportePorCausa: inventoryLeaders.map(item => ({ factor: item.producto, dimension: "producto", aporte: item.stockShare, unidad: "proporción de las existencias", evidencia: `${readableNumber(item.stock)} unidades disponibles.` })),
+    focosPrioritarios: inventoryLeaders.map(item => ({ categoria: "Producto", evidencia: `${item.producto} representa ${percent(item.stockShare)} de las existencias actuales y tiene ${readableNumber(item.stock)} unidades disponibles.`, aporte: item.stockShare, unidad: "proporción de las existencias" })),
     hipotesisPorValidar: ["Política de compras.", "Demanda esperada.", "Tamaño de lote de proveedores."], limitaciones: ["La concentración actual no permite afirmar que exista exceso sin comparar movimiento o historia."]
   }, { impact: inventoryConcentration * 70, urgency: 35, reach: inventoryConcentration * 100, confidence: evidenceConfidence }));
+  if (metrics.staleMovementShare >= .30) {
+    const staleUrgency = inventoryUrgency("inventory-excess", { ...metrics, excessInventoryShare: metrics.staleMovementShare }, evidenceConfidence);
+    const staleFoci = metrics.staleMovementItems.slice(0, 3).map(item => ({ categoria: "Producto", evidencia: `${item.producto} tiene ${readableNumber(item.stock)} unidades y registra ${readableNumber(item.daysSinceLastMovement)} días desde su último movimiento.`, aporte: item.stockShare, unidad: "proporción de las existencias" }));
+    findings.push(scored({
+      type: "inventory-no-movement", level: "general", dominio: "inventario", tipoProblema: "productos-sin-movimiento", title: staleUrgency.level === "Crítico" ? "El inventario sin movimiento requiere atención inmediata." : "Una parte importante del inventario no registra movimiento reciente.", problemaGeneral: "Productos sin movimiento reciente",
+      magnitud: metrics.staleMovementShare * 100, unidad: "porcentaje de las existencias", periodo: "Corte actual y fecha del último movimiento",
+      reason: `${percent(metrics.staleMovementShare)} de las existencias está en productos cuyo último movimiento fue hace 180 días o más.`,
+      evidence: `${metrics.staleMovementItems.length} ${metrics.staleMovementItems.length === 1 ? "producto reúne" : "productos reúnen"} ${readableNumber(metrics.staleMovementItems.reduce((sum, item) => sum + item.stock, 0))} unidades sin movimiento reciente registrado.`,
+      meaning: "Una parte importante del inventario está concentrada en productos que no registran movimiento reciente.", reviewFocus: `${urgencyReviewPrefix(staleUrgency.level)} ${staleFoci.map(item => item.evidencia).join(" ")}`,
+      indicator: "Unidades y días desde el último movimiento.", nivelUrgencia: staleUrgency.level,
+      magnitudDetalle: { porcentajeExistenciasAfectadas: metrics.staleMovementShare, productosAfectados: metrics.staleMovementItems.length },
+      causasObservadas: staleFoci.map(item => item.evidencia),
+      aportePorCausa: staleFoci.map(item => ({ factor: item.evidencia.split(" tiene")[0], dimension: "producto", aporte: item.aporte, unidad: item.unidad, evidencia: item.evidencia })),
+      focosPrioritarios: staleFoci,
+      hipotesisPorValidar: ["Cambios en demanda, compras, sustitución o disponibilidad comercial."],
+      limitaciones: ["La fecha del último movimiento muestra inactividad registrada, pero no explica por qué ocurrió."]
+    }, { impact: Math.min(100, metrics.staleMovementShare * 130), urgency: staleUrgency.score, reach: metrics.staleMovementShare * 100, confidence: evidenceConfidence }));
+  }
   if (!scope.hasSales) findings.push(scored({
     type: "inventory-only", dominio: "inventario", tipoProblema: "informacion-incompleta", title: "Agrega ventas antes de decidir qué producto atender.",
     problemaGeneral: "Inventario sin información de movimiento", magnitud: metrics.inventoryUnits, unidad: "unidades disponibles", periodo: "Corte actual de inventario",
@@ -2159,49 +2370,69 @@ function inventoryAnalysisModule({ metrics, scope, inventoryConfidence, evidence
     meaning: "Sin ventas o movimientos no podemos afirmar qué producto se vende, permanece almacenado o podría agotarse.", reviewFocus: "La disponibilidad de registros de ventas para completar el diagnóstico.",
     indicator: "Número de registros de ventas disponibles.", limitaciones: ["No encontramos ventas para medir el movimiento del inventario."],
     hipotesisPorValidar: []
-  }, { impact: 80, urgency: 90, reach: 100, confidence: 100 }));
+  }, { impact: 80, urgency: 45, reach: 100, confidence: 100 }));
   if (!scope.hasSales || !metrics.linkedProducts) return findings;
-  if (metrics.inventoryChange === null && metrics.excessInventoryShare >= .30) findings.push(scored({
-    type: "inventory-excess", level: "general", dominio: "inventario", tipoProblema: "existencias-altas", title: "Las existencias son altas frente a lo que vendes.",
+  if (metrics.inventoryChange === null && metrics.excessInventoryShare >= .30) {
+    const excessUrgency = inventoryUrgency("inventory-excess", metrics, inventoryConfidence);
+    const excessFoci = metrics.excessItems.slice(0, 3).map(item => ({ categoria: "Producto", evidencia: `${item.producto} representa ${percent(item.stockShare)} de las existencias, ${percent(item.recentSalesShare)} de las ventas recientes y tiene ${readableNumber(item.stock)} unidades disponibles.`, aporte: item.stockShare, unidad: "proporción de las existencias" }));
+    findings.push(scored({
+    type: "inventory-excess", level: "general", dominio: "inventario", tipoProblema: "existencias-altas", title: excessUrgency.level === "Crítico" ? "Las existencias frente a las ventas requieren atención inmediata." : "Las existencias son altas frente a lo que vendes.",
     problemaGeneral: "Existencias altas frente a las ventas", magnitud: metrics.excessInventoryShare * 100, unidad: "porcentaje de las existencias", periodo: "Inventario actual frente a ventas recientes",
     reason: `${percent(metrics.excessInventoryShare)} de las unidades disponibles está en productos con poco o ningún movimiento reciente.`,
     evidence: `Comparamos la fotografía actual del inventario con las unidades vendidas en los últimos ${Math.max(1, metrics.unitPanorama.recent?.length || 3)} meses completos.`,
-    meaning: "Hay muchas unidades guardadas frente a lo que se está vendiendo.", reviewFocus: "Los productos que concentran existencias altas frente a sus ventas.",
+    meaning: metrics.inventoryCostRate >= .70 && metrics.slowValue > 0 ? `Hay muchas unidades guardadas frente a lo que se está vendiendo; representan ${money.format(metrics.slowValue)} al costo registrado.` : "Hay muchas unidades guardadas frente a lo que se está vendiendo.", reviewFocus: `${urgencyReviewPrefix(excessUrgency.level)} ${excessFoci.map(item => item.evidencia).join(" ")}`,
     indicator: "Unidades disponibles de los productos con poco movimiento.", items: metrics.excessItems,
+    nivelUrgencia: excessUrgency.level,
+    magnitudDetalle: { porcentajeExistenciasAfectadas: metrics.excessInventoryShare, unidadesAfectadas: metrics.slowUnits, valorAlCosto: metrics.inventoryCostRate >= .70 ? metrics.slowValue : null },
     causasObservadas: metrics.excessItems.slice(0, 3).map(item => `${item.producto} representa ${percent(item.stockShare)} de las existencias y ${percent(item.recentSalesShare)} de las ventas recientes.`),
     aportePorCausa: metrics.excessItems.slice(0, 3).map(item => ({ factor: item.producto, dimension: "producto", aporte: item.stockShare, unidad: "proporción de las existencias", evidencia: `${readableNumber(item.stock)} unidades disponibles.` })),
+    focosPrioritarios: excessFoci,
     hipotesisPorValidar: ["Compras superiores a la necesidad.", "Menor demanda.", "Cambios de precio.", "Sustitución por otros productos."],
     limitaciones: ["Solo contamos con una fotografía actual del inventario; no podemos afirmar que las existencias hayan crecido ni que se esté comprando demasiado."]
-  }, { impact: Math.min(100, metrics.excessInventoryShare * 130), urgency: 78, reach: metrics.excessInventoryShare * 100, confidence: inventoryConfidence }));
-  if (metrics.riskSalesShare >= .20) findings.push(scored({
-    type: "stock-risk-general", level: "general", dominio: "inventario", tipoProblema: "riesgo-falta-inventario", title: "Podrías quedarte sin productos que hoy sostienen tus ventas.",
+  }, { impact: Math.min(100, metrics.excessInventoryShare * 130), urgency: excessUrgency.score, reach: metrics.excessInventoryShare * 100, confidence: inventoryConfidence }));
+  }
+  if (metrics.riskSalesShare >= .20) {
+    const riskUrgency = inventoryUrgency("stock-risk-general", metrics, inventoryConfidence);
+    const riskFoci = metrics.riskItems.slice(0, 3).map(item => ({ categoria: "Producto", evidencia: `${item.producto} representa ${percent(item.recentSalesShare)} de las ventas recientes, tiene ${readableNumber(item.stock)} unidades y cerca de ${new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 }).format(item.coverageMonths)} meses de existencias al ritmo reciente.`, aporte: item.recentSalesShare, unidad: "proporción de las ventas recientes" }));
+    findings.push(scored({
+    type: "stock-risk-general", level: "general", dominio: "inventario", tipoProblema: "riesgo-falta-inventario", title: riskUrgency.level === "Crítico" ? "El riesgo de falta de productos requiere atención inmediata." : "Podrías quedarte sin productos que hoy sostienen tus ventas.",
     problemaGeneral: "Riesgo de falta de inventario", magnitud: metrics.riskSalesShare * 100, unidad: "porcentaje de las ventas recientes", periodo: "Inventario actual frente a ventas recientes",
     reason: `Los productos con pocas existencias representan ${percent(metrics.riskSalesShare)} de las unidades vendidas recientemente.`,
     evidence: `${metrics.riskItems.length === 1 ? "Un producto tiene" : `${metrics.riskItems.length} productos tienen`} existencias para cerca de un mes o menos al ritmo reciente de ventas.`,
-    meaning: "Si se agotan, pueden afectar una parte importante de las ventas.", reviewFocus: "Las existencias registradas y el ritmo reciente de venta de los productos señalados.",
+    meaning: "Si se agotan, pueden afectar una parte importante de las ventas.", reviewFocus: `${urgencyReviewPrefix(riskUrgency.level)} ${riskFoci.map(item => item.evidencia).join(" ")}`,
     indicator: "Unidades disponibles de los productos que más se venden.", items: metrics.riskItems,
+    nivelUrgencia: riskUrgency.level,
+    magnitudDetalle: { porcentajeVentasEnRiesgo: metrics.riskSalesShare, productosAfectados: metrics.riskItems.length },
     causasObservadas: metrics.riskItems.slice(0, 3).map(item => `${item.producto} tiene ${readableNumber(item.stock)} unidades disponibles y representa ${percent(item.recentSalesShare)} de las ventas recientes.`),
     aportePorCausa: metrics.riskItems.slice(0, 3).map(item => ({ factor: item.producto, dimension: "producto", aporte: item.recentSalesShare, unidad: "proporción de las ventas recientes", evidencia: `${readableNumber(item.stock)} unidades disponibles frente a ${readableNumber(item.recentSold)} vendidas recientemente.` })),
+    focosPrioritarios: riskFoci,
     hipotesisPorValidar: ["Reposición más lenta.", "Cambios en entregas del proveedor.", "Demanda temporalmente mayor."],
     limitaciones: ["No encontramos pedidos pendientes ni tiempos de entrega de proveedores."]
-  }, { impact: Math.min(100, metrics.riskSalesShare * 140), urgency: 96, reach: metrics.riskSalesShare * 100, confidence: inventoryConfidence }));
+  }, { impact: Math.min(100, metrics.riskSalesShare * 140), urgency: riskUrgency.score, reach: metrics.riskSalesShare * 100, confidence: inventoryConfidence }));
+  }
   return findings;
 }
 
 function salesInventoryRelationshipAnalysis({ metrics, scope, inventoryConfidence }) {
   if (!scope.hasSales || !scope.hasInventory || metrics.relationCoverage < .50 || metrics.inventoryChange === null || metrics.inventoryChange < .10 || !metrics.unitPanorama.reliable || metrics.unitPanorama.status !== "VENTAS EN DESCENSO") return [];
+  const urgency = inventoryUrgency("inventory-accumulation", metrics, inventoryConfidence);
+  const foci = metrics.excessItems.slice(0, 2).map(item => ({ categoria: "Producto", evidencia: `${item.producto} tiene ${readableNumber(item.stock)} unidades disponibles y representa ${percent(item.recentSalesShare)} de las ventas recientes.`, aporte: item.stockShare, unidad: "proporción de las existencias" }));
+  foci.push({ categoria: "Tendencia general", evidencia: `Las existencias crecieron ${percent(metrics.inventoryChange)} mientras las unidades vendidas bajaron ${percent(Math.abs(metrics.unitPanorama.change))}.`, aporte: Math.max(metrics.inventoryChange, Math.abs(metrics.unitPanorama.change)), unidad: "variación porcentual" });
   return [scored({
-    type: "inventory-accumulation", level: "general", dominio: "ventas-inventario", tipoProblema: "ventas-bajas-existencias-altas", title: "Las existencias están creciendo mientras vendes menos.",
+    type: "inventory-accumulation", level: "general", dominio: "ventas-inventario", tipoProblema: "ventas-bajas-existencias-altas", title: urgency.level === "Crítico" ? "La caída de ventas y el aumento de existencias requieren atención inmediata." : "Las existencias están creciendo mientras vendes menos.",
     problemaGeneral: "Caída de ventas acompañada de acumulación de existencias", magnitud: Math.max(metrics.inventoryChange, Math.abs(metrics.unitPanorama.change)) * 100, unidad: "variación porcentual", periodo: "Dos periodos de tres meses y cortes históricos de inventario",
     reason: `Las existencias aumentaron ${percent(metrics.inventoryChange)} y las unidades vendidas bajaron ${percent(Math.abs(metrics.unitPanorama.change))}.`,
     evidence: `Comparamos ${metrics.inventoryHistory.length} cortes de inventario y dos periodos de tres meses completos de ventas.`,
-    meaning: "La caída de ventas coincide con un aumento de las existencias; los datos muestran la relación, no demuestran por sí solos su causa.", reviewFocus: "Los productos relacionados que concentran el aumento de existencias y la reducción de ventas.",
+    meaning: "La caída de ventas coincide con un aumento de las existencias; los datos muestran la relación, no demuestran por sí solos su causa.", reviewFocus: `${urgencyReviewPrefix(urgency.level)} ${foci.slice(0, 3).map(item => item.evidencia).join(" ")}`,
     indicator: "Unidades disponibles frente a unidades vendidas.", items: metrics.excessItems,
+    nivelUrgencia: urgency.level,
+    magnitudDetalle: { aumentoInventario: metrics.inventoryChange, caidaUnidadesVendidas: metrics.unitPanorama.change, cortesInventario: metrics.inventoryHistory.length },
     causasObservadas: ["Las unidades vendidas bajaron mientras las existencias totales aumentaron en los periodos comparados."],
     aportePorCausa: [{ factor: "Relación entre ventas e inventario", dimension: "ventas-inventario", aporte: Math.abs(metrics.unitPanorama.change), unidad: "variación de unidades vendidas", evidencia: `Ventas ${percent(Math.abs(metrics.unitPanorama.change))} abajo e inventario ${percent(metrics.inventoryChange)} arriba.` }],
+    focosPrioritarios: foci.slice(0, 3),
     hipotesisPorValidar: ["Compras superiores a la necesidad.", "Menor demanda.", "Cambios de disponibilidad o reposición."],
     limitaciones: ["La relación temporal observada no demuestra que una variable haya causado la otra."]
-  }, { impact: Math.min(100, (metrics.inventoryChange + Math.abs(metrics.unitPanorama.change)) * 180), urgency: 88, reach: 100, confidence: inventoryConfidence })];
+  }, { impact: Math.min(100, (metrics.inventoryChange + Math.abs(metrics.unitPanorama.change)) * 180), urgency: urgency.score, reach: 100, confidence: inventoryConfidence })];
 }
 
 const businessAnalysisModules = [salesAnalysisModule, inventoryAnalysisModule];
@@ -2231,8 +2462,10 @@ function diagnosticDataLimitations(metrics, data) {
   if (sales.length && metrics.quantityRate < .7) limitations.push(metrics.quantityUnavailableReason);
   if (!inventory.length) limitations.push("No encontramos inventario para comparar existencias con ventas.");
   else if (!metrics.linkedProducts && sales.length) limitations.push("No pudimos relacionar con suficiente claridad los productos de ventas e inventario.");
-  if (!sales.some(row => String(row.cliente || "").trim())) limitations.push("No encontramos clientes identificados para medir cuáles dejaron de comprar.");
-  if (!sales.some(row => String(row.vendedor || "").trim())) limitations.push("No encontramos comerciales identificados para comparar su actividad.");
+  if (metrics.customerRate === 0) limitations.push("No encontramos clientes identificados para medir cuáles dejaron de comprar.");
+  else if (metrics.customerRate < .70) limitations.push("Los clientes están incompletos; no los usamos para explicar la prioridad.");
+  if (metrics.sellerRate === 0) limitations.push("No encontramos comerciales identificados para comparar su actividad.");
+  else if (metrics.sellerRate < .70) limitations.push("Los comerciales están incompletos; no los usamos para explicar la prioridad.");
   limitations.push("No contamos con información de competencia, visitas comerciales ni cambios del mercado.");
   return [...new Set(limitations)];
 }
@@ -2257,10 +2490,15 @@ function buildDiagnosticHandoff(primary, metrics, resultQuality, data) {
   } : { disponible: false, motivo: "Solo contamos con un corte actual de inventario; no afirmamos que las existencias hayan aumentado o disminuido." }) : salesComparison;
   const generalLimitations = diagnosticDataLimitations(metrics, data);
   return {
+    dominio: primary?.dominio || "empresarial",
     problemGeneral: primary?.problemaGeneral || primary?.title || "Información insuficiente para definir un problema general",
+    nivelUrgencia: primary?.nivelUrgencia || "Observación",
+    magnitud: primary?.magnitudDetalle || { valor: primary?.magnitud ?? null, unidad: primary?.unidad || "" },
+    evidencia: primary?.evidencia || [primary?.reason, primary?.evidence].filter(Boolean),
     evidenciaProblema: primary?.evidencia || [primary?.reason, primary?.evidence].filter(Boolean),
-    causasObservadas: primary?.causasObservadas || [],
-    aportePorCausa: primary?.aportePorCausa || [],
+    causasObservadas: (primary?.causasObservadas || []).slice(0, 3),
+    aportePorCausa: (primary?.aportePorCausa || []).slice(0, 3),
+    focosPrioritarios: (primary?.focosPrioritarios || []).slice(0, 3),
     hipotesisPorValidar: primary?.hipotesisPorValidar || [],
     limitaciones: [...new Set([...(primary?.limitaciones || []), ...generalLimitations])],
     calidadInformacion: { nivel: resultQuality.level[0] + resultQuality.level.slice(1).toLowerCase(), puntaje: resultQuality.score },
@@ -2269,9 +2507,11 @@ function buildDiagnosticHandoff(primary, metrics, resultQuality, data) {
     datosDisponibles: {
       ventas: sales.length > 0,
       inventario: (data.inventory || []).length > 0,
-      clientes: sales.some(row => String(row.cliente || "").trim()),
-      comerciales: sales.some(row => String(row.vendedor || "").trim()),
+      clientes: metrics.customerRate >= .70,
+      comerciales: metrics.sellerRate >= .70,
+      utilidad: metrics.utilityRate >= .70,
       precios: sales.some(row => Number.isFinite(numericValue(row.precio))),
+      costosInventario: metrics.inventoryCostRate >= .70,
       historialVentas: panorama.reliable,
       historialInventario: metrics.inventoryHistory.length >= 2,
       relacionVentasInventario: metrics.linkedProducts > 0,
@@ -2291,13 +2531,13 @@ function prioritize(metrics, scope) {
   const panorama = metrics.panorama;
   const amount = value => panorama.basis === "value" ? money.format(value) : `${readableNumber(value)} unidades`;
   const observed = observedSalesCauses(metrics);
-  const topDecliners = observed.drivers;
+  const topDecliners = observed.drivers.filter(item => ["producto", "cliente", "vendedor"].includes(item.dimension));
   const architecture = businessAnalysisArchitecture(metrics, scope);
   const centrallyRanked = architecture.rankedFindings;
-  const general = centrallyRanked.filter(item => ["business-decline", "inventory-accumulation", "inventory-excess", "stock-risk-general"].includes(item.type));
+  const general = centrallyRanked.filter(item => ["business-decline", "profit-decline", "inventory-no-movement", "inventory-accumulation", "inventory-excess", "stock-risk-general"].includes(item.type));
   const concentration = centrallyRanked.find(item => item.type === "concentration");
   const inventoryOnly = centrallyRanked.find(item => item.type === "inventory-only");
-  if (inventoryOnly) findings.push(inventoryOnly);
+  if (inventoryOnly && !general.length) findings.push(inventoryOnly);
   if (general.length) {
     const main = general[0];
     findings.push(main);
