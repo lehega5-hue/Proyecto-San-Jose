@@ -1,71 +1,117 @@
-# San José – Transformación Empresarial
+# San José – Transformación Estratégica · MVP V3
 
-MVP académico funcional para propietarios y gerentes de pequeñas empresas colombianas de comercio y distribución. Convierte información de ventas e inventario en una orientación inicial, explicable y accionable.
+San José recibe la información que una pequeña empresa ya utiliza y muestra qué debería atender primero.
 
-`contexto → datos → calidad → prioridades → acción → seguimiento`
+> **Tus datos te muestran qué atender primero.**
+
+**ARCHIVO → COMPRENSIÓN → EVIDENCIA → PRIORIDAD → 3 ACCIONES**
+
+## Qué demuestra esta versión
+
+El MVP se concentra únicamente en **ventas e inventario**:
+
+1. recibe uno o varios archivos Excel o CSV;
+2. inspecciona todas las hojas;
+3. identifica ventas, inventario e información adicional;
+4. propone correspondencias de columnas y muestra su confianza;
+5. calcula calidad y cifras con código determinístico;
+6. presenta un hallazgo principal, dos secundarios y tres acciones.
+
+No hay login, backend, base de datos, pagos ni almacenamiento de archivos.
 
 ## Cómo abrirlo
 
-1. Abre la carpeta `san-jose`.
-2. Haz doble clic en `index.html`.
-3. Elige Chrome, Edge o Firefox si Windows pregunta con qué programa abrirlo.
+Desde la carpeta del proyecto ejecuta **python -m http.server 8765** y abre **http://localhost:8765/**.
 
-No hay cuentas, credenciales, instalación ni comandos obligatorios. En la bienvenida institucional pulsa **Iniciar demostración**.
+También puede abrirse **index.html** directamente, aunque algunos navegadores aplican restricciones adicionales a archivos locales.
 
-Para evitar restricciones del navegador al probar cargas locales, también puedes iniciar un servidor en esta carpeta con `python -m http.server 8765` y abrir `http://localhost:8765/`.
+## Recorrido
 
-## Recorrido de la versión 2
+1. **Cuéntanos lo esencial:** tres preguntas obligatorias y una cuarta condicional.
+2. **Sube tu información:** una sola zona admite uno o varios archivos XLSX, XLS o CSV.
+3. **Mira qué atender primero:** calidad explicada con cifras y una prioridad dominante.
+4. **Sigue un plan sencillo:** Hoy, Esta semana y En 14 días.
 
-El recorrido visible se organiza en cuatro etapas:
+Casos ficticios:
 
-1. **Conoce tu negocio:** contexto empresarial breve y sin datos personales.
-2. **Analiza tus datos:** casos ficticios o archivos propios, interpretación de columnas y calidad.
-3. **Descubre tus prioridades:** tres hallazgos ordenados; la prioridad número 1 explica qué ocurre, por qué importa, qué evidencia la sustenta y qué hacer primero.
-4. **Actúa y haz seguimiento:** plan con responsable editable, plazo e indicador; cierre con continuidad.
+- Caso A: productos almacenados que casi no se venden.
+- Caso B: gran parte de las ventas depende de pocos productos.
+- Caso C: información insuficiente; el análisis debe detenerse.
 
-La aplicación usa lenguaje consultivo y reglas deterministas. No afirma utilizar inteligencia artificial. Cuando la evidencia no alcanza, muestra: **“Todavía no tenemos suficiente información para recomendar con confianza.”**
+## Analista San José
 
-## Archivos admitidos
+El componente **AIDataInterpreter**, en **ai-interpreter.js**, tiene dos modos:
 
-- Excel moderno: `.xlsx`
-- Excel tradicional: `.xls`
-- CSV separado por comas o punto y coma: `.csv`
-- Máximo: 5 MB por archivo
-- En Excel se analiza la primera hoja.
+- **remote-ai:** servicio seguro configurado fuera de GitHub Pages;
+- **local-fallback:** motor semántico local siempre disponible.
 
-El alcance inicial es únicamente **Ventas** e **Inventario**. El sistema examina encabezados y una muestra de valores para proponer fecha, producto, cantidad, precio o valor total, existencias y costo. Antes del análisis muestra:
+La demostración funciona sin IA externa. Si no hay endpoint, tarda demasiado o responde con JSON inválido, el fallback local toma el control.
 
-- columna encontrada;
-- interpretación propuesta;
-- confianza Alta, Media o Baja;
-- muestra de valores;
-- corrección manual.
+Responsabilidades:
 
-Una correspondencia esencial ausente o de confianza Baja bloquea el análisis y explica cómo corregirla. Las columnas opcionales no bloquean el proceso; su ausencia se informa como limitación.
+- IA o motor semántico: interpreta hojas y columnas.
+- Código determinístico: limpia datos y calcula cifras.
+- Reglas determinísticas: ordenan la importancia.
+- San José: explica el resultado.
+- Empresario: toma y ejecuta la decisión final.
 
-La lectura de Excel usa SheetJS 0.20.3 incluido en `assets/xlsx.full.min.js`, por lo que no requiere internet.
+No se guardan API keys en JavaScript. Consulta **ARQUITECTURA_IA.md** antes de conectar un servicio remoto.
 
-## Casos, plantillas y resumen ejecutivo
+## Interpretación y confirmación
 
-`datos/` incluye plantillas CSV, archivos con nombres alternativos y un caso al que le falta una columna esencial. La interfaz también ofrece tres casos ficticios: inventario detenido, ventas concentradas e información insuficiente.
+Después de una carga real se muestra **Esto es lo que encontramos**:
 
-Desde la pantalla de prioridades se descarga `resumen-ejecutivo-san-jose.html`, con contexto, calidad, hallazgos, prioridad principal, evidencia, plan, limitaciones y fecha. Al abrirlo se puede imprimir o guardar como PDF desde el navegador.
+- archivo y hoja;
+- clasificación como ventas, inventario o información adicional;
+- nivel de confianza;
+- columna propuesta;
+- ejemplo de valores.
 
-## Privacidad y principio de verdad
+Confianza Media o Baja solicita confirmación. Confianza Alta permanece visible y puede corregirse mediante **Cambiar interpretación**.
 
-- Los archivos se procesan localmente en el navegador y no se envían ni almacenan en un servidor.
-- No uses información personal, sensible o financiera real durante la demostración.
-- Las interpretaciones son sugerencias locales basadas en reglas, no afirmaciones infalibles.
-- Los resultados proceden de cálculos deterministas después de la confirmación.
-- San José no inventa respuestas cuando falta evidencia.
-- La decisión final siempre corresponde al empresario.
-- No hay cuentas, persistencia empresarial, pagos ni integraciones.
+Clientes, proveedores, nómina, impuestos y resúmenes se clasifican como información adicional y no se analizan.
+
+## Calidad de la información
+
+Los niveles Alta, Media y Baja se explican con cifras calculadas:
+
+- registros encontrados;
+- porcentaje de datos esenciales completos;
+- productos relacionados entre ventas e inventario;
+- días cubiertos;
+- valores negativos;
+- cobertura de costos.
+
+Calidad Baja detiene la recomendación y explica qué falta y qué puede hacer el empresario.
+
+## Privacidad
+
+- Los archivos se procesan localmente.
+- No se envían ni almacenan en un servidor.
+- Deben usarse datos ficticios o anonimizados.
+- La decisión final y su ejecución corresponden al empresario.
+
+## Archivos principales
+
+- **index.html:** estructura y landing.
+- **app.js:** recorrido, motor local, cálculos y priorización.
+- **ai-interpreter.js:** adaptador remoto opcional y fallback.
+- **overrides.css:** identidad visual y responsive.
+- **assets/logo-san-jose-v3.png:** logo oficial proporcionado.
+- **RESULTADOS_PRUEBAS.md:** evidencia de QA.
+
+## Limitaciones actuales
+
+- No conserva estado después de actualizar.
+- No analiza devoluciones, pedidos pendientes, estacionalidad o ventas perdidas.
+- No calcula rentabilidad si no existen costos.
+- El endpoint remoto de IA no está desplegado.
+- El resumen se descarga como HTML y se guarda como PDF mediante impresión.
 
 ## Si algo falla
 
-- Conserva juntos `index.html`, `app.js`, `styles.css`, `overrides.css` y las carpetas `assets` y `datos`.
-- Confirma que cada archivo pese máximo 5 MB y que la tabla esté en la primera hoja.
-- Revisa la correspondencia propuesta y corrige manualmente una columna dudosa.
-- Si una pantalla parece desactualizada, recarga con `Ctrl + F5`.
-
-Consulta `RESULTADOS_PRUEBAS.md` para la matriz de validación de esta versión.
+- Recarga con Ctrl + F5.
+- Confirma que cada archivo pese máximo 5 MB.
+- Cada hoja debe tener encabezados y al menos una fila.
+- Confirma las correspondencias de confianza Media o Baja.
+- Si falta ventas o inventario, agrega la hoja o el dato que indique la aplicación.

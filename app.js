@@ -1,132 +1,1112 @@
-const $=s=>document.querySelector(s);
-const money=new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0});
-const app={step:2,start:null,context:{},dataset:null,datasetName:'',source:'',analysis:null,uploadNames:{sales:'',inventory:''},rawUploads:{sales:null,inventory:null},interpretations:{sales:null,inventory:null},semanticPending:false,tasks:['Pendiente','Pendiente','Pendiente'],owners:['Gerencia','',''],activePriority:0,feedback:{},completed:{start:false,form:false,data:false,quality:false,priority:false,plan:false,feedback:false}};
-const stepNames=['Bienvenida','Conozcamos tu negocio','Carga de información','Calidad de tus datos','Tus tres prioridades','Atiende esto primero','Plan de acción','Seguimiento','Retroalimentación','Siguiente prioridad'];
-const stageByStep={1:1,2:1,3:2,4:2,5:3,6:3,7:4,8:4,9:4,10:4};
-const stageNames=['Conoce tu negocio','Analiza tus datos','Descubre tus prioridades','Actúa y haz seguimiento'];
+const $ = selector => document.querySelector(selector);
+const money = new Intl.NumberFormat("es-CO", {
+  style: "currency",
+  currency: "COP",
+  maximumFractionDigits: 0
+});
+const percent = value => `${Math.round(value * 100)} %`;
+const countText = (value, singular, plural) => `${value} ${value === 1 ? singular : plural}`;
 
-const datasets={
-  detenido:{name:'Caso 1 · Inventario detenido',sales:[
-    ['2026-04-05','Cafetera clásica',2,185000],['2026-04-18','Licuadora práctica',7,142000],['2026-05-02','Cafetera clásica',1,185000],['2026-05-12','Juego de ollas',12,265000],['2026-05-26','Licuadora práctica',8,142000],['2026-06-04','Vajilla blanca',1,198000],['2026-06-15','Juego de ollas',15,265000],['2026-06-28','Licuadora práctica',9,142000],['2026-07-03','Cafetera clásica',1,185000],['2026-07-11','Juego de ollas',13,265000],['2026-07-19','Licuadora práctica',8,142000],['2026-07-25','Vajilla blanca',1,198000]
-  ].map(x=>({fecha:x[0],producto:x[1],cantidad:x[2],precio:x[3]})),inventory:[['Cafetera clásica',64,128000],['Licuadora práctica',18,97000],['Juego de ollas',16,181000],['Vajilla blanca',48,136000],['Sartén antiadherente',7,68000]].map(x=>({producto:x[0],stock:x[1],costo:x[2]}))},
-  concentrado:{name:'Caso 2 · Ventas concentradas',sales:[
-    ['2026-04-03','Arroz premium 5 kg',42,24500],['2026-04-16','Arroz premium 5 kg',48,24500],['2026-05-01','Arroz premium 5 kg',55,24500],['2026-05-18','Aceite vegetal 1 L',8,11900],['2026-05-27','Arroz premium 5 kg',51,24500],['2026-06-02','Arroz premium 5 kg',60,24500],['2026-06-14','Café molido 500 g',4,18900],['2026-06-29','Arroz premium 5 kg',57,24500],['2026-07-05','Arroz premium 5 kg',62,24500],['2026-07-14','Azúcar 1 kg',5,4800],['2026-07-21','Arroz premium 5 kg',58,24500],['2026-07-27','Aceite vegetal 1 L',6,11900]
-  ].map(x=>({fecha:x[0],producto:x[1],cantidad:x[2],precio:x[3]})),inventory:[['Arroz premium 5 kg',70,18700],['Aceite vegetal 1 L',4,8200],['Café molido 500 g',22,13400],['Azúcar 1 kg',35,3500]].map(x=>({producto:x[0],stock:x[1],costo:x[2]}))},
-  insuficiente:{name:'Caso 3 · Información insuficiente',sales:[{fecha:'fecha desconocida',producto:'Cuaderno grande',cantidad:'',precio:8500},{fecha:'2026-07-10',producto:'',cantidad:-3,precio:'sin dato'}],inventory:[{producto:'Cuaderno grande',stock:'',costo:4200}]}
-};
-
-const aliases={producto:['producto','articulo','referencia','sku','item'],fecha:['fecha','fecha venta','fecha de venta'],cantidad:['cantidad','unidades','cant','qty'],precio:['precio','precio venta','valor unitario','precio unitario'],stock:['existencia','stock','inventario','cantidad disponible'],costo:['costo','costo unitario','valor costo']};
-const semanticRoles={
-  sales:{
-    fecha:{label:'Fecha de venta',required:true,terms:['fecha','dia','periodo','fecha factura','fecha operacion']},
-    producto:{label:'Producto',required:true,terms:['producto','articulo','descripcion','referencia','sku','item','codigo','mercancia']},
-    cantidad:{label:'Cantidad vendida',required:true,terms:['cantidad','unidades','cant','qty','movimientos','despacho','volumen','unid vendidas']},
-    precio:{label:'Precio unitario',required:false,terms:['precio','precio venta','valor unitario','precio unitario','vr unitario']},
-    valorTotal:{label:'Valor total de venta',required:false,terms:['valor total','total venta','vr neto','valor neto','importe','subtotal','ingreso','total factura']},
-    costo:{label:'Costo',required:false,terms:['costo','coste','valor costo']},
-    cliente:{label:'Cliente',required:false,terms:['cliente','comprador','tercero']},
-    canal:{label:'Canal',required:false,terms:['canal','medio venta','sucursal','tienda']}
-  },
-  inventory:{
-    producto:{label:'Producto',required:true,terms:['producto','articulo','descripcion','referencia','sku','item','codigo','mercancia']},
-    stock:{label:'Existencia actual',required:true,terms:['existencia','stock','inventario','saldo','disponible','cantidad disponible','existencia actual']},
-    costo:{label:'Costo',required:false,terms:['costo','coste','valor costo']},
-    ultimoMovimiento:{label:'Último movimiento',required:false,terms:['ultimo movimiento','fecha movimiento','ultima salida','ultima entrada']},
-    referencia:{label:'Referencia o código',required:false,terms:['referencia','codigo','sku interno','sku']}
+const app = {
+  step: 2,
+  start: null,
+  context: {},
+  dataset: null,
+  datasetName: "",
+  expected: "",
+  source: "",
+  analysis: null,
+  files: [],
+  tables: [],
+  classified: [],
+  semanticMode: "local-fallback",
+  semanticPending: false,
+  tasks: [false, false, false],
+  activePriority: 0,
+  feedback: {},
+  completed: {
+    start: false,
+    form: false,
+    data: false,
+    quality: false,
+    priority: false,
+    plan: false,
+    feedback: false
   }
 };
-const roleLabels=Object.fromEntries(Object.values(semanticRoles).flatMap(group=>Object.entries(group).map(([key,value])=>[key,value.label])));
-const normalize=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[._-]/g,' ').replace(/\s+/g,' ').trim();
-const safe=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 
-function startDemo(){$('#welcome-view').classList.add('hidden');$('#app-view').classList.remove('hidden');app.start=Date.now();app.completed.start=true;go(2);}
-$('#start-demo').addEventListener('click',startDemo);
-$('#restart-button').addEventListener('click',()=>{location.reload()});
-$('#test-summary-button').addEventListener('click',showTestSummary);
-$('.dialog-close').addEventListener('click',()=>$('#test-dialog').close());
+const stepNames = [
+  "Bienvenida",
+  "Cuéntanos lo esencial",
+  "Sube tu información",
+  "Calidad de tu información",
+  "Lo más importante",
+  "Evidencia del hallazgo",
+  "Plan sencillo",
+  "Seguimiento",
+  "Cuéntanos qué pasó",
+  "Qué sigue"
+];
+const stageByStep = { 1: 1, 2: 1, 3: 2, 4: 2, 5: 3, 6: 3, 7: 4, 8: 4, 9: 4, 10: 4 };
+const stageNames = [
+  "Cuéntanos lo esencial",
+  "Sube tu información",
+  "Mira qué atender primero",
+  "Sigue un plan sencillo"
+];
 
-function go(step){app.step=Math.max(1,Math.min(10,step));render();window.scrollTo({top:0,behavior:'smooth'});}
-function render(){const stage=stageByStep[app.step];$('#progress-label').textContent=`Etapa ${stage} de 4 · ${stageNames[stage-1]}`;$('#progress-title').textContent=stepNames[app.step-1];$('#progress-bar').style.width=`${stage/4*100}%`;const screens=[welcome,contextScreen,dataScreen,qualityScreen,prioritiesScreen,focusScreen,planScreen,followupScreen,feedbackScreen,nextScreen];$('#screen').innerHTML=screens[app.step-1]();$('#screen').focus({preventScroll:true});bindScreen();}
-function nav(back,next,label='Continuar'){return `<div class="actions">${back?`<button class="button secondary" type="button" data-go="${back}">← Volver</button>`:'<span></span>'}<div class="right">${next?`<button class="button gold" type="button" data-go="${next}">${label} →</button>`:''}</div></div>`;}
+const datasets = {
+  detenido: {
+    name: "Caso A · Productos almacenados que casi no se venden",
+    expected: "Identificar productos con existencias altas y pocas ventas.",
+    description: "Hay productos almacenados durante el periodo con muy pocas salidas.",
+    sales: [
+      ["2026-04-05", "Cafetera clásica", 2, 185000],
+      ["2026-04-18", "Licuadora práctica", 7, 142000],
+      ["2026-05-02", "Cafetera clásica", 1, 185000],
+      ["2026-05-12", "Juego de ollas", 12, 265000],
+      ["2026-05-26", "Licuadora práctica", 8, 142000],
+      ["2026-06-04", "Vajilla blanca", 1, 198000],
+      ["2026-06-15", "Juego de ollas", 15, 265000],
+      ["2026-06-28", "Licuadora práctica", 9, 142000],
+      ["2026-07-03", "Cafetera clásica", 1, 185000],
+      ["2026-07-11", "Juego de ollas", 13, 265000],
+      ["2026-07-19", "Licuadora práctica", 8, 142000],
+      ["2026-07-25", "Vajilla blanca", 1, 198000]
+    ].map(row => ({ fecha: row[0], producto: row[1], cantidad: row[2], precio: row[3] })),
+    inventory: [
+      ["Cafetera clásica", 64, 128000],
+      ["Licuadora práctica", 18, 97000],
+      ["Juego de ollas", 16, 181000],
+      ["Vajilla blanca", 48, 136000],
+      ["Sartén antiadherente", 7, 68000]
+    ].map(row => ({ producto: row[0], stock: row[1], costo: row[2] }))
+  },
+  concentrado: {
+    name: "Caso B · Gran parte de las ventas depende de pocos productos",
+    expected: "Identificar una dependencia comercial alta.",
+    description: "Un producto representa gran parte del valor vendido.",
+    sales: [
+      ["2026-04-03", "Arroz premium 5 kg", 42, 24500],
+      ["2026-04-16", "Arroz premium 5 kg", 48, 24500],
+      ["2026-05-01", "Arroz premium 5 kg", 55, 24500],
+      ["2026-05-18", "Aceite vegetal 1 L", 8, 11900],
+      ["2026-05-27", "Arroz premium 5 kg", 51, 24500],
+      ["2026-06-02", "Arroz premium 5 kg", 60, 24500],
+      ["2026-06-14", "Café molido 500 g", 4, 18900],
+      ["2026-06-29", "Arroz premium 5 kg", 57, 24500],
+      ["2026-07-05", "Arroz premium 5 kg", 62, 24500],
+      ["2026-07-14", "Azúcar 1 kg", 5, 4800],
+      ["2026-07-21", "Arroz premium 5 kg", 58, 24500],
+      ["2026-07-27", "Aceite vegetal 1 L", 6, 11900]
+    ].map(row => ({ fecha: row[0], producto: row[1], cantidad: row[2], precio: row[3] })),
+    inventory: [
+      ["Arroz premium 5 kg", 70, 18700],
+      ["Aceite vegetal 1 L", 4, 8200],
+      ["Café molido 500 g", 22, 13400],
+      ["Azúcar 1 kg", 35, 3500]
+    ].map(row => ({ producto: row[0], stock: row[1], costo: row[2] }))
+  },
+  insuficiente: {
+    name: "Caso C · Información insuficiente",
+    expected: "Detener el análisis y explicar qué información hace falta.",
+    description: "Faltan cantidades, productos y valores esenciales.",
+    sales: [
+      { fecha: "fecha desconocida", producto: "Cuaderno grande", cantidad: "", precio: 8500 },
+      { fecha: "2026-07-10", producto: "", cantidad: -3, precio: "sin dato" }
+    ],
+    inventory: [{ producto: "Cuaderno grande", stock: "", costo: 4200 }]
+  }
+};
 
-function welcome(){return `<section class="hero-screen"><div><p class="eyebrow">Bienvenido a la demostración</p><h1>Tus datos te muestran qué atender primero.</h1><p>San José revisará información ficticia de ventas e inventario, explicará qué tan útil es y propondrá un paso concreto. Tú conservas siempre la decisión final.</p><button class="button gold" type="button" data-go="2">Comenzar recorrido →</button></div><aside class="hero-visual"><p class="eyebrow">Lo haremos en pocos pasos</p><h3>De información dispersa a una acción clara</h3><div class="flow-list"><div><span>1</span>Conocer el negocio</div><div><span>2</span>Revisar la información</div><div><span>3</span>Elegir una prioridad</div><div><span>4</span>Actuar y hacer seguimiento</div></div></aside></section>`;}
+const semanticRoles = {
+  sales: {
+    fecha: { label: "Fecha de venta", required: true, terms: ["fecha", "fecha venta", "fecha factura", "día", "periodo"] },
+    producto: { label: "Producto", required: true, terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código producto", "mercancía"] },
+    cantidad: { label: "Cantidad vendida", required: true, terms: ["cantidad", "unidades", "und", "cant", "qty", "despacho", "volumen"] },
+    precio: { label: "Precio por unidad", required: false, terms: ["precio", "precio venta", "valor unitario", "vr unitario"] },
+    valorTotal: { label: "Valor total de venta", required: false, terms: ["valor total", "total venta", "vr neto", "valor neto", "importe", "subtotal", "ingreso"] },
+    costo: { label: "Costo", required: false, terms: ["costo", "coste", "valor costo"] }
+  },
+  inventory: {
+    producto: { label: "Producto", required: true, terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código producto", "mercancía"] },
+    stock: { label: "Existencias disponibles", required: true, terms: ["existencia", "existencias", "stock", "inventario", "saldo", "disponible", "cantidad disponible"] },
+    costo: { label: "Costo", required: false, terms: ["costo", "coste", "valor costo"] }
+  }
+};
 
-function contextScreen(){return `<p class="eyebrow">Conozcamos tu negocio</p><h1 class="screen-title">Cuéntanos lo esencial</h1><p class="screen-intro">Estas respuestas ayudan a poner la orientación en contexto. Para la demostración, no escribas información personal real.</p><form id="context-form" class="panel"><div class="form-grid">
-<label>¿A qué se dedica tu negocio? *<select name="actividad" required><option value="">Selecciona</option><option>Comercio minorista</option><option>Comercio mayorista</option><option>Distribución</option></select></label>
-<label>¿Cuánto tiempo lleva funcionando? *<select name="antiguedad" required><option value="">Selecciona</option><option>Menos de 2 años</option><option>2 a 5 años</option><option>6 a 10 años</option><option>Más de 10 años</option></select></label>
-<label>¿Cómo registras tus ventas? *<select name="registro" required><option value="">Selecciona</option><option>Excel o Google Sheets</option><option>Sistema POS</option><option>Software contable</option><option>Cuaderno o registros manuales</option></select></label>
-<label>¿Qué te preocupa más hoy? *<select name="preocupacion" required><option value="">Selecciona</option><option>Productos que no se venden</option><option>Quedarme sin productos</option><option>Depender de pocas ventas</option><option>No confiar en mis datos</option></select></label>
-<label>¿Qué quieres mejorar primero? *<select name="objetivo" required><option value="">Selecciona</option><option>Rotación del inventario</option><option>Disponibilidad de productos</option><option>Ventas</option><option>Calidad de la información</option></select></label>
-<label>¿Has recibido apoyo de consultoría o herramientas de análisis? *<select name="apoyo" required><option value="">Selecciona</option><option>Sí</option><option>No</option></select></label>
-<label>¿Has intentado solucionar antes este problema? *<select id="attempt-select" name="intento" required><option value="">Selecciona</option><option>Sí, pero no funcionó como esperaba</option><option>Sí, y tuve resultados parciales</option><option>No</option></select></label>
-</div><div id="blocker-question" class="conditional hidden"><label>¿Qué crees que impidió que funcionara?<textarea name="obstaculo" rows="3" placeholder="Respuesta corta"></textarea></label></div><div class="actions"><button class="button secondary" id="back-to-welcome" type="button">← Volver</button><button class="button gold" type="submit">Guardar y continuar →</button></div></form>`;}
+const normalize = value => String(value ?? "")
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase()
+  .replace(/[._-]/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+const safe = value => String(value ?? "").replace(/[&<>'"]/g, character => ({
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  "'": "&#39;",
+  '"': "&quot;"
+})[character]);
+const confidenceWeight = confidence => ({ Alta: 3, Media: 2, Baja: 1 }[confidence] || 0);
+const confidenceFromRemote = confidence => ({ high: "Alta", medium: "Media", low: "Baja" }[confidence] || "Baja");
 
-function dataScreen(){return `<p class="eyebrow">Carga de información</p><h1 class="screen-title">Elige cómo probar San José</h1><p class="screen-intro">Analizamos inicialmente tus ventas e inventario para ayudarte a identificar qué atender primero. La forma más rápida es usar uno de los tres casos ficticios; también puedes cargar tus archivos como los utilizas normalmente.</p><div class="truth-strip">El procesamiento ocurre localmente en este navegador. San José no envía ni almacena tus archivos en un servidor.</div><div class="recommend-box"><article><h3>Para ventas</h3><p>Conviene tener fecha, producto, unidades y algún valor de venta. <a href="datos/plantilla_ventas.csv" download>Descargar plantilla</a></p></article><article><h3>Para inventario</h3><p>Conviene tener producto y existencia actual. <a href="datos/plantilla_inventario.csv" download>Descargar plantilla</a></p></article></div><div class="choice-grid">
-${Object.entries(datasets).map(([k,d])=>`<button class="choice-card ${app.source===k?'selected':''}" type="button" data-dataset="${k}"><span class="case-tag">Datos completamente ficticios</span><strong>${d.name}</strong><span>${k==='detenido'?'Productos almacenados con pocas ventas.':k==='concentrado'?'Un producto representa gran parte de los ingresos.':'Datos faltantes e inconsistentes; no debe recomendar.'}</span></button>`).join('')}</div>
-<section class="panel"><h2>O carga tus archivos anonimizados</h2><p><strong>Puedes cargar archivos Excel (.xlsx, .xls) o CSV.</strong></p><p class="screen-intro">Carga tus archivos como los utilizas normalmente. San José revisará la información e intentará identificar automáticamente los datos necesarios para el análisis.</p><p class="screen-intro">Si no logramos identificar algún dato importante, te diremos exactamente qué información necesitamos.</p><div class="form-grid"><label class="upload-box">Ventas<input id="sales-file" type="file" accept=".xlsx,.xls,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"><span id="sales-file-status" class="file-status ${app.uploadNames.sales?'success':''}">${app.uploadNames.sales?`✓ ${safe(app.uploadNames.sales)}`:'Sin archivo'}</span></label><label class="upload-box">Inventario<input id="inventory-file" type="file" accept=".xlsx,.xls,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"><span id="inventory-file-status" class="file-status ${app.uploadNames.inventory?'success':''}">${app.uploadNames.inventory?`✓ ${safe(app.uploadNames.inventory)}`:'Sin archivo'}</span></label></div><p id="upload-error" class="message error" role="alert"></p></section>${app.semanticPending?interpretationPanel():nav(2,app.dataset?4:null,'Procesar información')}`;}
+function startDemo() {
+  $("#welcome-view").classList.add("hidden");
+  $("#app-view").classList.remove("hidden");
+  app.start = Date.now();
+  app.completed.start = true;
+  go(2);
+}
 
-function interpretationPanel(){const issues=requiredMappingIssues();const preliminary=issues.length?'BAJA':Object.values(app.interpretations).some(group=>Object.values(group.assignments).some(a=>a&&a.confidence==='Media'))?'MEDIA':'ALTA';const optional=[],usable=a=>a&&a.confidence!=='Baja';if(!usable(app.interpretations.sales.assignments.costo)&&!usable(app.interpretations.inventory.assignments.costo))optional.push('No encontramos información de costos. Podemos analizar ventas e inventario, pero no podremos evaluar margen o rentabilidad.');return `<section class="panel interpretation-panel"><p class="eyebrow">Interpretación automatizada</p><h2>Así entendimos tus datos</h2><p>Esta confirmación es una parte central del análisis. Revisa qué columna encontramos, cómo la interpretamos y una muestra de sus valores antes de continuar.</p><div class="truth-strip">San José no inventa respuestas. Si una correspondencia esencial no es suficientemente confiable, el análisis se detiene hasta que la confirmes.</div><div class="preliminary"><strong>Calidad preliminar: ${preliminary}</strong><span>${preliminary==='ALTA'?'Encontramos con buena confianza la información esencial.':preliminary==='MEDIA'?'Hay correspondencias que conviene revisar.':'Falta identificar información indispensable.'}</span></div><div class="mapping-grid"><section><h3>Archivo de ventas</h3>${mappingRows('sales')}</section><section><h3>Archivo de inventario</h3>${mappingRows('inventory')}</section></div>${optional.map(x=>`<p class="optional-note">${safe(x)}</p>`).join('')}<div id="mapping-issues">${issues.map(x=>`<div class="low-stop"><p>${safe(x.message)}</p><small>${safe(x.help)}</small></div>`).join('')}</div><div class="actions"><button class="button secondary" type="button" data-go="2">← Volver</button><button id="confirm-mapping" class="button gold" type="button" ${issues.length?'disabled':''}>Confirmar y analizar →</button></div></section>`;}
-function mappingRows(type){const interpretation=app.interpretations[type],roles=semanticRoles[type];return Object.entries(roles).map(([role,config])=>{const a=interpretation.assignments[role];const options=interpretation.headers.map(h=>`<option value="${safe(h)}" ${a?.header===h?'selected':''}>${safe(h)}</option>`).join('');return `<div class="mapping-row"><div class="mapping-found"><span>Columna encontrada</span><strong>${a?safe(a.header):'No identificada'}</strong><small>${a?.sample?`Ejemplo: ${safe(a.sample)}`:'Sin muestra disponible'}</small></div><div class="mapping-proposal"><span>Interpretación propuesta</span><strong>→ ${config.label}</strong><small class="confidence ${a?.confidence?.toLowerCase()||'none'}">Confianza: ${a?.confidence||'Sin definir'}</small></div><label>Corrección manual<select class="mapping-select" data-file="${type}" data-role="${role}"><option value="">No está en el archivo</option>${options}</select></label></div>`}).join('');}
-function requiredMappingIssues(){const issues=[];const sales=app.interpretations.sales?.assignments||{},inv=app.interpretations.inventory?.assignments||{};const usable=a=>a&&a.header&&a.confidence!=='Baja';if(!usable(sales.fecha))issues.push({message:'Revisamos tu archivo, pero no encontramos una fecha de venta con suficiente confianza.',help:'Busca una columna que indique cuándo ocurrió cada venta y selecciónala arriba.'});if(!usable(sales.producto))issues.push({message:'No logramos identificar con suficiente confianza el producto vendido.',help:'Busca una descripción, referencia, código, SKU o nombre de artículo y selecciónalo arriba.'});if(!usable(sales.cantidad))issues.push({message:'Revisamos tu archivo, pero no encontramos información que podamos identificar con suficiente confianza como cantidad vendida.',help:'Busca en tu archivo una columna que indique cuántas unidades se vendieron por producto o transacción y vuelve a cargarlo o selecciónala arriba.'});if(!usable(sales.precio)&&!usable(sales.valorTotal))issues.push({message:'No logramos identificar un precio unitario ni un valor total de venta.',help:'Busca una columna con el precio por unidad o el total de cada venta y selecciónala arriba.'});if(!usable(inv.producto))issues.push({message:'No logramos identificar el producto en el archivo de inventario.',help:'Busca una descripción, referencia, código o SKU y selecciónalo arriba.'});if(!usable(inv.stock))issues.push({message:'No logramos identificar la existencia actual del inventario.',help:'Busca una columna que indique cuántas unidades hay disponibles y selecciónala arriba.'});return issues;}
+$("#start-demo").addEventListener("click", startDemo);
+$("#restart-button").addEventListener("click", () => location.reload());
+$("#test-summary-button").addEventListener("click", showTestSummary);
+$(".dialog-close").addEventListener("click", () => $("#test-dialog").close());
 
-function qualityScreen(){if(!app.analysis)return missingState();const q=app.analysis.quality;return `<p class="eyebrow">Control de calidad</p><h1 class="screen-title">¿Podemos orientar una decisión con estos datos?</h1><div class="quality-layout"><article class="quality-card"><span class="level ${q.level.toLowerCase()}">Calidad ${q.level}</span><h2>${q.score}/100</h2><p>${q.explanation}</p><small>Fuente: ${safe(app.datasetName)}</small></article><section class="panel"><h2>Lo que verificamos antes de recomendar</h2><ul class="check-list">${q.checks.map(x=>`<li class="${x.ok?'':'problem'}">${safe(x.text)}</li>`).join('')}</ul></section></div>${q.level==='BAJA'?`<div class="low-stop"><h3>Todavía no tenemos suficiente información para recomendar con confianza.</h3><p>Revisa los puntos marcados arriba y completa o corrige esos datos. Detenerse aquí es el comportamiento correcto: San José no inventa cifras ni fuerza una recomendación cuando falta evidencia.</p></div>${nav(3,null)}`:nav(3,5,'Descubrir prioridades')}`;}
+function go(step) {
+  app.step = Math.max(1, Math.min(10, step));
+  render();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
 
-function priorityGuidance(p){const guidance={slow:{meaning:'El dinero y el espacio de bodega permanecen comprometidos en productos con poca salida.',action:'Confirmar las existencias y definir si conviene promover, combinar, liquidar o pausar temporalmente nuevas compras.'},concentration:{meaning:'Una caída en el producto principal puede afectar una parte importante de los ingresos observados.',action:'Validar si el patrón se mantiene y probar dos productos complementarios que ayuden a distribuir mejor las ventas.'},stockout:{meaning:'Una existencia muy baja puede convertirse en ventas perdidas si el producto continúa moviéndose.',action:'Verificar físicamente la existencia y ajustar el siguiente pedido con base en ventas recientes y tiempos del proveedor.'},review:{meaning:'Los productos con menor movimiento pueden requerir una decisión comercial o una revisión del registro.',action:'Confirmar los datos y revisar una mejora pequeña en exhibición, promoción o compra.'},maintain:{meaning:'Proteger la disponibilidad de los productos principales ayuda a sostener las ventas registradas.',action:'Vigilar las existencias y anticipar la reposición sin comprar a ciegas.'},data:{meaning:'Una actualización constante permite distinguir un patrón real de una observación aislada.',action:'Definir un día semanal para actualizar ventas e inventario sin interrupciones.'}};return guidance[p.type]||guidance.review;}
+function render() {
+  const stage = stageByStep[app.step];
+  $("#progress-label").textContent = `Etapa ${stage} de 4 · ${stageNames[stage - 1]}`;
+  $("#progress-title").textContent = stepNames[app.step - 1];
+  $("#progress-bar").style.width = `${stage / 4 * 100}%`;
+  const screens = [welcome, contextScreen, dataScreen, qualityScreen, resultsScreen, evidenceScreen, planScreen, followupScreen, feedbackScreen, nextScreen];
+  $("#screen").innerHTML = screens[app.step - 1]();
+  $("#screen").focus({ preventScroll: true });
+  bindScreen();
+}
 
-function prioritiesScreen(){if(!app.analysis||app.analysis.quality.level==='BAJA')return missingState();app.completed.priority=true;const [main,...others]=app.analysis.priorities,guide=priorityGuidance(main);return `<p class="eyebrow">Decisión primero</p><div class="priority-heading"><div><h1 class="screen-title">Tu principal prioridad</h1><p class="screen-intro">La orientación se basa únicamente en tus ventas e inventario y en la evidencia disponible.</p></div><button id="download-summary" class="button secondary" type="button">Descargar resumen ejecutivo</button></div><article class="main-priority"><span class="rank">PRIORIDAD 1 · ATIENDE ESTO PRIMERO</span><h2>${safe(main.title)}</h2><div class="consulting-grid"><section><span>Qué detectamos</span><p>${safe(main.reason)}</p></section><section><span>Qué significa para el negocio</span><p>${safe(guide.meaning)}</p></section><section><span>Qué evidencia lo demuestra</span><p><strong>${safe(main.evidence)}</strong></p></section><section><span>Qué hacer primero</span><p>${safe(guide.action)}</p></section></div><div class="priority-actions"><button class="button secondary light" type="button" data-priority="0" data-go="6">Ver evidencia</button><button class="button gold" type="button" data-plan="0">Crear plan de acción</button></div></article><section class="secondary-priorities"><h2>Después de la prioridad principal</h2><div class="priority-grid">${others.map((p,i)=>{const g=priorityGuidance(p);return `<article class="priority"><span class="rank">PRIORIDAD ${i+2}</span><h3>${safe(p.title)}</h3><p>${safe(g.meaning)}</p><button class="text-link" type="button" data-priority="${i+1}" data-go="6">Revisar evidencia →</button></article>`}).join('')}</div></section><details class="evidence-details"><summary>Ver indicadores que sustentan el análisis</summary><div class="stats-grid">${metricCards()}</div></details>${nav(4,null)}`;}
+function nav(back, next, label = "Continuar") {
+  return `<div class="actions">
+    ${back ? `<button class="button secondary" type="button" data-go="${back}">← Volver</button>` : "<span></span>"}
+    <div class="right">${next ? `<button class="button gold" type="button" data-go="${next}">${label} →</button>` : ""}</div>
+  </div>`;
+}
 
-function focusScreen(){const index=app.activePriority||0,p=app.analysis?.priorities[index];if(!p)return missingState();const guide=priorityGuidance(p);return `<p class="eyebrow">Evidencia de la prioridad ${index+1}</p><h1 class="screen-title">${safe(p.title)}</h1><article class="focus-card"><div><span>Qué detectamos</span><h2>${safe(p.reason)}</h2></div><div class="why"><strong>Evidencia calculada</strong><p>${safe(p.evidence)}</p></div></article><div class="consulting-detail"><section class="panel"><h2>Qué significa para el negocio</h2><p>${safe(guide.meaning)}</p></section><section class="panel"><h2>Qué conviene hacer primero</h2><p>${safe(guide.action)}</p><p><strong>Indicador de seguimiento:</strong> ${safe(p.indicator)}</p></section></div><div class="actions"><button class="button secondary" type="button" data-go="5">← Volver a prioridades</button>${index===0?'<button class="button gold" type="button" data-plan="0">Crear plan de acción →</button>':''}</div>`;}
+function welcome() {
+  return `<section class="hero-screen"><div><p class="eyebrow">MVP académico</p><h1>Tus datos te muestran qué atender primero.</h1><p>No te damos más datos. Te ayudamos a saber qué hacer con los que ya tienes.</p><button class="button gold" type="button" data-go="2">Empezar análisis →</button></div></section>`;
+}
 
-function planScreen(){if(!app.analysis)return missingState();app.completed.plan=true;const plan=getPlan(),indicator=app.analysis.priorities[0].indicator;return `<p class="eyebrow">De la prioridad a la ejecución</p><h1 class="screen-title">Plan de acción</h1><p class="screen-intro">Cada actividad responde directamente a <strong>${safe(app.analysis.priorities[0].title)}</strong>. Define quién la liderará y revisa el indicador acordado.</p><div class="timeline">${plan.map((x,i)=>`<article class="task-card"><span class="when">${x.when}</span><h3>${safe(x.action)}</h3><p>${safe(x.explain)}</p><label>Responsable<input class="task-owner" data-task="${i}" value="${safe(app.owners[i])}" placeholder="Nombre o cargo"></label><div class="task-indicator"><span>Indicador</span><p>${safe(indicator)}</p></div><label>Estado<select class="task-state" data-task="${i}"><option ${app.tasks[i]==='Pendiente'?'selected':''}>Pendiente</option><option ${app.tasks[i]==='En proceso'?'selected':''}>En proceso</option><option ${app.tasks[i]==='Completada'?'selected':''}>Completada</option></select></label></article>`).join('')}</div>${nav(6,8,'Hacer seguimiento')}`;}
+function contextScreen() {
+  return `<p class="eyebrow">Cuéntanos lo esencial</p>
+    <h1 class="screen-title">Tres preguntas antes de revisar tus datos</h1>
+    <p class="screen-intro">Solo usaremos estas respuestas para explicar mejor el resultado. No escribas información personal.</p>
+    <form id="context-form" class="panel compact-form">
+      <div class="form-grid">
+        <label>¿A qué se dedica tu negocio? *
+          <select name="actividad" required>
+            <option value="">Selecciona</option>
+            <option>Tienda o comercio minorista</option>
+            <option>Mayorista</option>
+            <option>Distribución</option>
+            <option>Otro comercio</option>
+          </select>
+        </label>
+        <label>¿Qué te preocupa más hoy? *
+          <select name="preocupacion" required>
+            <option value="">Selecciona</option>
+            <option>Tengo productos que casi no se venden</option>
+            <option>A veces me quedo sin productos</option>
+            <option>Siento que dependo demasiado de pocos productos</option>
+            <option>No sé qué debería atender primero</option>
+          </select>
+        </label>
+        <label>¿Has intentado mejorar este problema antes? *
+          <select id="attempt-select" name="intento" required>
+            <option value="">Selecciona</option>
+            <option value="Sí">Sí</option>
+            <option value="No">No</option>
+          </select>
+        </label>
+      </div>
+      <div id="result-question" class="conditional hidden">
+        <label>¿Cómo te fue? *
+          <select name="resultado">
+            <option value="">Selecciona</option>
+            <option>Mejoró</option>
+            <option>Mejoró un poco</option>
+            <option>No vi resultados</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="button secondary" id="back-to-welcome" type="button">← Volver</button>
+        <button class="button gold" type="submit">Continuar →</button>
+      </div>
+    </form>`;
+}
 
-function followupScreen(){const done=app.tasks.filter(x=>x==='Completada').length,indicator=app.analysis?.priorities[0]?.indicator||'';return `<p class="eyebrow">Seguimiento de la decisión</p><h1 class="screen-title">Convierte la prioridad en avance</h1><div class="progress-counter"><strong id="task-count">${done}/3</strong><span>acciones completadas</span></div><div class="followup-summary"><span>Indicador acordado</span><strong>${safe(indicator)}</strong></div><div class="timeline compact">${getPlan().map((x,i)=>`<article class="task-card"><span class="when">${x.when}</span><h3>${safe(x.action)}</h3><p><strong>Responsable:</strong> ${safe(app.owners[i]||'Por definir')}</p><label>Estado<select class="task-state" data-task="${i}"><option ${app.tasks[i]==='Pendiente'?'selected':''}>Pendiente</option><option ${app.tasks[i]==='En proceso'?'selected':''}>En proceso</option><option ${app.tasks[i]==='Completada'?'selected':''}>Completada</option></select></label></article>`).join('')}</div>${nav(7,9,'Registrar avance')}`;}
+function dataScreen() {
+  const fileList = app.files.length
+    ? `<ul class="file-list">${app.files.map(file => `<li><span>${safe(file.name)}</span><small>${formatBytes(file.size)}</small></li>`).join("")}</ul>`
+    : "";
+  return `<p class="eyebrow">Sube tu información</p>
+    <h1 class="screen-title">Usa los archivos que ya tienes</h1>
+    <p class="screen-intro">Puedes cargar uno o varios archivos de Excel o CSV. San José revisará automáticamente qué información contienen.</p>
+    <div class="truth-strip">No necesitas cambiar los nombres de las columnas ni preparar un archivo especial. Todo se procesa localmente en este navegador.</div>
+    <section class="panel unified-upload">
+      <h2>Sube la información que ya usas</h2>
+      <label id="drop-zone" class="drop-zone">
+        <input id="business-files" type="file" multiple accept=".xlsx,.xls,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+        <span class="drop-icon" aria-hidden="true">↑</span>
+        <strong>Arrastra tus archivos aquí</strong>
+        <span>o selecciona uno o varios archivos</span>
+        <small>Excel (.xlsx, .xls) o CSV · máximo 5 MB por archivo</small>
+      </label>
+      ${fileList}
+      <p id="upload-error" class="message error" role="alert"></p>
+    </section>
+    <div class="case-divider"><span>o prueba un caso ficticio</span></div>
+    <div class="choice-grid">
+      ${Object.entries(datasets).map(([key, dataset]) => `<button class="choice-card ${app.source === key ? "selected" : ""}" type="button" data-dataset="${key}">
+        <span class="case-tag">Datos ficticios</span>
+        <strong>${safe(dataset.name)}</strong>
+        <span>${safe(dataset.description)}</span>
+      </button>`).join("")}
+    </div>
+    ${app.semanticPending ? interpretationPanel() : nav(2, app.dataset ? 4 : null, "Revisar información")}`;
+}
 
-function feedbackScreen(){return `<p class="eyebrow">Retroalimentación</p><h1 class="screen-title">Cuéntanos qué pasó</h1><p class="screen-intro">Para la demostración puedes responder incluso si las acciones no están completas.</p><form id="feedback-form" class="panel"><div class="feedback-grid"><fieldset><legend>¿Pudiste completar el plan? *</legend><div class="radio-group">${radio('complete',['Sí','Parcialmente','No'])}</div></fieldset><fieldset><legend>¿Notaste alguna mejora? *</legend><div class="radio-group">${radio('improved',['Sí','Todavía no','No estoy seguro'])}</div></fieldset></div><label>Cuéntanos brevemente qué pasó (opcional)<textarea name="comment" rows="4"></textarea></label><div class="actions"><button class="button secondary" type="button" data-go="8">← Volver</button><button class="button gold" type="submit">Guardar y continuar →</button></div></form>`;}
+function formatBytes(bytes) {
+  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
-function nextScreen(){const main=app.analysis?.priorities[0],next=app.analysis?.priorities[1],plan=getPlan();return `<p class="eyebrow">Continuidad</p><h1 class="screen-title">Ya tienes una primera prioridad. Ahora conviértela en resultado.</h1><div class="continuity-grid"><article class="completion"><span>Principal hallazgo</span><h2>${safe(main?.title||'Completar la información pendiente')}</h2><p>${safe(main?.evidence||'Aún no hay evidencia suficiente.')}</p></article><article class="panel"><span>Acción acordada</span><h3>${safe(plan[0]?.action||'Revisar la información pendiente')}</h3><p><strong>Indicador:</strong> ${safe(main?.indicator||'Por definir')}</p></article><article class="panel"><span>Siguiente prioridad pendiente</span><h3>${safe(next?.title||'Mantener actualizado el análisis')}</h3><p>${safe(next?.reason||'Amplía la información antes de continuar.')}</p></article></div><div class="final-actions"><button class="button secondary" type="button" data-go="7">Revisar plan</button><button class="button secondary" type="button" data-priority="1" data-go="6">Analizar siguiente prioridad</button><button id="download-summary" class="button gold" type="button">Descargar resumen ejecutivo</button><button class="text-button" type="button" id="restart-demo">Reiniciar demostración</button></div>`;}
+function interpretationPanel() {
+  const issues = requiredMappingIssues();
+  const found = app.classified.map((table, index) => {
+    const typeLabel = table.type === "sales" ? "Parece contener ventas" : table.type === "inventory" ? "Parece contener inventario" : "Información adicional";
+    return `<li class="found-sheet ${table.type}">
+      <div><strong>${safe(table.fileName)}</strong><span>Hoja: ${safe(table.sheetName)}</span></div>
+      <div><b>${typeLabel}</b><small>Confianza: ${safe(table.typeConfidence)}</small></div>
+    </li>`;
+  }).join("");
+  const relevant = app.classified
+    .map((table, index) => ({ table, index }))
+    .filter(item => ["sales", "inventory"].includes(item.table.type));
+  const additional = app.classified.filter(table => table.type === "additional");
+  return `<section class="panel interpretation-panel">
+    <p class="eyebrow">Analista San José · ${app.semanticMode === "remote-ai" ? "interpretación remota" : "motor local de respaldo"}</p>
+    <h2>Esto es lo que encontramos</h2>
+    <p>Revisamos archivos, hojas, encabezados, tipos de datos y muestras de valores.</p>
+    <ul class="found-list">${found}</ul>
+    ${additional.length ? `<p class="optional-note">También encontramos ${countText(additional.length, "una hoja", "hojas")} con información adicional. Esta versión de San José se concentra únicamente en ventas e inventario.</p>` : ""}
+    <h2>Esto es lo que entendimos</h2>
+    <p>Solo pedimos tu intervención cuando una correspondencia no es completamente clara.</p>
+    <div class="sheet-mappings">
+      ${relevant.map(item => mappingCard(item.table, item.index)).join("")}
+    </div>
+    <div id="mapping-issues">${issues.map(issue => `<div class="low-stop"><h3>${safe(issue.title)}</h3><p>${safe(issue.message)}</p><small>${safe(issue.help)}</small></div>`).join("")}</div>
+    <div class="actions">
+      <button class="button secondary" type="button" id="clear-files">Elegir otros archivos</button>
+      <button id="confirm-mapping" class="button gold" type="button" ${issues.length ? "disabled" : ""}>Confirmar y analizar →</button>
+    </div>
+  </section>`;
+}
 
-function radio(name,items){return items.map(x=>`<label class="radio-pill"><input type="radio" name="${name}" value="${x}" required><span>${x}</span></label>`).join('');}
-function missingState(){return `<div class="panel"><h2>Primero necesitamos procesar información</h2><p>Regresa al paso de carga y elige un caso ficticio.</p>${nav(null,3,'Volver a los datos')}</div>`;}
+function mappingCard(table, tableIndex) {
+  const roles = semanticRoles[table.type];
+  return `<article class="mapping-card">
+    <header><div><span>${table.type === "sales" ? "Ventas" : "Inventario"}</span><h3>${safe(table.sheetName)}</h3></div><small>${safe(table.fileName)}</small></header>
+    ${Object.entries(roles).map(([role, config]) => mappingRow(table, tableIndex, role, config)).join("")}
+  </article>`;
+}
 
-function bindScreen(){document.querySelectorAll('[data-priority]').forEach(b=>b.addEventListener('click',()=>{app.activePriority=Number(b.dataset.priority);go(Number(b.dataset.go))}));document.querySelectorAll('[data-go]:not([data-priority])').forEach(b=>b.addEventListener('click',()=>go(Number(b.dataset.go))));document.querySelectorAll('[data-plan]').forEach(b=>b.addEventListener('click',()=>{app.activePriority=0;go(7)}));$('#download-summary')?.addEventListener('click',downloadExecutiveSummary);$('#restart-demo')?.addEventListener('click',()=>location.reload());$('#back-to-welcome')?.addEventListener('click',()=>location.reload());if(app.step===2){$('#context-form').addEventListener('submit',saveContext);$('#attempt-select').addEventListener('change',toggleBlocker);toggleBlocker();}if(app.step===3){document.querySelectorAll('[data-dataset]').forEach(b=>b.addEventListener('click',()=>selectDataset(b.dataset.dataset)));$('#sales-file').addEventListener('change',e=>readUpload(e.target.files[0],'sales'));$('#inventory-file').addEventListener('change',e=>readUpload(e.target.files[0],'inventory'));document.querySelectorAll('.mapping-select').forEach(s=>s.addEventListener('change',changeMapping));$('#confirm-mapping')?.addEventListener('click',confirmInterpretation);}if(app.step===4&&app.analysis)app.completed.quality=true;if(app.step===7||app.step===8){document.querySelectorAll('.task-state').forEach(s=>s.addEventListener('change',updateTask));document.querySelectorAll('.task-owner').forEach(input=>input.addEventListener('input',updateOwner));}if(app.step===9)$('#feedback-form').addEventListener('submit',saveFeedback);}
-function toggleBlocker(){const show=$('#attempt-select')?.value==='Sí, pero no funcionó como esperaba';$('#blocker-question')?.classList.toggle('hidden',!show);}
-function saveContext(e){e.preventDefault();app.context=Object.fromEntries(new FormData(e.currentTarget));app.completed.form=true;go(3);}
-function selectDataset(key){app.source=key;app.dataset=structuredClone(datasets[key]);app.datasetName=datasets[key].name;app.rawUploads={sales:null,inventory:null};app.interpretations={sales:null,inventory:null};app.semanticPending=false;app.uploadNames={sales:'',inventory:''};app.analysis=analyze(app.dataset);app.completed.data=true;render();}
-function changeMapping(e){const type=e.target.dataset.file,role=e.target.dataset.role,header=e.target.value;app.interpretations[type].assignments[role]=header?{header,confidence:'Alta',score:99,reason:'correspondencia confirmada manualmente'}:null;render();}
-function confirmInterpretation(){if(requiredMappingIssues().length)return;const salesMap=app.interpretations.sales.assignments,invMap=app.interpretations.inventory.assignments,usable=a=>a&&a.confidence!=='Baja';app.dataset={sales:app.rawUploads.sales.rows.map(r=>({fecha:normalizeDateValue(r[salesMap.fecha.header]),producto:r[salesMap.producto.header],cantidad:r[salesMap.cantidad.header],precio:usable(salesMap.precio)?r[salesMap.precio.header]:'',valorTotal:usable(salesMap.valorTotal)?r[salesMap.valorTotal.header]:'',costo:usable(salesMap.costo)?r[salesMap.costo.header]:'',cliente:usable(salesMap.cliente)?r[salesMap.cliente.header]:'',canal:usable(salesMap.canal)?r[salesMap.canal.header]:''})),inventory:app.rawUploads.inventory.rows.map(r=>({producto:r[invMap.producto.header],stock:r[invMap.stock.header],costo:usable(invMap.costo)?r[invMap.costo.header]:0,ultimoMovimiento:usable(invMap.ultimoMovimiento)?r[invMap.ultimoMovimiento.header]:'',referencia:usable(invMap.referencia)?r[invMap.referencia.header]:''}))};app.datasetName='Archivos interpretados y confirmados';app.analysis=analyze(app.dataset);app.semanticPending=false;app.completed.data=true;go(4);}
-function normalizeDateValue(value){const s=String(value??'').trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);const local=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);if(local)return `${local[3]}-${String(local[2]).padStart(2,'0')}-${String(local[1]).padStart(2,'0')}`;const d=new Date(s);return Number.isNaN(d.getTime())?s:d.toISOString().slice(0,10);}
+function mappingRow(table, tableIndex, role, config) {
+  const assignment = table.interpretation.assignments[role];
+  const options = table.headers.map(header => `<option value="${safe(header)}" ${assignment?.header === header ? "selected" : ""}>${safe(header)}</option>`).join("");
+  const needsReview = !assignment || assignment.confidence !== "Alta";
+  return `<div class="mapping-row ${needsReview ? "needs-review" : ""}">
+    <div class="mapping-found"><span>Interpretación</span><strong>${safe(config.label)}</strong><small>${assignment ? `Columna “${safe(assignment.header)}” · Ejemplo: ${safe(assignment.sample || "sin muestra")}` : "No identificada"}</small></div>
+    <div class="mapping-proposal"><span>Confianza</span><strong class="confidence ${(assignment?.confidence || "Baja").toLowerCase()}">${safe(assignment?.confidence || "Baja")}</strong></div>
+    <details ${needsReview ? "open" : ""}>
+      <summary>${needsReview ? "Confirma o corrige esta interpretación" : "Cambiar interpretación"}</summary>
+      <label>Columna correcta
+        <select class="mapping-select" data-table="${tableIndex}" data-role="${role}">
+          <option value="">No está en esta hoja</option>${options}
+        </select>
+      </label>
+    </details>
+  </div>`;
+}
 
-function parseCSV(text){const lines=text.replace(/^\uFEFF/,'').trim().split(/\r?\n/).filter(Boolean);if(lines.length<2)throw new Error('El archivo debe tener encabezados y al menos una fila.');const d=lines[0].includes(';')?';':',';const split=line=>{let out=[],cur='',quoted=false;for(let i=0;i<line.length;i++){const c=line[i];if(c==='"'){if(quoted&&line[i+1]==='"'){cur+='"';i++;}else quoted=!quoted;}else if(c===d&&!quoted){out.push(cur.trim());cur='';}else cur+=c;}out.push(cur.trim());return out};const headers=split(lines[0]);return {headers,rows:lines.slice(1).map(line=>{const vals=split(line);return Object.fromEntries(headers.map((h,i)=>[h,vals[i]??'']))})};}
-function findColumn(headers,key){const normal=headers.map(normalize);return headers[normal.findIndex(h=>aliases[key].includes(h))]||null;}
-function convert(parsed,type){const needs=type==='sales'?['producto','fecha','cantidad','precio']:['producto','stock'];const found=Object.fromEntries(needs.map(k=>[k,findColumn(parsed.headers,k)]));const missing=needs.filter(k=>!found[k]);if(missing.length){const human={producto:'producto (Producto, Artículo, Referencia, SKU o Item)',fecha:'fecha (Fecha o Fecha de venta)',cantidad:'cantidad (Cantidad, Unidades, Cant. o Qty)',precio:'precio (Precio, Precio venta o Valor unitario)',stock:'existencia (Existencia, Stock, Inventario o Cantidad disponible)'};throw new Error(`No encontramos una columna que identifique ${missing.map(x=>human[x]).join(' y ')}.`);}if(type==='sales')return parsed.rows.map(r=>({producto:r[found.producto],fecha:r[found.fecha],cantidad:r[found.cantidad],precio:r[found.precio]}));const cost=findColumn(parsed.headers,'costo');return parsed.rows.map(r=>({producto:r[found.producto],stock:r[found.stock],costo:cost?r[cost]:0}));}
-async function readTabularFile(file){const ext=file.name.toLowerCase().split('.').pop();if(ext==='csv')return parseCSV(await file.text());if(!['xlsx','xls'].includes(ext))throw new Error('Este formato no es compatible. Puedes cargar archivos Excel (.xlsx, .xls) o CSV.');if(typeof XLSX==='undefined')throw new Error('No pudimos iniciar el lector de Excel. Recarga la página y vuelve a intentarlo.');const workbook=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});const sheet=workbook.Sheets[workbook.SheetNames[0]];if(!sheet)throw new Error('El archivo no contiene una hoja que podamos leer.');const matrix=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd'}).filter(row=>row.some(value=>String(value).trim()!==''));if(matrix.length<2)throw new Error('El archivo debe tener encabezados y al menos una fila de información.');const used={};const headers=matrix[0].map((value,index)=>{const base=String(value||`Columna ${index+1}`).trim();used[base]=(used[base]||0)+1;return used[base]>1?`${base} (${used[base]})`:base});return {headers,rows:matrix.slice(1).map(values=>Object.fromEntries(headers.map((header,index)=>[header,values[index]??''])))};}
-function numericValue(value){if(typeof value==='number')return value;const cleaned=String(value??'').trim().replace(/\s/g,'').replace(/\.(?=\d{3}(\D|$))/g,'').replace(',','.').replace(/[^\d.-]/g,'');return cleaned!==''&&Number.isFinite(Number(cleaned))?Number(cleaned):NaN;}
-function columnProfile(rows,header){const values=rows.slice(0,50).map(r=>r[header]).filter(v=>String(v??'').trim()!=='');const total=values.length||1;const numeric=values.filter(v=>Number.isFinite(numericValue(v))).length/total;const dates=values.filter(v=>/^\d{4}-\d{1,2}-\d{1,2}/.test(String(v))||/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(String(v))).length/total;const text=values.filter(v=>!Number.isFinite(numericValue(v))&&String(v).length>1).length/total;return {numeric,dates,text,sample:values.slice(0,3).join(', ')};}
-function semanticScore(header,role,config,profile){const name=normalize(header);let score=0,matched='';for(const term of config.terms){const t=normalize(term);if(name===t&&score<9){score=9;matched=term}else if(name.length>=3&&t.length>=3&&(name.includes(t)||t.includes(name))&&score<6){score=6;matched=term}else{const overlap=t.split(' ').filter(token=>token.length>2&&name.split(' ').includes(token)).length;if(overlap&&score<overlap*2){score=overlap*2;matched=term}}}if(role==='producto'&&/(producto|articulo|descripcion|mercancia)/.test(name))score+=3;if(role==='referencia'&&/(referencia|codigo|sku)/.test(name))score+=3;if(role==='fecha'||role==='ultimoMovimiento')score+=profile.dates*6;if(['cantidad','precio','valorTotal','costo','stock'].includes(role))score+=profile.numeric*3;if(['producto','cliente','canal','referencia'].includes(role))score+=profile.text*2;return {score,reason:matched?`el encabezado se parece a “${matched}” y revisamos una muestra de sus valores`:`la muestra de valores parece compatible con ${config.label.toLowerCase()}`};}
-function inferInterpretation(parsed,type){const roles=semanticRoles[type],assignments={},used=new Set();const order=type==='sales'?['fecha','producto','cantidad','precio','valorTotal','costo','cliente','canal']:['producto','stock','costo','ultimoMovimiento','referencia'];for(const role of order){const config=roles[role];const ranked=parsed.headers.filter(h=>!used.has(h)).map(header=>{const profile=columnProfile(parsed.rows,header);return {header,profile,...semanticScore(header,role,config,profile)}}).sort((a,b)=>b.score-a.score);const best=ranked[0];if(!best||best.score<2){assignments[role]=null;continue}const confidence=best.score>=8?'Alta':best.score>=5?'Media':'Baja';if(confidence==='Alta'){for(const [previousRole,previous] of Object.entries(assignments)){if(previous?.header===best.header&&previous.score<best.score)assignments[previousRole]=null}used.add(best.header)}assignments[role]={header:best.header,confidence,score:best.score,reason:best.reason,sample:best.profile.sample}}return {headers:parsed.headers,assignments,rowCount:parsed.rows.length};}
-async function readUpload(file,type){if(!file)return;const ext=file.name.toLowerCase().split('.').pop();if(!['xlsx','xls','csv'].includes(ext)||file.size>5*1024*1024){showUploadError('Puedes cargar archivos Excel (.xlsx, .xls) o CSV de máximo 5 MB.');return;}try{const parsed=await readTabularFile(file);showUploadError('');if(app.source!=='custom'||(!app.semanticPending&&app.analysis)){app.dataset=null;app.analysis=null;app.datasetName='';app.uploadNames={sales:'',inventory:''};app.rawUploads={sales:null,inventory:null};app.interpretations={sales:null,inventory:null};app.semanticPending=false;app.source='custom';}app.rawUploads[type]=parsed;app.interpretations[type]=inferInterpretation(parsed,type);app.uploadNames[type]=`${file.name} · ${parsed.rows.length} filas`;const el=$(`#${type==='sales'?'sales':'inventory'}-file-status`);el.textContent=`✓ ${app.uploadNames[type]}`;el.className='file-status success';if(app.rawUploads.sales&&app.rawUploads.inventory){app.semanticPending=true;render();}}catch(err){showUploadError(err.message);}}
-function showUploadError(msg){$('#upload-error').textContent=msg;}
+function qualityScreen() {
+  if (!app.analysis) return missingState();
+  app.completed.quality = true;
+  const quality = app.analysis.quality;
+  return `<p class="eyebrow">Calidad de la información</p>
+    <h1 class="screen-title">¿Podemos decirte qué atender primero?</h1>
+    <div class="quality-layout">
+      <article class="quality-card">
+        <span class="level ${quality.level.toLowerCase()}">Calidad ${quality.level}</span>
+        <h2>${quality.score}/100</h2>
+        <p>${safe(quality.summary)}</p>
+        <small>Fuente: ${safe(app.datasetName)}</small>
+      </article>
+      <section class="panel quality-explanation">
+        <h2>Qué encontramos</h2>
+        <ul class="check-list">${quality.facts.map(fact => `<li class="${fact.ok ? "" : "problem"}">${safe(fact.text)}</li>`).join("")}</ul>
+      </section>
+    </div>
+    ${quality.level === "BAJA" ? `<div class="low-stop guidance-stop">
+      <h2>Todavía no podemos decirte qué atender primero.</h2>
+      <h3>Qué hace falta</h3><p>${safe(quality.missing)}</p>
+      <h3>Qué puedes hacer</h3><p>${safe(quality.nextStep)}</p>
+    </div>${nav(3, null)}` : nav(3, 5, "Ver qué atender primero")}`;
+}
 
-function analyze(data){const sales=data.sales||[],inventory=data.inventory||[];const checks=[];let penalties=0;const saleValue=r=>Number.isFinite(numericValue(r.valorTotal))?numericValue(r.valorTotal):numericValue(r.precio);const invalidSales=sales.filter(r=>!r.producto||!/^\d{4}-\d{2}-\d{2}$/.test(r.fecha)||!Number.isFinite(numericValue(r.cantidad))||!Number.isFinite(saleValue(r)));const invalidInv=inventory.filter(r=>!r.producto||!Number.isFinite(numericValue(r.stock)));const negatives=[...sales.filter(r=>numericValue(r.cantidad)<0||saleValue(r)<0),...inventory.filter(r=>numericValue(r.stock)<0)];const dup=new Set(),seen=new Set();sales.forEach(r=>{const k=`${r.fecha}|${r.producto}|${r.cantidad}|${r.precio}|${r.valorTotal}`;if(seen.has(k))dup.add(k);seen.add(k)});const validDates=sales.map(r=>new Date(r.fecha)).filter(d=>!Number.isNaN(d.getTime()));const period=validDates.length>1?Math.round((Math.max(...validDates)-Math.min(...validDates))/86400000):0;const saleProducts=new Set(sales.map(r=>r.producto).filter(Boolean));const invProducts=new Set(inventory.map(r=>r.producto).filter(Boolean));const matches=[...saleProducts].filter(x=>invProducts.has(x)).length;const relation=saleProducts.size?matches/saleProducts.size:0;
-const add=(ok,text,cost)=>{checks.push({ok,text});if(!ok)penalties+=cost};add(sales.length>=5&&inventory.length>=2,`Información esencial: ${sales.length} ventas y ${inventory.length} productos de inventario`,30);add(!invalidSales.length&&!invalidInv.length,invalidSales.length+invalidInv.length?`${invalidSales.length+invalidInv.length} fila(s) tienen vacíos, fechas o números inválidos`:'Fechas, productos y números esenciales son válidos',25);add(!negatives.length,negatives.length?`${negatives.length} valor(es) negativo(s) inesperado(s)`:'No encontramos valores negativos inesperados',15);add(!dup.size,dup.size?`${dup.size} registro(s) duplicado(s)`:'No encontramos duplicados exactos',8);add(period>=60,`Periodo disponible: ${period} días`,12);add(relation>=.5,`Coincidencia entre ventas e inventario: ${Math.round(relation*100)}%`,10);
-const score=Math.max(0,100-penalties),level=score>=80?'ALTA':score>=55?'MEDIA':'BAJA';const explanation=level==='ALTA'?'La información disponible permite realizar el análisis con buena confianza.':level==='MEDIA'?'Podemos realizar una orientación inicial, aunque encontramos información que sería útil completar.':'La información disponible todavía no permite recomendar qué atender primero con suficiente seguridad.';const metrics=calculateMetrics(sales,inventory,validDates,period);return {quality:{score,level,explanation,checks},metrics,priorities:level==='BAJA'?[]:prioritize(metrics)};}
+function resultsScreen() {
+  if (!app.analysis || app.analysis.quality.level === "BAJA") return missingState();
+  app.completed.priority = true;
+  const [main, second, third] = app.analysis.priorities;
+  return `<p class="eyebrow">Lo más importante que encontramos</p>
+    <div class="priority-heading">
+      <div><h1 class="screen-title">Atiende esto primero</h1><p class="screen-intro">La conclusión aparece primero. Las cifras que la respaldan están justo debajo.</p></div>
+      <button id="download-summary" class="button secondary" type="button">Descargar resumen ejecutivo</button>
+    </div>
+    <article class="main-priority">
+      <span class="rank">ATIENDE ESTO PRIMERO</span>
+      <h2>${safe(main.title)}</h2>
+      <div class="consulting-grid">
+        <section><span>Qué ocurrió</span><p>${safe(main.reason)}</p></section>
+        <section><span>En qué dato se basa</span><p><strong>${safe(main.evidence)}</strong></p></section>
+        <section><span>Por qué importa</span><p>${safe(main.meaning)}</p></section>
+        <section><span>Qué puedes hacer</span><p>${safe(main.action)}</p></section>
+      </div>
+      <div class="priority-actions">
+        <button class="button secondary light" type="button" data-priority="0" data-go="6">Ver evidencia</button>
+        <button class="button gold" type="button" data-go="7">Crear plan de 3 acciones</button>
+      </div>
+    </article>
+    <div class="secondary-findings">
+      ${secondaryFinding("También encontramos", second, 1)}
+      ${secondaryFinding("Mantén esto en observación", third, 2)}
+    </div>
+    <details class="evidence-details"><summary>Ver cifras generales del análisis</summary><div class="stats-grid">${metricCards()}</div></details>
+    ${nav(4, null)}`;
+}
 
-function calculateMetrics(sales,inventory,dates,period){const valid=sales.filter(r=>r.producto&&Number.isFinite(numericValue(r.cantidad))&&(Number.isFinite(numericValue(r.precio))||Number.isFinite(numericValue(r.valorTotal)))&&numericValue(r.cantidad)>=0);const byProduct={};let revenue=0,units=0;valid.forEach(r=>{const quantity=numericValue(r.cantidad);const value=Number.isFinite(numericValue(r.valorTotal))?numericValue(r.valorTotal):quantity*numericValue(r.precio);revenue+=value;units+=quantity;byProduct[r.producto]=byProduct[r.producto]||{units:0,revenue:0};byProduct[r.producto].units+=quantity;byProduct[r.producto].revenue+=value});const ranked=Object.entries(byProduct).sort((a,b)=>b[1].revenue-a[1].revenue);const topShare=revenue&&ranked[0]?ranked[0][1].revenue/revenue:0;const inv=inventory.filter(r=>r.producto&&Number.isFinite(numericValue(r.stock))).map(r=>({...r,stock:numericValue(r.stock),sold:byProduct[r.producto]?.units||0}));const slow=[...inv].filter(r=>r.stock>=20&&r.sold<=10).sort((a,b)=>(b.stock/(b.sold||.25))-(a.stock/(a.sold||.25)))[0];const stockout=inv.filter(r=>r.stock<=5&&r.sold>0).sort((a,b)=>b.sold-a.sold)[0];return {revenue,units,ranked,topShare,slow,stockout,period,products:inv.length};}
-function prioritize(m){const list=[];const concentration={type:'concentration',title:`Reducir la dependencia de ${m.ranked[0]?.[0]||'un solo producto'}`,reason:'Una parte muy alta de las ventas depende de un solo producto.',evidence:`${Math.round(m.topShare*100)}% del valor vendido proviene de ${m.ranked[0]?.[0]||'el producto principal'}.`,indicator:'Porcentaje de ventas que representa el producto principal.'};if(m.topShare>=.8)list.push(concentration);if(m.slow)list.push({type:'slow',title:`Liberar inventario de ${m.slow.producto}`,reason:'Hay muchas unidades almacenadas frente a las unidades vendidas durante el periodo.',evidence:`${m.slow.stock} unidades disponibles y ${m.slow.sold} vendidas en ${m.period} días.`,indicator:`Unidades disponibles de ${m.slow.producto}; deberían disminuir sin generar una nueva compra innecesaria.`});if(m.topShare>=.6&&m.topShare<.8)list.push(concentration);if(m.stockout)list.push({type:'stockout',title:`Evitar quedarte sin ${m.stockout.producto}`,reason:'Tiene ventas registradas y una existencia muy baja.',evidence:`${m.stockout.sold} unidades vendidas y solo ${m.stockout.stock} disponibles.`,indicator:`Días o semanas con producto disponible sin llegar a cero.`});const fallback=[{type:'review',title:'Revisar los productos con pocas ventas',reason:'Algunos productos aportan menos movimiento que los principales.',evidence:m.ranked.length?`${m.ranked[m.ranked.length-1][0]} presenta el menor valor vendido del periodo.`:'La comparación disponible es limitada.',indicator:'Unidades vendidas de los productos con menor movimiento.'},{type:'maintain',title:'Mantener vigilancia sobre los productos principales',reason:'Conviene proteger la disponibilidad de lo que más se vende.',evidence:m.ranked[0]?`${m.ranked[0][0]} lidera las ventas registradas.`:'Se requiere ampliar la información.',indicator:'Existencia disponible de los productos con más ventas.'},{type:'data',title:'Registrar ventas e inventario cada semana',reason:'Una actualización constante permite comparar cambios con mayor confianza.',evidence:`El archivo cubre ${m.period} días.`,indicator:'Número de semanas actualizadas sin interrupción.'}];for(const p of fallback)if(list.length<3&&!list.some(x=>x.type===p.type))list.push(p);return list.slice(0,3);}
-function metricCards(){const m=app.analysis.metrics;return `<article class="stat"><span>Ventas registradas</span><strong>${money.format(m.revenue)}</strong></article><article class="stat"><span>Unidades vendidas</span><strong>${m.units}</strong></article><article class="stat"><span>Periodo disponible</span><strong>${m.period} días</strong></article><article class="stat"><span>Producto principal</span><strong>${m.ranked[0]?safe(m.ranked[0][0]):'—'}</strong></article>`;}
-function getPlan(){const p=app.analysis?.priorities[0];if(!p)return[];if(p.type==='slow')return[{when:'HOY',action:`Identifica el inventario de ${p.title.replace('Liberar inventario de ','')}`,explain:'Confirma las unidades y si existen pedidos o ventas aún no registradas.'},{when:'ESTA SEMANA',action:'Define una salida responsable',explain:'Evalúa promoción, combo o pausa temporal de nuevas compras.'},{when:'EN 14 DÍAS',action:'Compara el inventario nuevamente',explain:'Revisa si las existencias bajaron y registra qué funcionó.'}];if(p.type==='concentration')return[{when:'HOY',action:'Confirma cuánto depende la venta del producto principal',explain:'Revisa si el patrón se mantiene en semanas anteriores.'},{when:'ESTA SEMANA',action:'Elige dos productos complementarios',explain:'Prueba una exhibición o comunicación conjunta sin cambiar precios a ciegas.'},{when:'EN 14 DÍAS',action:'Mide nuevamente la concentración',explain:'Compara el porcentaje aportado por el producto principal.'}];if(p.type==='stockout')return[{when:'HOY',action:'Confirma existencia y pedidos pendientes',explain:'Verifica físicamente el producto antes de comprar.'},{when:'ESTA SEMANA',action:'Ajusta el siguiente pedido',explain:'Considera ventas recientes y tiempo de entrega del proveedor.'},{when:'EN 14 DÍAS',action:'Revisa si evitaste el agotado',explain:'Registra los días con disponibilidad y posibles ventas perdidas.'}];return[{when:'HOY',action:'Revisa la información señalada',explain:'Confirma que el registro representa la operación real.'},{when:'ESTA SEMANA',action:'Prueba una mejora pequeña',explain:'Cambia una sola cosa para poder observar su efecto.'},{when:'EN 14 DÍAS',action:'Compara el indicador',explain:p.indicator}];}
-function updateTask(e){app.tasks[Number(e.target.dataset.task)]=e.target.value;if(app.step===8){const done=app.tasks.filter(x=>x==='Completada').length;$('#task-count').textContent=`${done}/3`;}}
-function updateOwner(e){app.owners[Number(e.target.dataset.task)]=e.target.value;}
-function saveFeedback(e){e.preventDefault();app.feedback=Object.fromEntries(new FormData(e.currentTarget));app.completed.feedback=true;go(10);}
-function showTestSummary(){const steps=[['Demostración iniciada',app.completed.start],['Contexto completado',app.completed.form],['Datos procesados',app.completed.data],['Calidad evaluada',app.completed.quality],['Prioridad generada',app.completed.priority],['Plan de acción generado',app.completed.plan],['Avance registrado',app.completed.feedback]];const count=steps.filter(x=>x[1]).length;const elapsed=app.start?Math.max(1,Math.round((Date.now()-app.start)/60000)):0;$('#test-dialog-content').innerHTML=`<p class="eyebrow">Evidencia funcional</p><h2>Resultados de la prueba</h2><h3>${count}/7 hitos completados exitosamente</h3><div class="step-results">${steps.map(x=>`<div class="step-row"><span>${x[0]}</span><b>${x[1]?'Completado':'Pendiente'}</b></div>`).join('')}</div><div class="stats-grid"><article class="stat"><span>Tiempo aproximado</span><strong>${elapsed} min</strong></article><article class="stat"><span>Fuente</span><strong>${safe(app.datasetName||'Sin elegir')}</strong></article><article class="stat"><span>Calidad</span><strong>${app.analysis?.quality.level||'—'}</strong></article><article class="stat"><span>Prioridad</span><strong>${safe(app.analysis?.priorities[0]?.title||'No generada')}</strong></article></div><p class="screen-intro">Este resumen no almacena información personal real.</p>`;$('#test-dialog').showModal();}
+function secondaryFinding(label, finding, index) {
+  if (!finding) return "";
+  return `<article class="secondary-finding"><span>${label}</span><h3>${safe(finding.title)}</h3><p>${safe(finding.evidence)}</p><button class="text-link" type="button" data-priority="${index}" data-go="6">Ver detalle →</button></article>`;
+}
 
-function downloadExecutiveSummary(){
-  if(!app.analysis||app.analysis.quality.level==='BAJA')return;
-  const p=app.analysis.priorities[0],plan=getPlan();
-  const context=Object.entries(app.context).filter(([,value])=>value).map(([key,value])=>`<li><strong>${safe(key.replace(/([A-Z])/g,' $1'))}:</strong> ${safe(value)}</li>`).join('')||'<li>Contexto demostrativo no especificado.</li>';
-  const findings=app.analysis.priorities.map((item,i)=>`<li><strong>${i+1}. ${safe(item.title)}</strong><br>${safe(item.evidence)}</li>`).join('');
-  const actions=plan.map((item,i)=>`<tr><td>${safe(item.action)}</td><td>${safe(app.owners[i]||'Por definir')}</td><td>${safe(item.when)}</td><td>${safe(p.indicator)}</td></tr>`).join('');
-  const reportHtml=`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Resumen ejecutivo · San José</title><style>body{font-family:Arial,sans-serif;color:#1f2937;max-width:900px;margin:40px auto;padding:0 20px;line-height:1.5}h1,h2{font-family:Georgia,serif;color:#011235}header{border-bottom:4px solid #D8A63A;padding-bottom:18px}.tag{color:#A36F08;font-weight:700;text-transform:uppercase;letter-spacing:.08em}section{margin:28px 0}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border:1px solid #E5E7EB;padding:10px;text-align:left;vertical-align:top}.priority{background:#f8f6f0;border-left:5px solid #D8A63A;padding:20px}button{background:#011235;color:white;border:0;padding:12px 18px;border-radius:4px}@media print{button{display:none}body{margin:15mm;padding:0}}</style></head><body><header><p class="tag">San José · Transformación Empresarial</p><h1>Resumen ejecutivo</h1><p>Orientación inicial basada en ventas e inventario.</p><small>Fecha: ${new Intl.DateTimeFormat('es-CO',{dateStyle:'long'}).format(new Date())}</small></header><section><h2>Contexto general</h2><ul>${context}</ul></section><section><h2>Calidad de los datos</h2><p><strong>${app.analysis.quality.level} · ${app.analysis.quality.score}/100</strong></p><p>${safe(app.analysis.quality.explanation)}</p></section><section><h2>Principales hallazgos</h2><ol>${findings}</ol></section><section class="priority"><p class="tag">Prioridad número 1</p><h2>${safe(p.title)}</h2><p>${safe(p.evidence)}</p><p><strong>Qué hacer primero:</strong> ${safe(priorityGuidance(p).action)}</p></section><section><h2>Plan de acción</h2><table><thead><tr><th>Acción</th><th>Responsable</th><th>Plazo</th><th>Indicador</th></tr></thead><tbody>${actions}</tbody></table></section><section><h2>Limitaciones</h2><ul><li>El análisis inicial se concentra en ventas e inventario.</li><li>Las conclusiones dependen de la calidad y cobertura de los archivos.</li><li>No se utiliza un modelo remoto de inteligencia artificial.</li><li>La decisión final corresponde al empresario.</li></ul></section><p><button onclick="window.print()">Imprimir o guardar como PDF</button></p></body></html>`;
-  const blob=new Blob([reportHtml],{type:'text/html;charset=utf-8'}),url=URL.createObjectURL(blob),link=document.createElement('a');
-  link.href=url;link.download='resumen-ejecutivo-san-jose.html';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+function evidenceScreen() {
+  const finding = app.analysis?.priorities[app.activePriority];
+  if (!finding) return missingState();
+  return `<p class="eyebrow">Evidencia del hallazgo</p>
+    <h1 class="screen-title">${safe(finding.title)}</h1>
+    <article class="focus-card"><span>Lo que muestran tus datos</span><h2>${safe(finding.evidence)}</h2></article>
+    <div class="consulting-detail">
+      <section class="panel"><h2>Qué significa</h2><p>${safe(finding.meaning)}</p></section>
+      <section class="panel"><h2>Qué conviene hacer</h2><p>${safe(finding.action)}</p><p><strong>Qué observar:</strong> ${safe(finding.indicator)}</p></section>
+    </div>
+    <div class="actions"><button class="button secondary" type="button" data-go="5">← Volver al resultado</button>${app.activePriority === 0 ? '<button class="button gold" type="button" data-go="7">Crear plan de 3 acciones →</button>' : ""}</div>`;
+}
+
+function planScreen() {
+  if (!app.analysis) return missingState();
+  app.completed.plan = true;
+  return `<p class="eyebrow">Sigue un plan sencillo</p>
+    <h1 class="screen-title">Tres acciones. Nada más.</h1>
+    <p class="screen-intro">Marca cada acción cuando la completes. El plan responde únicamente al hallazgo principal.</p>
+    ${planChecklist()}
+    ${nav(6, 8, "Hacer seguimiento")}`;
+}
+
+function followupScreen() {
+  return `<p class="eyebrow">Seguimiento</p>
+    <h1 class="screen-title">Avanza una acción a la vez</h1>
+    <p class="screen-intro">Puedes actualizar el plan cuando vuelvas a revisar tus datos.</p>
+    ${planChecklist()}
+    ${nav(7, 9, "Contarnos qué pasó")}`;
+}
+
+function planChecklist() {
+  const plan = getPlan();
+  const done = app.tasks.filter(Boolean).length;
+  return `<div class="plan-progress"><strong id="task-count">${done} de 3</strong><span>acciones completadas</span></div>
+    <div class="action-list">${plan.map((item, index) => `<label class="action-check ${app.tasks[index] ? "completed" : ""}">
+      <input class="task-check" type="checkbox" data-task="${index}" ${app.tasks[index] ? "checked" : ""}>
+      <span class="check-mark" aria-hidden="true"></span>
+      <span class="action-copy"><b>${item.when}</b><strong>${safe(item.action)}</strong><small>${safe(item.explain)}</small></span>
+    </label>`).join("")}</div>
+    <div class="followup-summary"><span>Qué observar</span><strong>${safe(app.analysis.priorities[0].indicator)}</strong></div>`;
+}
+
+function feedbackScreen() {
+  return `<p class="eyebrow">Cuéntanos qué pasó</p>
+    <h1 class="screen-title">Tu experiencia ayuda a revisar qué sigue</h1>
+    <form id="feedback-form" class="panel">
+      <div class="feedback-grid">
+        ${radioQuestion("complete", "¿Pudiste completar el plan?", ["Sí", "Parcialmente", "No"])}
+        ${radioQuestion("improved", "¿Notaste alguna mejora?", ["Sí", "Todavía no", "No estoy seguro"])}
+      </div>
+      <label>Cuéntanos brevemente qué pasó (opcional)<textarea name="comment" rows="4"></textarea></label>
+      <div class="actions"><button class="button secondary" type="button" data-go="8">← Volver</button><button class="button gold" type="submit">Guardar y continuar →</button></div>
+    </form>`;
+}
+
+function radioQuestion(name, label, options) {
+  return `<fieldset><legend>${label} *</legend><div class="radio-group">${options.map(option => `<label class="radio-pill"><input type="radio" name="${name}" value="${option}" required><span>${option}</span></label>`).join("")}</div></fieldset>`;
+}
+
+function nextScreen() {
+  const [main, second] = app.analysis?.priorities || [];
+  return `<p class="eyebrow">Qué sigue</p>
+    <h1 class="screen-title">Con esta nueva información podemos revisar qué sigue.</h1>
+    <div class="continuity-grid">
+      <article class="completion"><span>Hallazgo trabajado</span><h2>${safe(main?.title || "Completar la información")}</h2><p>${safe(main?.evidence || "")}</p></article>
+      <article class="panel"><span>Progreso del plan</span><h3>${app.tasks.filter(Boolean).length} de 3 acciones</h3><p><strong>Qué observar:</strong> ${safe(main?.indicator || "Por definir")}</p></article>
+      <article class="panel"><span>Siguiente hallazgo</span><h3>${safe(second?.title || "Mantener tus datos actualizados")}</h3><p>${safe(second?.evidence || "")}</p></article>
+    </div>
+    <div class="final-actions">
+      <button class="button secondary" type="button" data-go="7">Revisar plan</button>
+      <button class="button gold" type="button" data-priority="1" data-go="6">Ver siguiente hallazgo</button>
+      <button id="download-summary" class="button secondary" type="button">Descargar resumen ejecutivo</button>
+      <button class="text-button" type="button" id="restart-demo">Reiniciar demostración</button>
+    </div>`;
+}
+
+function missingState() {
+  return `<section class="panel"><h1>Primero necesitamos revisar la información.</h1><p>Vuelve al paso anterior para completar lo necesario.</p>${nav(Math.max(2, app.step - 1), null)}</section>`;
+}
+
+function bindScreen() {
+  document.querySelectorAll("[data-priority]").forEach(button => button.addEventListener("click", () => {
+    app.activePriority = Number(button.dataset.priority);
+    go(Number(button.dataset.go));
+  }));
+  document.querySelectorAll("[data-go]:not([data-priority])").forEach(button => button.addEventListener("click", () => go(Number(button.dataset.go))));
+  $("#download-summary")?.addEventListener("click", downloadExecutiveSummary);
+  $("#restart-demo")?.addEventListener("click", () => location.reload());
+  $("#back-to-welcome")?.addEventListener("click", () => location.reload());
+
+  if (app.step === 2) {
+    $("#context-form").addEventListener("submit", saveContext);
+    $("#attempt-select").addEventListener("change", toggleResultQuestion);
+    toggleResultQuestion();
+  }
+  if (app.step === 3) {
+    document.querySelectorAll("[data-dataset]").forEach(button => button.addEventListener("click", () => selectDataset(button.dataset.dataset)));
+    $("#business-files")?.addEventListener("change", event => readUploads(event.target.files));
+    const dropZone = $("#drop-zone");
+    dropZone?.addEventListener("dragover", event => { event.preventDefault(); dropZone.classList.add("dragging"); });
+    dropZone?.addEventListener("dragleave", () => dropZone.classList.remove("dragging"));
+    dropZone?.addEventListener("drop", event => {
+      event.preventDefault();
+      dropZone.classList.remove("dragging");
+      readUploads(event.dataTransfer.files);
+    });
+    document.querySelectorAll(".mapping-select").forEach(select => select.addEventListener("change", changeMapping));
+    $("#confirm-mapping")?.addEventListener("click", confirmInterpretation);
+    $("#clear-files")?.addEventListener("click", resetUploads);
+  }
+  if ([7, 8].includes(app.step)) document.querySelectorAll(".task-check").forEach(input => input.addEventListener("change", updateTask));
+  if (app.step === 9) $("#feedback-form").addEventListener("submit", saveFeedback);
+}
+
+function toggleResultQuestion() {
+  const visible = $("#attempt-select").value === "Sí";
+  $("#result-question").classList.toggle("hidden", !visible);
+  $("#result-question select").required = visible;
+}
+
+function saveContext(event) {
+  event.preventDefault();
+  app.context = Object.fromEntries(new FormData(event.currentTarget));
+  app.completed.form = true;
+  go(3);
+}
+
+function selectDataset(key) {
+  const dataset = datasets[key];
+  app.source = key;
+  app.dataset = { sales: dataset.sales, inventory: dataset.inventory };
+  app.datasetName = dataset.name;
+  app.expected = dataset.expected;
+  app.analysis = analyze(app.dataset);
+  app.semanticPending = false;
+  app.files = [];
+  app.classified = [];
+  app.completed.data = true;
+  render();
+}
+
+function resetUploads() {
+  app.files = [];
+  app.tables = [];
+  app.classified = [];
+  app.semanticPending = false;
+  app.analysis = null;
+  app.source = "";
+  render();
+}
+
+function parseCSV(text) {
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(line => line.trim());
+  if (lines.length < 2) throw new Error("El CSV debe tener encabezados y al menos una fila.");
+  const delimiter = lines[0].split(";").length > lines[0].split(",").length ? ";" : ",";
+  const parseLine = line => {
+    const values = [];
+    let current = "", quoted = false;
+    for (let index = 0; index < line.length; index += 1) {
+      const character = line[index];
+      if (character === '"') {
+        if (quoted && line[index + 1] === '"') { current += '"'; index += 1; }
+        else quoted = !quoted;
+      } else if (character === delimiter && !quoted) {
+        values.push(current.trim());
+        current = "";
+      } else current += character;
+    }
+    values.push(current.trim());
+    return values;
+  };
+  return matrixToTable(lines.map(parseLine));
+}
+
+function matrixToTable(matrix) {
+  const clean = matrix.filter(row => row.some(value => String(value ?? "").trim() !== ""));
+  if (clean.length < 2) throw new Error("La hoja debe tener encabezados y al menos una fila de información.");
+  const used = {};
+  const headers = clean[0].map((value, index) => {
+    const base = String(value || `Columna ${index + 1}`).trim();
+    used[base] = (used[base] || 0) + 1;
+    return used[base] > 1 ? `${base} (${used[base]})` : base;
+  });
+  return {
+    headers,
+    rows: clean.slice(1).map(values => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])))
+  };
+}
+
+async function readTabularFile(file) {
+  const extension = file.name.toLowerCase().split(".").pop();
+  if (extension === "csv") {
+    const table = parseCSV(await file.text());
+    return [{ ...table, fileName: file.name, sheetName: "CSV" }];
+  }
+  if (!["xlsx", "xls"].includes(extension)) throw new Error("Este formato no es compatible.");
+  if (typeof XLSX === "undefined") throw new Error("No pudimos iniciar el lector de Excel. Recarga la página.");
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  const tables = [];
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    const matrix = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: "",
+      raw: false,
+      dateNF: "yyyy-mm-dd"
+    });
+    try {
+      const table = matrixToTable(matrix);
+      tables.push({ ...table, fileName: file.name, sheetName });
+    } catch {
+      tables.push({ headers: matrix[0]?.map(String) || [], rows: [], fileName: file.name, sheetName, empty: true });
+    }
+  }
+  if (!tables.length) throw new Error(`${file.name} no contiene hojas que podamos leer.`);
+  return tables;
+}
+
+async function readUploads(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  const invalid = files.find(file => !/\.(xlsx|xls|csv)$/i.test(file.name) || file.size > 5 * 1024 * 1024);
+  if (invalid) {
+    showUploadError(`${invalid.name}: usa Excel o CSV de máximo 5 MB.`);
+    return;
+  }
+  try {
+    showUploadError("");
+    app.source = "custom";
+    app.dataset = null;
+    app.analysis = null;
+    app.files = files;
+    app.tables = (await Promise.all(files.map(readTabularFile))).flat();
+    app.classified = [];
+    let usedRemote = false;
+    for (const table of app.tables) {
+      table.profiles = Object.fromEntries(table.headers.map(header => [header, columnProfile(table.rows, header)]));
+      const local = localClassifyTable(table);
+      const interpreted = await window.AIDataInterpreter.interpret(table, () => local.remote);
+      if (interpreted.mode === "remote-ai") usedRemote = true;
+      app.classified.push(buildClassifiedTable(table, local, interpreted));
+    }
+    app.semanticMode = usedRemote ? "remote-ai" : "local-fallback";
+    app.semanticPending = true;
+    app.datasetName = files.map(file => file.name).join(", ");
+    app.expected = "Interpretar las hojas y recomendar solo si existen ventas e inventario suficientes.";
+    render();
+  } catch (error) {
+    showUploadError(error.message);
+  }
+}
+
+function showUploadError(message) {
+  const element = $("#upload-error");
+  if (element) element.textContent = message;
+}
+
+function numericValue(value) {
+  if (typeof value === "number") return value;
+  const cleaned = String(value ?? "").trim()
+    .replace(/\s/g, "")
+    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(",", ".")
+    .replace(/[^\d.-]/g, "");
+  return cleaned !== "" && Number.isFinite(Number(cleaned)) ? Number(cleaned) : NaN;
+}
+
+function columnProfile(rows, header) {
+  const values = rows.slice(0, 50).map(row => row[header]).filter(value => String(value ?? "").trim() !== "");
+  const total = values.length || 1;
+  const numeric = values.filter(value => Number.isFinite(numericValue(value))).length / total;
+  const dates = values.filter(value => /^\d{4}-\d{1,2}-\d{1,2}/.test(String(value)) || /^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(String(value))).length / total;
+  const text = values.filter(value => !Number.isFinite(numericValue(value)) && String(value).length > 1).length / total;
+  return { numeric, dates, text, sample: values.slice(0, 3).join(", ") };
+}
+
+function semanticScore(header, role, config, profile) {
+  const name = normalize(header);
+  let score = 0;
+  for (const term of config.terms) {
+    const normalizedTerm = normalize(term);
+    if (name === normalizedTerm) score = Math.max(score, 9);
+    else if (name.length >= 3 && normalizedTerm.length >= 3 && (name.includes(normalizedTerm) || normalizedTerm.includes(name))) score = Math.max(score, 6);
+    else {
+      const overlap = normalizedTerm.split(" ").filter(token => token.length > 2 && name.split(" ").includes(token)).length;
+      score = Math.max(score, overlap * 2);
+    }
+  }
+  if (role === "producto" && /(producto|articulo|descripcion|mercancia|referencia|sku)/.test(name)) score += 3;
+  if (role === "fecha") score += profile.dates * 6;
+  if (["cantidad", "precio", "valorTotal", "costo", "stock"].includes(role)) score += profile.numeric * 3;
+  if (role === "producto") score += profile.text * 2;
+  return score;
+}
+
+function inferInterpretation(table, type) {
+  const assignments = {};
+  const used = new Set();
+  for (const [role, config] of Object.entries(semanticRoles[type])) {
+    const ranked = table.headers
+      .filter(header => !used.has(header))
+      .map(header => ({ header, profile: table.profiles[header] || columnProfile(table.rows, header), score: semanticScore(header, role, config, table.profiles[header] || columnProfile(table.rows, header)) }))
+      .sort((a, b) => b.score - a.score);
+    const best = ranked[0];
+    if (!best || best.score < 2) { assignments[role] = null; continue; }
+    const confidence = best.score >= 8 ? "Alta" : best.score >= 5 ? "Media" : "Baja";
+    if (confidence === "Alta") used.add(best.header);
+    assignments[role] = { header: best.header, confidence, score: best.score, sample: best.profile.sample };
+  }
+  return { headers: table.headers, assignments, rowCount: table.rows.length };
+}
+
+function localClassifyTable(table) {
+  if (table.empty || !table.rows.length) return {
+    type: "additional",
+    typeConfidence: "Baja",
+    interpretations: {},
+    remote: { sheet_type: "additional", confidence: "low", columns: {} }
+  };
+  const sales = inferInterpretation(table, "sales");
+  const inventory = inferInterpretation(table, "inventory");
+  const usable = assignment => assignment && assignment.confidence !== "Baja";
+  const salesScore = ["fecha", "producto", "cantidad"].filter(role => usable(sales.assignments[role])).length * 3
+    + (usable(sales.assignments.precio) || usable(sales.assignments.valorTotal) ? 3 : 0);
+  const inventoryScore = ["producto", "stock"].filter(role => usable(inventory.assignments[role])).length * 4;
+  const name = normalize(`${table.fileName} ${table.sheetName}`);
+  const salesBonus = /(venta|factur|despach|salida)/.test(name) ? 3 : 0;
+  const inventoryBonus = /(invent|exist|bodega|stock)/.test(name) ? 3 : 0;
+  const additionalName = /(cliente|proveedor|nomina|empleado|impuesto|resumen|contab|cartera)/.test(name);
+  let type = "additional";
+  let score = 0;
+  if (salesScore + salesBonus >= 8 && salesScore + salesBonus > inventoryScore + inventoryBonus) { type = "sales"; score = salesScore + salesBonus; }
+  else if (inventoryScore + inventoryBonus >= 7) { type = "inventory"; score = inventoryScore + inventoryBonus; }
+  if (additionalName && score < 10) type = "additional";
+  const typeConfidence = score >= 10 ? "Alta" : score >= 7 ? "Media" : "Baja";
+  const interpretation = type === "sales" ? sales : type === "inventory" ? inventory : null;
+  const remoteColumns = interpretation ? Object.fromEntries(Object.entries(interpretation.assignments).filter(([, value]) => value).map(([role, value]) => [remoteRole(role), { source: value.header, confidence: value.confidence.toLowerCase() === "alta" ? "high" : value.confidence.toLowerCase() === "media" ? "medium" : "low" }])) : {};
+  return {
+    type,
+    typeConfidence,
+    interpretations: { sales, inventory },
+    remote: { sheet_type: type, confidence: typeConfidence.toLowerCase() === "alta" ? "high" : typeConfidence.toLowerCase() === "media" ? "medium" : "low", columns: remoteColumns }
+  };
+}
+
+function remoteRole(role) {
+  return ({ fecha: "date", producto: "product", cantidad: "quantity", precio: "unit_price", valorTotal: "sale_value", stock: "stock", costo: "cost" })[role] || role;
+}
+
+function localRole(role) {
+  return ({ date: "fecha", product: "producto", quantity: "cantidad", unit_price: "precio", sale_value: "valorTotal", stock: "stock", cost: "costo" })[role] || role;
+}
+
+function buildClassifiedTable(table, local, interpreted) {
+  const remote = interpreted.result;
+  const type = remote.sheet_type === "unknown" ? local.type : remote.sheet_type;
+  let interpretation = type === "sales" ? local.interpretations.sales : type === "inventory" ? local.interpretations.inventory : null;
+  if (interpreted.mode === "remote-ai" && interpretation) {
+    for (const [remoteName, remoteAssignment] of Object.entries(remote.columns)) {
+      const role = localRole(remoteName);
+      if (!semanticRoles[type][role] || !table.headers.includes(remoteAssignment.source)) continue;
+      interpretation.assignments[role] = {
+        header: remoteAssignment.source,
+        confidence: confidenceFromRemote(remoteAssignment.confidence),
+        score: confidenceWeight(confidenceFromRemote(remoteAssignment.confidence)),
+        sample: table.profiles[remoteAssignment.source]?.sample || ""
+      };
+    }
+  }
+  return {
+    ...table,
+    type,
+    typeConfidence: confidenceFromRemote(remote.confidence),
+    interpretation,
+    mode: interpreted.mode
+  };
+}
+
+function requiredMappingIssues() {
+  const issues = [];
+  const relevant = type => app.classified.filter(table => table.type === type);
+  const usable = assignment => assignment && assignment.header && assignment.confidence !== "Baja";
+  const completeSales = relevant("sales").filter(table => {
+    const assignments = table.interpretation.assignments;
+    return usable(assignments.fecha) && usable(assignments.producto) && usable(assignments.cantidad) && (usable(assignments.precio) || usable(assignments.valorTotal));
+  });
+  const completeInventory = relevant("inventory").filter(table => {
+    const assignments = table.interpretation.assignments;
+    return usable(assignments.producto) && usable(assignments.stock);
+  });
+  if (!completeSales.length) issues.push({
+    title: "No encontramos ventas suficientes para continuar",
+    message: relevant("sales").length ? "Hay una hoja que parece contener ventas, pero falta confirmar fecha, producto, cantidad o valor." : "No encontramos una hoja que podamos reconocer como ventas.",
+    help: "Busca una hoja con fecha, producto, unidades vendidas y precio o valor total."
+  });
+  if (!completeInventory.length) issues.push({
+    title: "No encontramos el inventario necesario",
+    message: relevant("inventory").length ? "Hay una hoja que parece contener inventario, pero falta confirmar producto o existencias." : "No encontramos una hoja que podamos reconocer como inventario.",
+    help: "Busca una hoja con el nombre o referencia del producto y las unidades disponibles."
+  });
+  return issues;
+}
+
+function changeMapping(event) {
+  const table = app.classified[Number(event.target.dataset.table)];
+  const role = event.target.dataset.role;
+  const header = event.target.value;
+  table.interpretation.assignments[role] = header ? {
+    header,
+    confidence: "Alta",
+    score: 10,
+    sample: table.profiles[header]?.sample || "Confirmada por el usuario"
+  } : null;
+  render();
+}
+
+function confirmInterpretation() {
+  const issues = requiredMappingIssues();
+  if (issues.length) return;
+  const dataset = buildCanonicalDataset();
+  app.dataset = dataset;
+  app.analysis = analyze(dataset);
+  app.semanticPending = false;
+  app.completed.data = true;
+  go(4);
+}
+
+function buildCanonicalDataset() {
+  const sales = [], inventory = [];
+  for (const table of app.classified) {
+    if (!["sales", "inventory"].includes(table.type) || !table.interpretation) continue;
+    const assignments = table.interpretation.assignments;
+    const value = (row, role) => assignments[role]?.header ? row[assignments[role].header] : "";
+    if (table.type === "sales") {
+      table.rows.forEach(row => sales.push({
+        fecha: value(row, "fecha"),
+        producto: value(row, "producto"),
+        cantidad: value(row, "cantidad"),
+        precio: value(row, "precio"),
+        valorTotal: value(row, "valorTotal"),
+        costo: value(row, "costo")
+      }));
+    } else {
+      table.rows.forEach(row => inventory.push({
+        producto: value(row, "producto"),
+        stock: value(row, "stock"),
+        costo: value(row, "costo")
+      }));
+    }
+  }
+  return { sales, inventory };
+}
+
+function analyze(data) {
+  const sales = data.sales || [], inventory = data.inventory || [];
+  const saleValue = row => Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : Number.isFinite(numericValue(row.precio)) && Number.isFinite(numericValue(row.cantidad)) ? numericValue(row.precio) * numericValue(row.cantidad) : NaN;
+  const validProductSales = sales.filter(row => String(row.producto || "").trim()).length;
+  const validQuantitySales = sales.filter(row => Number.isFinite(numericValue(row.cantidad)) && numericValue(row.cantidad) >= 0).length;
+  const validValueSales = sales.filter(row => Number.isFinite(saleValue(row)) && saleValue(row) >= 0).length;
+  const validDateSales = sales.filter(row => !Number.isNaN(new Date(row.fecha).getTime())).length;
+  const validInventory = inventory.filter(row => row.producto && Number.isFinite(numericValue(row.stock)) && numericValue(row.stock) >= 0).length;
+  const essentialTotal = Math.max(1, sales.length * 4 + inventory.length * 2);
+  const essentialValid = validProductSales + validQuantitySales + validValueSales + validDateSales + validInventory * 2;
+  const completeness = essentialValid / essentialTotal;
+  const negativeCount = sales.filter(row => numericValue(row.cantidad) < 0 || saleValue(row) < 0).length + inventory.filter(row => numericValue(row.stock) < 0).length;
+  const seen = new Set(), duplicates = new Set();
+  sales.forEach(row => {
+    const key = `${row.fecha}|${row.producto}|${row.cantidad}|${row.precio}|${row.valorTotal}`;
+    if (seen.has(key)) duplicates.add(key);
+    seen.add(key);
+  });
+  const dates = sales.map(row => new Date(row.fecha)).filter(date => !Number.isNaN(date.getTime()));
+  const period = dates.length > 1 ? Math.round((Math.max(...dates) - Math.min(...dates)) / 86400000) : 0;
+  const saleProducts = new Set(sales.map(row => String(row.producto || "").trim()).filter(Boolean));
+  const inventoryProducts = new Set(inventory.map(row => String(row.producto || "").trim()).filter(Boolean));
+  const matches = [...saleProducts].filter(product => inventoryProducts.has(product)).length;
+  const relation = saleProducts.size ? matches / saleProducts.size : 0;
+  const costRows = inventory.filter(row => Number.isFinite(numericValue(row.costo)) && numericValue(row.costo) >= 0).length;
+  const costCoverage = inventory.length ? costRows / inventory.length : 0;
+  let score = 100;
+  if (sales.length < 5 || inventory.length < 2) score -= 30;
+  score -= Math.round((1 - completeness) * 40);
+  if (negativeCount) score -= 15;
+  if (duplicates.size) score -= 5;
+  if (period < 30) score -= 10;
+  if (relation < .5) score -= 10;
+  score = Math.max(0, Math.min(100, score));
+  const level = score >= 80 ? "ALTA" : score >= 55 ? "MEDIA" : "BAJA";
+  const facts = [
+    { ok: sales.length >= 5, text: `Encontramos ${sales.length} registros de ventas.` },
+    { ok: inventory.length >= 2, text: `Encontramos ${inventory.length} productos en inventario.` },
+    { ok: completeness >= .9, text: `${percent(completeness)} de los datos esenciales están completos y tienen un formato utilizable.` },
+    { ok: relation >= .5, text: `Pudimos relacionar ${percent(relation)} de los productos vendidos con el inventario.` },
+    { ok: period >= 30, text: `La información de ventas cubre ${period} días.` },
+    { ok: !negativeCount, text: negativeCount ? `Encontramos ${countText(negativeCount, "un valor negativo", "valores negativos")} que conviene revisar.` : "No encontramos cantidades negativas inesperadas." },
+    { ok: costCoverage >= .5, text: costCoverage ? `Encontramos costo para ${percent(costCoverage)} del inventario.` : "No encontramos costos; no analizaremos rentabilidad." }
+  ];
+  const missingParts = [];
+  if (validQuantitySales < sales.length) missingParts.push(`${countText(sales.length - validQuantitySales, "venta", "ventas")} sin cantidad válida`);
+  if (validProductSales < sales.length) missingParts.push(`${countText(sales.length - validProductSales, "venta", "ventas")} sin producto`);
+  if (validValueSales < sales.length) missingParts.push(`${countText(sales.length - validValueSales, "venta", "ventas")} sin valor utilizable`);
+  if (validInventory < inventory.length) missingParts.push(`${countText(inventory.length - validInventory, "producto", "productos")} sin existencias válidas`);
+  if (sales.length < 5) missingParts.push("más registros de ventas");
+  if (inventory.length < 2) missingParts.push("un inventario con al menos dos productos");
+  const summary = level === "ALTA"
+    ? `Encontramos ${sales.length} ventas, ${inventory.length} productos y ${percent(completeness)} de los datos esenciales completos.`
+    : level === "MEDIA"
+      ? `Podemos ofrecer una orientación inicial, pero conviene revisar ${missingParts.join(", ") || "algunos datos"}.`
+      : "La información todavía no permite comparar ventas e inventario con suficiente confianza.";
+  const quality = {
+    score,
+    level,
+    summary,
+    facts,
+    missing: missingParts.length ? `Necesitamos corregir o completar: ${missingParts.join("; ")}.` : "Necesitamos más registros que permitan comparar ventas e inventario.",
+    nextStep: "Busca esas columnas o registros en el archivo que ya utiliza tu negocio, complétalos y vuelve a cargarlo."
+  };
+  const metrics = calculateMetrics(sales, inventory, period);
+  return { quality, metrics, priorities: level === "BAJA" ? [] : prioritize(metrics) };
+}
+
+function calculateMetrics(sales, inventory, period) {
+  const byProduct = {};
+  let revenue = 0, units = 0;
+  sales.forEach(row => {
+    const quantity = numericValue(row.cantidad);
+    const value = Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : quantity * numericValue(row.precio);
+    if (!row.producto || !Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(value) || value < 0) return;
+    revenue += value;
+    units += quantity;
+    byProduct[row.producto] ||= { units: 0, revenue: 0 };
+    byProduct[row.producto].units += quantity;
+    byProduct[row.producto].revenue += value;
+  });
+  const ranked = Object.entries(byProduct).sort((a, b) => b[1].revenue - a[1].revenue);
+  const topShare = revenue && ranked[0] ? ranked[0][1].revenue / revenue : 0;
+  const inv = inventory.filter(row => row.producto && Number.isFinite(numericValue(row.stock))).map(row => ({
+    ...row,
+    stock: numericValue(row.stock),
+    cost: numericValue(row.costo),
+    sold: byProduct[row.producto]?.units || 0
+  }));
+  const slowItems = inv.filter(row => row.stock >= 20 && row.sold <= 10).sort((a, b) => b.stock - a.stock);
+  const slowUnits = slowItems.reduce((sum, row) => sum + row.stock, 0);
+  const slowValue = slowItems.reduce((sum, row) => sum + (Number.isFinite(row.cost) ? row.stock * row.cost : 0), 0);
+  const slowSales = slowItems.reduce((sum, row) => sum + row.sold, 0);
+  const stockout = inv.filter(row => row.stock <= 5 && row.sold > 0).sort((a, b) => b.sold - a.sold)[0];
+  return { revenue, units, ranked, topShare, inv, slowItems, slowUnits, slowValue, slowSales, stockout, period, products: inv.length };
+}
+
+function prioritize(metrics) {
+  const findings = [];
+  const concentration = {
+    type: "concentration",
+    title: `Gran parte de tus ventas depende de ${metrics.ranked[0]?.[0] || "un solo producto"}.`,
+    reason: `${metrics.ranked[0]?.[0] || "El producto principal"} representa ${percent(metrics.topShare)} del valor vendido.`,
+    evidence: `De ${money.format(metrics.revenue)} vendidos, ${money.format(metrics.ranked[0]?.[1].revenue || 0)} provienen de ese producto.`,
+    meaning: "Una caída en ese producto puede afectar una parte importante de las ventas observadas.",
+    action: "Comprueba si el patrón continúa y elige dos productos complementarios que puedas ofrecer junto al principal.",
+    indicator: "Porcentaje del valor vendido que representa el producto principal."
+  };
+  const slow = metrics.slowItems.length ? {
+    type: "slow",
+    title: "Hay productos almacenados que casi no se venden.",
+    reason: `${metrics.slowItems.length === 1 ? "Un producto tiene" : `${metrics.slowItems.length} productos tienen`} existencias altas y registraron pocas ventas durante ${metrics.period} días.`,
+    evidence: `Suman ${metrics.slowUnits} unidades almacenadas y ${metrics.slowSales} unidades vendidas.${metrics.slowValue ? ` Su costo registrado es ${money.format(metrics.slowValue)}.` : ""}`,
+    meaning: "Ese inventario ocupa espacio y puede mantener dinero comprometido sin generar ventas.",
+    action: "Revisa esos productos y define cuáles puedes promocionar, vender juntos o dejar de comprar temporalmente.",
+    indicator: "Unidades disponibles de los productos almacenados que casi no se venden.",
+    items: metrics.slowItems
+  } : null;
+  const stockout = metrics.stockout ? {
+    type: "stockout",
+    title: `Podrías quedarte sin ${metrics.stockout.producto}.`,
+    reason: "El producto tiene ventas registradas y muy pocas unidades disponibles.",
+    evidence: `${metrics.stockout.sold} unidades vendidas y ${metrics.stockout.stock} unidades disponibles.`,
+    meaning: "Si continúa vendiéndose al mismo ritmo, podrían aparecer ventas que el negocio no pueda atender.",
+    action: "Confirma físicamente las existencias y revisa el siguiente pedido antes de que lleguen a cero.",
+    indicator: "Días con el producto disponible sin llegar a cero."
+  } : null;
+  if (metrics.topShare >= .8) findings.push(concentration);
+  if (slow) findings.push(slow);
+  if (metrics.topShare >= .6 && metrics.topShare < .8) findings.push(concentration);
+  if (stockout) findings.push(stockout);
+  const fallbacks = [
+    {
+      type: "review",
+      title: "Hay un producto que merece una revisión comercial.",
+      reason: `${metrics.ranked.at(-1)?.[0] || "El producto con menor movimiento"} aportó el menor valor vendido del periodo.`,
+      evidence: metrics.ranked.at(-1) ? `Registró ${metrics.ranked.at(-1)[1].units} unidades y ${money.format(metrics.ranked.at(-1)[1].revenue)} vendidos.` : "La comparación disponible es limitada.",
+      meaning: "Un producto con poco movimiento puede requerir una decisión de compra, precio, exhibición o registro.",
+      action: "Confirma sus ventas y existencias antes de hacer una nueva compra.",
+      indicator: "Unidades vendidas del producto con menor movimiento."
+    },
+    {
+      type: "maintain",
+      title: "Protege la disponibilidad de lo que más se vende.",
+      reason: `${metrics.ranked[0]?.[0] || "El producto principal"} lidera las ventas registradas.`,
+      evidence: metrics.ranked[0] ? `${metrics.ranked[0][1].units} unidades y ${money.format(metrics.ranked[0][1].revenue)} vendidos.` : "Se requiere ampliar la información.",
+      meaning: "Mantenerlo disponible ayuda a no perder ventas que ya muestran demanda.",
+      action: "Revisa sus existencias cada semana y considera el tiempo de entrega del proveedor.",
+      indicator: "Unidades disponibles del producto con más ventas."
+    },
+    {
+      type: "data",
+      title: "Mantén ventas e inventario actualizados.",
+      reason: "Una actualización constante permite comparar cambios con mayor confianza.",
+      evidence: `La información disponible cubre ${metrics.period} días.`,
+      meaning: "Los registros continuos permiten saber si una acción realmente está funcionando.",
+      action: "Actualiza ventas e inventario al menos una vez por semana.",
+      indicator: "Semanas actualizadas sin interrupción."
+    }
+  ];
+  for (const fallback of fallbacks) if (findings.length < 3 && !findings.some(item => item.type === fallback.type)) findings.push(fallback);
+  return findings.slice(0, 3);
+}
+
+function metricCards() {
+  const metrics = app.analysis.metrics;
+  return `<article class="stat"><span>Valor vendido</span><strong>${money.format(metrics.revenue)}</strong></article>
+    <article class="stat"><span>Unidades vendidas</span><strong>${metrics.units}</strong></article>
+    <article class="stat"><span>Días revisados</span><strong>${metrics.period}</strong></article>
+    <article class="stat"><span>Productos relacionados</span><strong>${metrics.products}</strong></article>`;
+}
+
+function getPlan() {
+  const finding = app.analysis?.priorities[0];
+  if (!finding) return [];
+  if (finding.type === "slow") {
+    const count = Math.min(10, finding.items?.length || 1);
+    return [
+      { when: "HOY", action: `Revisa ${count === 1 ? "el producto" : `los ${count} productos`} con más unidades almacenadas y pocas ventas.`, explain: "Confirma físicamente las existencias y las ventas pendientes de registrar." },
+      { when: "ESTA SEMANA", action: "Define cuáles puedes promocionar, vender juntos o dejar de comprar temporalmente.", explain: "Cambia una sola decisión por producto para poder observar qué funciona." },
+      { when: "EN 14 DÍAS", action: "Comprueba si disminuyeron las existencias de esos productos.", explain: "Compara las unidades disponibles con las registradas hoy." }
+    ];
+  }
+  if (finding.type === "concentration") return [
+    { when: "HOY", action: "Confirma cuánto depende la venta del producto principal.", explain: "Revisa si el patrón también aparece en semanas anteriores." },
+    { when: "ESTA SEMANA", action: "Elige dos productos complementarios para ofrecer junto al principal.", explain: "Haz una prueba pequeña sin cambiar varias cosas al mismo tiempo." },
+    { when: "EN 14 DÍAS", action: "Compara nuevamente cuánto representa el producto principal.", explain: "Observa si otros productos empezaron a aportar más ventas." }
+  ];
+  if (finding.type === "stockout") return [
+    { when: "HOY", action: "Confirma las existencias físicas y los pedidos pendientes.", explain: "Asegúrate de que el registro coincide con la bodega." },
+    { when: "ESTA SEMANA", action: "Ajusta el siguiente pedido usando las ventas recientes.", explain: "Considera también cuánto tarda el proveedor en entregar." },
+    { when: "EN 14 DÍAS", action: "Comprueba si el producto se mantuvo disponible.", explain: "Registra cualquier día en que no pudiste atender una venta." }
+  ];
+  return [
+    { when: "HOY", action: "Confirma que el dato señalado representa lo que ocurrió.", explain: "Compara el registro con la operación real." },
+    { when: "ESTA SEMANA", action: "Prueba una mejora pequeña relacionada con el hallazgo.", explain: "Cambia una sola cosa para observar su efecto." },
+    { when: "EN 14 DÍAS", action: "Compara nuevamente el indicador.", explain: finding.indicator }
+  ];
+}
+
+function updateTask(event) {
+  const index = Number(event.target.dataset.task);
+  app.tasks[index] = event.target.checked;
+  const done = app.tasks.filter(Boolean).length;
+  document.querySelectorAll("#task-count").forEach(element => { element.textContent = `${done} de 3`; });
+  event.target.closest(".action-check")?.classList.toggle("completed", event.target.checked);
+}
+
+function saveFeedback(event) {
+  event.preventDefault();
+  app.feedback = Object.fromEntries(new FormData(event.currentTarget));
+  app.completed.feedback = true;
+  go(10);
+}
+
+function showTestSummary() {
+  const steps = [
+    ["Análisis iniciado", app.completed.start],
+    ["Contexto completado", app.completed.form],
+    ["Información interpretada", app.completed.data],
+    ["Calidad evaluada", app.completed.quality],
+    ["Hallazgo principal generado", app.completed.priority],
+    ["Plan de 3 acciones generado", app.completed.plan],
+    ["Avance registrado", app.completed.feedback]
+  ];
+  const count = steps.filter(([, completed]) => completed).length;
+  const elapsed = app.start ? Math.max(1, Math.round((Date.now() - app.start) / 60000)) : 0;
+  const obtained = app.analysis?.quality.level === "BAJA" ? "Análisis detenido por información insuficiente" : app.analysis?.priorities[0]?.title || "Sin resultado";
+  $("#test-dialog-content").innerHTML = `<p class="eyebrow">Modo demostración</p>
+    <h2>Resultados de la prueba</h2>
+    <h3>${count}/7 pasos completados exitosamente</h3>
+    <div class="step-results">${steps.map(([label, completed]) => `<div class="step-row"><span>${label}</span><b>${completed ? "Completado" : "Pendiente"}</b></div>`).join("")}</div>
+    <dl class="test-evidence">
+      <div><dt>Dataset</dt><dd>${safe(app.datasetName || "Sin elegir")}</dd></div>
+      <div><dt>Resultado esperado</dt><dd>${safe(app.expected || "Sin definir")}</dd></div>
+      <div><dt>Resultado obtenido</dt><dd>${safe(obtained)}</dd></div>
+      <div><dt>Calidad</dt><dd>${safe(app.analysis?.quality.level || "—")}</dd></div>
+      <div><dt>Prioridad</dt><dd>${safe(app.analysis?.priorities[0]?.title || "No generada")}</dd></div>
+      <div><dt>Tiempo</dt><dd>${elapsed} min</dd></div>
+    </dl>`;
+  $("#test-dialog").showModal();
+}
+
+function downloadExecutiveSummary() {
+  if (!app.analysis || app.analysis.quality.level === "BAJA") return;
+  const finding = app.analysis.priorities[0];
+  const plan = getPlan();
+  const context = Object.entries(app.context).filter(([, value]) => value).map(([key, value]) => `<li><strong>${safe(key)}:</strong> ${safe(value)}</li>`).join("");
+  const actions = plan.map(item => `<tr><td>${safe(item.when)}</td><td>${safe(item.action)}</td><td>${safe(finding.indicator)}</td></tr>`).join("");
+  const reportHtml = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Resumen ejecutivo · San José</title><style>body{font-family:Arial,sans-serif;color:#1f2937;max-width:900px;margin:40px auto;padding:0 20px;line-height:1.5}h1,h2{font-family:Georgia,serif;color:#011235}header{border-bottom:4px solid #D8A63A;padding-bottom:18px}.tag{color:#9a6500;font-weight:700;text-transform:uppercase;letter-spacing:.08em}section{margin:28px 0}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid #E5E7EB;padding:10px;text-align:left;vertical-align:top}.priority{background:#f8f2e4;border-left:5px solid #D8A63A;padding:20px}button{background:#011235;color:#fff;border:0;padding:12px 18px}@media print{button{display:none}body{margin:15mm;padding:0}}</style></head><body><header><p class="tag">San José · Transformación Estratégica</p><h1>Resumen ejecutivo</h1><p>Tus datos te muestran qué atender primero.</p><small>${new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date())}</small></header><section><h2>Contexto</h2><ul>${context}</ul></section><section><h2>Calidad de la información</h2><p><strong>${app.analysis.quality.level} · ${app.analysis.quality.score}/100</strong></p><p>${safe(app.analysis.quality.summary)}</p></section><section class="priority"><p class="tag">Atiende esto primero</p><h2>${safe(finding.title)}</h2><p>${safe(finding.evidence)}</p><p><strong>Por qué importa:</strong> ${safe(finding.meaning)}</p></section><section><h2>Plan de 3 acciones</h2><table><thead><tr><th>Momento</th><th>Acción</th><th>Qué observar</th></tr></thead><tbody>${actions}</tbody></table></section><section><h2>Limitaciones</h2><ul><li>El análisis se concentra en ventas e inventario.</li><li>Las cifras dependen de la calidad y cobertura de los archivos.</li><li>La IA, cuando está disponible, interpreta; el código determinístico calcula.</li><li>La decisión final corresponde al empresario.</li></ul></section><button onclick="window.print()">Imprimir o guardar como PDF</button></body></html>`;
+  const blob = new Blob([reportHtml], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "resumen-ejecutivo-san-jose-v3.html";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

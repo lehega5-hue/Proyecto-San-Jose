@@ -1,58 +1,78 @@
-# Resultados de pruebas del MVP – Versión 2
+# Resultados de pruebas · San José V3
 
-Fecha de ejecución: 8 de agosto de 2026.
+Fecha: 8 de agosto de 2026.
 
-Entorno: navegador integrado basado en Chromium; validaciones de escritorio y móvil; revisión estática de JavaScript.
+Entorno: navegador integrado basado en Chromium, validación sintáctica con Node y pruebas unitarias del motor local.
 
 ## Resumen
 
-Resultado: **25 de 25 comprobaciones aprobadas**. Las pruebas de carga e interpretación corresponden a la regresión conservada del MVP validado; los recorridos y la interfaz de la Versión 2 se ejecutaron nuevamente.
+Resultado: **19 de 19 comprobaciones críticas aprobadas** en nivel funcional, unitario, estructural o de regresión, según se indica.
 
-## Matriz validada
+Los recorridos completos de los casos A, B y C se ejecutaron nuevamente. La carga XLS/XLSX conserva la regresión de la V2; la lectura multioja se verificó estructuralmente y con tablas sintéticas porque el entorno de QA no expuso el generador de archivos XLSX requerido para crear un fixture nuevo.
 
-| Prueba | Resultado | Evidencia observada |
-|---|---|---|
-| Bienvenida institucional | Aprobada | No solicita acceso; **Iniciar demostración** abre el contexto. |
-| Formulario de contexto | Aprobada | Los campos obligatorios permiten continuar. |
-| Pregunta condicional | Aprobada | Aparece únicamente cuando la respuesta la requiere. |
-| Cuatro etapas | Aprobada | La barra agrupa el recorrido en conocer, analizar, priorizar y actuar. |
-| Inventario detenido | Aprobada | Calidad Alta; prioriza liberar Vajilla blanca con evidencia calculada. |
-| Ventas concentradas | Aprobada | La regresión conserva la identificación de dependencia comercial. |
-| Información insuficiente | Aprobada | Calidad Baja (18/100); no ofrece acceso a prioridades. |
-| Mensaje de abstención | Aprobada | Muestra literalmente “Todavía no tenemos suficiente información para recomendar con confianza.” |
-| Carga `.xlsx` | Aprobada | Regresión conservada: lectura local de la primera hoja. |
-| Carga `.xls` | Aprobada | Regresión conservada: lectura de Excel tradicional. |
-| Carga `.csv` | Aprobada | Regresión conservada: coma y punto y coma. |
-| Inferencia semántica | Aprobada | Conserva propuestas a partir de encabezados y muestras. |
-| Muestra y confianza | Aprobada | Presenta ejemplos y confianza Alta, Media o Baja. |
-| Confirmación previa | Aprobada | El mapeo se confirma antes de calcular resultados. |
-| Corrección manual | Aprobada | Conserva la reasignación de columnas. |
-| Campo esencial dudoso | Aprobada | Bloquea el análisis y explica cómo corregirlo. |
-| Campo opcional ausente | Aprobada | No bloquea e informa la limitación. |
-| Cálculo determinista | Aprobada | El caso principal genera calidad Alta y resultados reproducibles. |
-| Tres prioridades | Aprobada | Presenta una principal y dos secundarias. |
-| Prioridad principal | Aprobada | Expone detección, significado, evidencia y primer paso antes de métricas. |
-| Plan de acción | Aprobada | Incluye acción, responsable editable, plazo e indicador. |
-| Seguimiento y continuidad | Aprobada | Conserva responsable, estado y muestra la siguiente prioridad. |
-| Resumen ejecutivo | Aprobada | Genera un HTML descargable, imprimible y guardable como PDF. |
-| Escritorio y móvil | Aprobada | Sin desbordamiento horizontal a 1280 px ni a 390 × 844 px. |
-| Consola y sintaxis | Aprobada | Sin errores en consola; `app.js` fue compilado por el analizador de Node. |
+## Matriz crítica
 
-## Reglas que deben permanecer verificadas
+| # | Prueba | Resultado | Evidencia |
+|---:|---|---|---|
+| 1 | Excel con una hoja de ventas | Aprobada · lógica | Clasifica ventas y, si falta inventario, explica qué debe agregarse. |
+| 2 | Excel con ventas e inventario en hojas distintas | Aprobada · estructura/unidad | El lector recorre todas las hojas y clasificó VENTAS JULIO, EXISTENCIAS y CLIENTES correctamente con tablas sintéticas. |
+| 3 | Dos Excel diferentes | Aprobada · estructura | La carga acepta múltiples archivos y agrega todas las tablas antes de interpretar. |
+| 4 | CSV | Aprobada · unidad | CSV con punto y coma produjo 4 encabezados y 1 registro. |
+| 5 | XLS | Aprobada · regresión | Conserva el lector SheetJS validado en V2 y ahora itera todas sus hojas. |
+| 6 | XLSX | Aprobada · regresión | Conserva el lector SheetJS validado en V2 y elimina la limitación de primera hoja. |
+| 7 | Columnas con nombres normales | Aprobada · unidad | Fecha Fact, Descripción artículo, Und y Vr Neto se interpretan como ventas. |
+| 8 | Columnas con nombres extraños | Aprobada · unidad | Usa encabezado, tipo y muestras para proponer correspondencias. |
+| 9 | Columnas ambiguas | Aprobada · unidad | La columna U queda con confianza Baja hasta que el usuario la confirma. |
+| 10 | Información opcional faltante | Aprobada · unidad | La ausencia de costo no bloquea y limita el análisis de rentabilidad. |
+| 11 | Información esencial faltante | Aprobada · navegador | El caso C obtuvo Calidad Baja y enumeró cantidades, productos, valores e inventario faltantes. |
+| 12 | Datos suficientes | Aprobada · navegador | El caso A obtuvo Calidad Alta, 100 % de datos esenciales y prioridad respaldada por cifras. |
+| 13 | Datos insuficientes | Aprobada · navegador | No mostró acceso a recomendaciones. |
+| 14 | Navegación móvil | Aprobada · navegador | Sin desplazamiento horizontal a 390 × 844 px. |
+| 15 | Navegación escritorio | Aprobada · navegador | Sin desplazamiento horizontal a 1280 × 800 px. |
+| 16 | Refresh | Aprobada · navegador | La página vuelve de forma segura a la landing; no conserva datos de la sesión. |
+| 17 | Retroceso | Aprobada · navegador | Los botones Volver regresan a la etapa anterior sin romper el análisis. |
+| 18 | Checklist | Aprobada · navegador | Tres acciones exactas; el progreso cambió de 0 de 3 a 3 de 3. |
+| 19 | Resultados de prueba | Aprobada · navegador | Mostró 7/7, dataset, esperado, obtenido, calidad, prioridad y tiempo. |
 
-- Una interpretación esencial con confianza Baja no se usa silenciosamente.
-- La corrección manual queda marcada con confianza Alta.
-- Precio unitario y valor total se aceptan como alternativas; un total no se multiplica otra vez por la cantidad.
-- Las columnas opcionales de confianza Baja no entran en los cálculos.
-- Calidad Baja detiene las recomendaciones.
-- Las cifras provienen de sumas y comparaciones reproducibles.
-- Los datos ficticios no se mezclan con archivos cargados por el usuario.
+## Resultados observados
 
-## Limitaciones conocidas
+### Caso A
 
-- La interpretación semántica es local y basada en reglas, encabezados y muestras; no utiliza un modelo remoto de IA.
-- Se procesa únicamente la primera hoja de cada archivo Excel.
-- El estado se conserva solo durante la sesión del navegador.
-- No se analizan devoluciones, estacionalidad, pedidos pendientes o ventas perdidas.
-- El resumen se descarga como HTML; la creación del PDF se realiza con la función de impresión del navegador.
-- Las pruebas y casos incluidos usan datos completamente ficticios.
+- Calidad: ALTA.
+- Registros: 12 ventas y 5 productos.
+- Datos esenciales completos: 100 %.
+- Productos relacionados: 100 %.
+- Cobertura: 111 días.
+- Hallazgo principal: productos almacenados que casi no se venden.
+
+### Caso B
+
+- Hallazgo principal: gran parte de las ventas depende de Arroz premium 5 kg.
+- Evidencia: de $10.874.700 vendidos, $10.608.500 provienen de ese producto.
+
+### Caso C
+
+- Calidad: BAJA.
+- Mensaje: “Todavía no podemos decirte qué atender primero.”
+- No se generó recomendación.
+
+## Arquitectura verificada
+
+- Una sola entrada de archivos con atributo multiple.
+- Iteración de workbook.SheetNames sin usar SheetNames[0].
+- Clasificación de ventas, inventario e información adicional.
+- IA remota opcional y fallback local obligatorio.
+- Respuesta remota inválida o error de red activa local-fallback.
+- IA interpreta; calculateMetrics y prioritize calculan y ordenan.
+- app.js y ai-interpreter.js pasan validación sintáctica.
+- Consola del navegador sin errores.
+
+## Limitación de QA
+
+El entorno no proporcionó la dependencia de creación de hojas de cálculo necesaria para fabricar un nuevo XLSX multioja durante esta ejecución. Por eso la lectura multioja quedó validada por estructura, unidad y regresión, pero debe realizarse además una prueba manual de aceptación con un archivo real que contenga:
+
+- una hoja de ventas;
+- una hoja de inventario;
+- una hoja adicional, por ejemplo clientes.
+
+El resultado esperado es que las dos primeras se clasifiquen y que la tercera se informe como adicional sin analizarla.
