@@ -1,67 +1,71 @@
 # San José – Transformación Empresarial
 
-MVP académico funcional que demuestra el recorrido:
+MVP académico funcional para propietarios y gerentes de pequeñas empresas colombianas de comercio y distribución. Convierte información de ventas e inventario en una orientación inicial, explicable y accionable.
 
-`datos → interpretación → confirmación → prioridad → acción → seguimiento`
+`contexto → datos → calidad → prioridades → acción → seguimiento`
 
 ## Cómo abrirlo
 
 1. Abre la carpeta `san-jose`.
 2. Haz doble clic en `index.html`.
-3. Si Windows pregunta con qué programa abrirlo, elige Chrome, Edge o Firefox.
+3. Elige Chrome, Edge o Firefox si Windows pregunta con qué programa abrirlo.
 
-No hay que instalar nada ni ejecutar comandos.
+No hay cuentas, credenciales, instalación ni comandos obligatorios. En la bienvenida institucional pulsa **Iniciar demostración**.
 
-## Credenciales de demostración
+Para evitar restricciones del navegador al probar cargas locales, también puedes iniciar un servidor en esta carpeta con `python -m http.server 8765` y abrir `http://localhost:8765/`.
 
-- Correo: `demo@sanjose.com`
-- Contraseña: `SanJose2026`
+## Recorrido de la versión 2
 
-Son credenciales locales para presentar el recorrido; no crean una cuenta real.
+El recorrido visible se organiza en cuatro etapas:
 
-## Recorrido recomendado
+1. **Conoce tu negocio:** contexto empresarial breve y sin datos personales.
+2. **Analiza tus datos:** casos ficticios o archivos propios, interpretación de columnas y calidad.
+3. **Descubre tus prioridades:** tres hallazgos ordenados; la prioridad número 1 explica qué ocurre, por qué importa, qué evidencia la sustenta y qué hacer primero.
+4. **Actúa y haz seguimiento:** plan con responsable editable, plazo e indicador; cierre con continuidad.
 
-1. Ingresa con las credenciales de demostración.
-2. Pulsa **Comenzar recorrido**.
-3. Completa el contexto empresarial con respuestas ficticias.
-4. Usa un caso ficticio o carga dos archivos propios de prueba.
-5. Revisa la pantalla **Así entendimos tus datos**.
-6. Corrige las correspondencias si alguna columna fue interpretada de forma incorrecta.
-7. Confirma y revisa la calidad, los hallazgos, la prioridad y el plan de acción.
+La aplicación usa lenguaje consultivo y reglas deterministas. No afirma utilizar inteligencia artificial. Cuando la evidencia no alcanza, muestra: **“Todavía no tenemos suficiente información para recomendar con confianza.”**
 
 ## Archivos admitidos
 
 - Excel moderno: `.xlsx`
 - Excel tradicional: `.xls`
-- Texto separado por comas o punto y coma: `.csv`
-- Tamaño máximo: 5 MB por archivo
-- Se analiza la primera hoja de cada libro de Excel.
+- CSV separado por comas o punto y coma: `.csv`
+- Máximo: 5 MB por archivo
+- En Excel se analiza la primera hoja.
 
-El sistema no exige encabezados rígidos. Examina el nombre de cada columna y una muestra de sus valores para proponer correspondencias como fecha, producto, cantidad, precio, valor total, existencias y costo. Cada propuesta muestra confianza **Alta**, **Media** o **Baja**.
+El alcance inicial es únicamente **Ventas** e **Inventario**. El sistema examina encabezados y una muestra de valores para proponer fecha, producto, cantidad, precio o valor total, existencias y costo. Antes del análisis muestra:
 
-Antes de calcular resultados, la empresa debe confirmar la interpretación. Una correspondencia esencial ausente o de confianza Baja bloquea el análisis y explica cómo corregirla. Las columnas opcionales, como costo o canal, no bloquean el proceso y se informan como limitaciones.
+- columna encontrada;
+- interpretación propuesta;
+- confianza Alta, Media o Baja;
+- muestra de valores;
+- corrección manual.
 
-La lectura local de Excel usa SheetJS 0.20.3, incluido en `assets/xlsx.full.min.js`; por eso el MVP no necesita conexión a internet para procesar archivos.
+Una correspondencia esencial ausente o de confianza Baja bloquea el análisis y explica cómo corregirla. Las columnas opcionales no bloquean el proceso; su ausencia se informa como limitación.
 
-## Plantillas y archivos de prueba
+La lectura de Excel usa SheetJS 0.20.3 incluido en `assets/xlsx.full.min.js`, por lo que no requiere internet.
 
-La pantalla de carga permite descargar plantillas de ventas e inventario. En `datos/` también se incluyen CSV con nombres alternativos y un archivo al que le falta una columna esencial para probar el bloqueo controlado.
+## Casos, plantillas y resumen ejecutivo
 
-## Privacidad y alcance
+`datos/` incluye plantillas CSV, archivos con nombres alternativos y un caso al que le falta una columna esencial. La interfaz también ofrece tres casos ficticios: inventario detenido, ventas concentradas e información insuficiente.
 
-- Los archivos se procesan en el navegador y no se envían a un servidor.
-- No uses información personal, sensible o financiera real durante la prueba.
-- Las correspondencias son sugerencias semánticas locales, no afirmaciones infalibles.
-- Los resultados se calculan con reglas deterministas después de la confirmación.
+Desde la pantalla de prioridades se descarga `resumen-ejecutivo-san-jose.html`, con contexto, calidad, hallazgos, prioridad principal, evidencia, plan, limitaciones y fecha. Al abrirlo se puede imprimir o guardar como PDF desde el navegador.
+
+## Privacidad y principio de verdad
+
+- Los archivos se procesan localmente en el navegador y no se envían ni almacenan en un servidor.
+- No uses información personal, sensible o financiera real durante la demostración.
+- Las interpretaciones son sugerencias locales basadas en reglas, no afirmaciones infalibles.
+- Los resultados proceden de cálculos deterministas después de la confirmación.
+- San José no inventa respuestas cuando falta evidencia.
 - La decisión final siempre corresponde al empresario.
-- El MVP no incluye cuentas reales, persistencia empresarial, pagos ni integraciones.
+- No hay cuentas, persistencia empresarial, pagos ni integraciones.
 
 ## Si algo falla
 
-- Conserva juntos `index.html`, `app.js`, los estilos y las carpetas `assets` y `datos`.
-- Comprueba mayúsculas de la contraseña: `SanJose2026`.
-- Confirma que cada archivo pese como máximo 5 MB.
-- En Excel, coloca la tabla que quieres analizar en la primera hoja.
+- Conserva juntos `index.html`, `app.js`, `styles.css`, `overrides.css` y las carpetas `assets` y `datos`.
+- Confirma que cada archivo pese máximo 5 MB y que la tabla esté en la primera hoja.
+- Revisa la correspondencia propuesta y corrige manualmente una columna dudosa.
 - Si una pantalla parece desactualizada, recarga con `Ctrl + F5`.
 
-Consulta `RESULTADOS_PRUEBAS.md` para la evidencia funcional.
+Consulta `RESULTADOS_PRUEBAS.md` para la matriz de validación de esta versión.
