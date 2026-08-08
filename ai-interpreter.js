@@ -37,6 +37,7 @@
       headers: table.headers,
       inferred_types: table.profiles,
       sample_rows: samples,
+      business_context: table.businessContext || {},
       analysis_scope: ["sales", "inventory"]
     };
   }

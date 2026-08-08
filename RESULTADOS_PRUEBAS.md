@@ -1,78 +1,93 @@
-# Resultados de pruebas · San José V3
+# Resultados de pruebas · San José V4
 
 Fecha: 8 de agosto de 2026.
 
-Entorno: navegador integrado basado en Chromium, validación sintáctica con Node y pruebas unitarias del motor local.
+Entorno: Chromium integrado, Node.js 24 incluido en Codex y servidor HTTP estático local.
 
-## Resumen
+## Resultado
 
-Resultado: **19 de 19 comprobaciones críticas aprobadas** en nivel funcional, unitario, estructural o de regresión, según se indica.
+**10 de 10 pruebas automatizadas aprobadas.** También se aprobaron los recorridos manuales críticos de los casos ficticios, la carga de recursos estáticos y la revisión de secretos.
 
-Los recorridos completos de los casos A, B y C se ejecutaron nuevamente. La carga XLS/XLSX conserva la regresión de la V2; la lectura multioja se verificó estructuralmente y con tablas sintéticas porque el entorno de QA no expuso el generador de archivos XLSX requerido para crear un fixture nuevo.
+Comando reproducible:
 
-## Matriz crítica
+```powershell
+node tests/run-tests.js
+```
 
-| # | Prueba | Resultado | Evidencia |
-|---:|---|---|---|
-| 1 | Excel con una hoja de ventas | Aprobada · lógica | Clasifica ventas y, si falta inventario, explica qué debe agregarse. |
-| 2 | Excel con ventas e inventario en hojas distintas | Aprobada · estructura/unidad | El lector recorre todas las hojas y clasificó VENTAS JULIO, EXISTENCIAS y CLIENTES correctamente con tablas sintéticas. |
-| 3 | Dos Excel diferentes | Aprobada · estructura | La carga acepta múltiples archivos y agrega todas las tablas antes de interpretar. |
-| 4 | CSV | Aprobada · unidad | CSV con punto y coma produjo 4 encabezados y 1 registro. |
-| 5 | XLS | Aprobada · regresión | Conserva el lector SheetJS validado en V2 y ahora itera todas sus hojas. |
-| 6 | XLSX | Aprobada · regresión | Conserva el lector SheetJS validado en V2 y elimina la limitación de primera hoja. |
-| 7 | Columnas con nombres normales | Aprobada · unidad | Fecha Fact, Descripción artículo, Und y Vr Neto se interpretan como ventas. |
-| 8 | Columnas con nombres extraños | Aprobada · unidad | Usa encabezado, tipo y muestras para proponer correspondencias. |
-| 9 | Columnas ambiguas | Aprobada · unidad | La columna U queda con confianza Baja hasta que el usuario la confirma. |
-| 10 | Información opcional faltante | Aprobada · unidad | La ausencia de costo no bloquea y limita el análisis de rentabilidad. |
-| 11 | Información esencial faltante | Aprobada · navegador | El caso C obtuvo Calidad Baja y enumeró cantidades, productos, valores e inventario faltantes. |
-| 12 | Datos suficientes | Aprobada · navegador | El caso A obtuvo Calidad Alta, 100 % de datos esenciales y prioridad respaldada por cifras. |
-| 13 | Datos insuficientes | Aprobada · navegador | No mostró acceso a recomendaciones. |
-| 14 | Navegación móvil | Aprobada · navegador | Sin desplazamiento horizontal a 390 × 844 px. |
-| 15 | Navegación escritorio | Aprobada · navegador | Sin desplazamiento horizontal a 1280 × 800 px. |
-| 16 | Refresh | Aprobada · navegador | La página vuelve de forma segura a la landing; no conserva datos de la sesión. |
-| 17 | Retroceso | Aprobada · navegador | Los botones Volver regresan a la etapa anterior sin romper el análisis. |
-| 18 | Checklist | Aprobada · navegador | Tres acciones exactas; el progreso cambió de 0 de 3 a 3 de 3. |
-| 19 | Resultados de prueba | Aprobada · navegador | Mostró 7/7, dataset, esperado, obtenido, calidad, prioridad y tiempo. |
+## Diez casos automatizados
 
-## Resultados observados
+| # | Caso | Resultado verificado |
+|---:|---|---|
+| 1 | Ventas e inventario suficientes | Calidad Alta y prioridad de productos almacenados con pocas ventas. |
+| 2 | Ventas concentradas | La concentración comercial queda como hallazgo principal y supera 90 %. |
+| 3 | Información insuficiente | Calidad Baja, análisis detenido y cero recomendaciones. |
+| 4 | Solo ventas con caída reciente | Calidad Media, caída sostenida de 30 % como prioridad y pregunta adaptativa. |
+| 5 | Contexto libre ya disponible | No repite la pregunta adaptativa. |
+| 6 | Solo inventario | Calidad Media y orientación para agregar ventas, sin afirmar rotación. |
+| 7 | Información parcial abundante | La calidad permanece limitada a 78 y nunca llega a Alta. |
+| 8 | Fórmula de prioridad | Impacto, urgencia, alcance y confianza producen una puntuación determinística. |
+| 9 | “No sé” en un dato esencial | El análisis permanece bloqueado y solicita completar la interpretación. |
+| 10 | Dato opcional ausente | No bloquea una hoja con todos los datos esenciales confirmados. |
+
+## Recorridos manuales en navegador
+
+| Prueba | Resultado |
+|---|---|
+| Contexto obligatorio | Hay exactamente tres preguntas estructuradas. “Otra actividad” abre un campo libre. |
+| Dictado | El control aparece cuando Chromium expone reconocimiento de voz; el texto queda editable. |
+| Solo ventas | Permite agregar inventario o continuar; no genera afirmaciones de existencias. |
+| Solo inventario | Permite agregar ventas o continuar; no usa expresiones como “casi no se venden”. |
+| Tendencia | El caso D compara $1.000.000 con $700.000 y prioriza la caída sobre la concentración. |
+| Pregunta adaptativa | Al responder “No pasó nada especial” desaparece y el análisis continúa. |
+| Regresión caso A | Mantiene productos almacenados con pocas ventas como prioridad. |
+| Regresión caso C | Mantiene Calidad Baja y no ofrece recomendaciones. |
+| Checklist | El plan contiene exactamente tres acciones marcables. |
+| Diseño adaptable | Sin desplazamiento horizontal en 390 × 844 ni en 1280 × 800. |
+| Refresh y retroceso | Refresh vuelve a la landing y los botones Volver conservan un recorrido válido. |
+
+## Validaciones técnicas
+
+- `app.js` y `ai-interpreter.js` pasan `node --check`.
+- Los diez casos pasan en `tests/run-tests.js`.
+- `git diff --check` no reporta errores de espacios.
+- El escaneo no encontró API keys, access tokens, client secrets ni contraseñas incrustadas.
+- El servidor estático devolvió HTTP 200 para `/`, `app.js`, `ai-interpreter.js`, `overrides.css` y el logo.
+- Los recursos usan rutas relativas, compatibles con el subdirectorio de GitHub Pages.
+- La interfaz funciona sin endpoint remoto mediante `local-fallback`.
+
+## Resultado observado por dataset
 
 ### Caso A
 
-- Calidad: ALTA.
-- Registros: 12 ventas y 5 productos.
-- Datos esenciales completos: 100 %.
-- Productos relacionados: 100 %.
-- Cobertura: 111 días.
+- Calidad: Alta.
+- Datos esenciales: 100 %.
 - Hallazgo principal: productos almacenados que casi no se venden.
 
 ### Caso B
 
-- Hallazgo principal: gran parte de las ventas depende de Arroz premium 5 kg.
-- Evidencia: de $10.874.700 vendidos, $10.608.500 provienen de ese producto.
+- Hallazgo principal: dependencia de Arroz premium 5 kg.
+- Evidencia: más de 90 % del valor vendido corresponde a ese producto.
 
 ### Caso C
 
-- Calidad: BAJA.
-- Mensaje: “Todavía no podemos decirte qué atender primero.”
-- No se generó recomendación.
+- Calidad: Baja.
+- Mensaje: “Todavía no tenemos información suficiente para decirte qué atender primero.”
+- Recomendaciones: ninguna.
 
-## Arquitectura verificada
+### Caso D
 
-- Una sola entrada de archivos con atributo multiple.
-- Iteración de workbook.SheetNames sin usar SheetNames[0].
-- Clasificación de ventas, inventario e información adicional.
-- IA remota opcional y fallback local obligatorio.
-- Respuesta remota inválida o error de red activa local-fallback.
-- IA interpreta; calculateMetrics y prioritize calculan y ordenan.
-- app.js y ai-interpreter.js pasan validación sintáctica.
-- Consola del navegador sin errores.
+- Alcance: solo ventas.
+- Calidad: Media.
+- Tendencia: promedio mensual de $1.000.000 a $700.000, caída de 30 %.
+- Hallazgo principal: caída reciente sostenida.
 
-## Limitación de QA
+### Caso E
 
-El entorno no proporcionó la dependencia de creación de hojas de cálculo necesaria para fabricar un nuevo XLSX multioja durante esta ejecución. Por eso la lectura multioja quedó validada por estructura, unidad y regresión, pero debe realizarse además una prueba manual de aceptación con un archivo real que contenga:
+- Alcance: solo inventario.
+- Calidad: Media.
+- Evidencia permitida: 134 unidades y $4.944.000 de costo registrado.
+- Orientación: agregar ventas antes de decidir qué producto atender.
 
-- una hoja de ventas;
-- una hoja de inventario;
-- una hoja adicional, por ejemplo clientes.
+## Limitación de aceptación
 
-El resultado esperado es que las dos primeras se clasifiquen y que la tercera se informe como adicional sin analizarla.
+La lectura XLS/XLSX multioja conserva el lector SheetJS y recorre `workbook.SheetNames`. Antes de uso con una empresa real conviene repetir una prueba manual con un archivo propio que contenga ventas, inventario y una hoja complementaria, usando datos anonimizados.

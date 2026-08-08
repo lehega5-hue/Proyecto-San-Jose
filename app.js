@@ -21,6 +21,7 @@ const app = {
   classified: [],
   semanticMode: "local-fallback",
   semanticPending: false,
+  clarifications: {},
   tasks: [false, false, false],
   activePriority: 0,
   feedback: {},
@@ -116,6 +117,32 @@ const datasets = {
       { fecha: "2026-07-10", producto: "", cantidad: -3, precio: "sin dato" }
     ],
     inventory: [{ producto: "Cuaderno grande", stock: "", costo: 4200 }]
+  },
+  soloVentas: {
+    name: "Caso D · Ventas con una caída reciente",
+    expected: "Continuar sin inventario y priorizar una caída reciente sostenida.",
+    description: "Incluye seis meses de ventas, pero no incluye inventario.",
+    sales: [
+      ["2026-01-10", "Producto A", 6, 100000], ["2026-01-20", "Producto B", 4, 100000],
+      ["2026-02-10", "Producto A", 6, 100000], ["2026-02-20", "Producto B", 4, 100000],
+      ["2026-03-10", "Producto A", 6, 100000], ["2026-03-20", "Producto B", 4, 100000],
+      ["2026-04-10", "Producto A", 5, 100000], ["2026-04-20", "Producto B", 3, 100000],
+      ["2026-05-10", "Producto A", 5, 100000], ["2026-05-20", "Producto B", 2, 100000],
+      ["2026-06-10", "Producto A", 4, 100000], ["2026-06-20", "Producto B", 2, 100000]
+    ].map(row => ({ fecha: row[0], producto: row[1], cantidad: row[2], precio: row[3] })),
+    inventory: []
+  },
+  soloInventario: {
+    name: "Caso E · Solo información de inventario",
+    expected: "No inventar ventas y orientar a agregar información comercial.",
+    description: "Incluye existencias y costos, pero no incluye ventas.",
+    sales: [],
+    inventory: [
+      ["Producto A", 42, 52000],
+      ["Producto B", 18, 38000],
+      ["Producto C", 65, 21000],
+      ["Producto D", 9, 79000]
+    ].map(row => ({ producto: row[0], stock: row[1], costo: row[2] }))
   }
 };
 
@@ -194,47 +221,65 @@ function welcome() {
 }
 
 function contextScreen() {
-  return `<p class="eyebrow">Cuéntanos lo esencial</p>
-    <h1 class="screen-title">Tres preguntas antes de revisar tus datos</h1>
-    <p class="screen-intro">Solo usaremos estas respuestas para explicar mejor el resultado. No escribas información personal.</p>
+  return `<p class="eyebrow">Contexto empresarial</p>
+    <h1 class="screen-title">Cuéntanos un poco de tu negocio</h1>
+    <p class="screen-intro">Tres respuestas breves nos ayudan a interpretar mejor la información. San José determinará qué atender a partir de tus datos.</p>
     <form id="context-form" class="panel compact-form">
       <div class="form-grid">
         <label>¿A qué se dedica tu negocio? *
           <select name="actividad" required>
             <option value="">Selecciona</option>
-            <option>Tienda o comercio minorista</option>
-            <option>Mayorista</option>
+            <option>Comercio</option>
             <option>Distribución</option>
-            <option>Otro comercio</option>
+            <option>Servicios</option>
+            <option>Manufactura</option>
+            <option>Alimentos y restaurantes</option>
+            <option>Construcción</option>
+            <option>Transporte y logística</option>
+            <option>Agro</option>
+            <option>Salud</option>
+            <option>Educación</option>
+            <option>Turismo</option>
+            <option>Servicios profesionales</option>
+            <option value="Otro">Otro</option>
           </select>
         </label>
-        <label>¿Qué te preocupa más hoy? *
-          <select name="preocupacion" required>
+        <label>¿Cómo llevas hoy la información de tu negocio? *
+          <select name="registro" required>
             <option value="">Selecciona</option>
-            <option>Tengo productos que casi no se venden</option>
-            <option>A veces me quedo sin productos</option>
-            <option>Siento que dependo demasiado de pocos productos</option>
-            <option>No sé qué debería atender primero</option>
+            <option>Excel o Google Sheets</option>
+            <option>Software contable o administrativo</option>
+            <option>Sistema de punto de venta</option>
+            <option>Varias herramientas</option>
+            <option>Principalmente de forma manual</option>
+            <option>No tengo la información organizada</option>
           </select>
         </label>
-        <label>¿Has intentado mejorar este problema antes? *
-          <select id="attempt-select" name="intento" required>
+        <label>¿Cuánto tiempo lleva funcionando tu negocio? *
+          <select name="antiguedad" required>
             <option value="">Selecciona</option>
-            <option value="Sí">Sí</option>
-            <option value="No">No</option>
+            <option>Menos de 1 año</option>
+            <option>1 a 2 años</option>
+            <option>3 a 5 años</option>
+            <option>Más de 5 años</option>
           </select>
         </label>
       </div>
-      <div id="result-question" class="conditional hidden">
-        <label>¿Cómo te fue? *
-          <select name="resultado">
-            <option value="">Selecciona</option>
-            <option>Mejoró</option>
-            <option>Mejoró un poco</option>
-            <option>No vi resultados</option>
-          </select>
-        </label>
+      <div id="other-business" class="conditional hidden">
+        <label>¿A qué se dedica?<input name="actividadOtro" maxlength="120" placeholder="Descríbelo brevemente"></label>
       </div>
+      <section class="free-context">
+        <div>
+          <p class="eyebrow">Opcional</p>
+          <h2>Cuéntanos tu negocio con tus palabras</h2>
+          <p>Esto es opcional. Puedes contarnos brevemente qué hace tu empresa y cualquier situación reciente que creas importante. Nos ayudará a entender mejor tus datos.</p>
+        </div>
+        <div class="context-guide"><strong>Si quieres, puedes contarnos:</strong><ul><li>qué vende o hace tu negocio;</li><li>quiénes son tus principales clientes;</li><li>si pasó algo importante recientemente.</li></ul></div>
+        <label for="business-story">Escribir<textarea id="business-story" name="contextoLibre" rows="5" placeholder="Escribe aquí. Podrás editar también una transcripción de voz."></textarea></label>
+        <button id="voice-button" class="button secondary hidden" type="button">Hablar</button>
+        <p id="voice-status" class="message" role="status"></p>
+        <small>No almacenamos audio. Si usas voz, solo conservamos la transcripción en este formulario durante la sesión.</small>
+      </section>
       <div class="actions">
         <button class="button secondary" id="back-to-welcome" type="button">← Volver</button>
         <button class="button gold" type="submit">Continuar →</button>
@@ -270,7 +315,16 @@ function dataScreen() {
         <span>${safe(dataset.description)}</span>
       </button>`).join("")}
     </div>
-    ${app.semanticPending ? interpretationPanel() : nav(2, app.dataset ? 4 : null, "Revisar información")}`;
+    ${app.semanticPending ? interpretationPanel() : app.dataset ? datasetScopePanel() : nav(2, null)}`;
+}
+
+function datasetScopePanel() {
+  const hasSales = app.dataset.sales.length > 0;
+  const hasInventory = app.dataset.inventory.length > 0;
+  if (hasSales && hasInventory) return `<div class="scope-message success-scope"><h2>Perfecto. Encontramos ventas e inventario.</h2><p>Podemos relacionar ambas fuentes y realizar el análisis completo.</p></div>${nav(2, 4, "Revisar información")}`;
+  if (hasSales) return `<div class="scope-message"><h2>Encontramos ventas, pero no inventario.</h2><p>Sí podemos ayudarte con tus ventas: revisar cambios, productos principales y dependencia comercial.</p><p>Sin inventario no podremos saber si tienes productos acumulados o si podrías quedarte sin existencias.</p></div><div class="partial-actions"><button class="button secondary" type="button" data-focus-upload>Agregar inventario</button><button class="button gold" type="button" data-go="4">Sí, analizar mis ventas →</button></div>`;
+  if (hasInventory) return `<div class="scope-message"><h2>Encontramos inventario, pero no ventas.</h2><p>Podemos revisar la información disponible, pero necesitamos ventas para saber qué productos se venden y cuáles permanecen almacenados.</p></div><div class="partial-actions"><button class="button secondary" type="button" data-focus-upload>Agregar ventas</button><button class="button gold" type="button" data-go="4">Continuar con lo que tenemos →</button></div>`;
+  return "";
 }
 
 function formatBytes(bytes) {
@@ -279,8 +333,9 @@ function formatBytes(bytes) {
 
 function interpretationPanel() {
   const issues = requiredMappingIssues();
+  const scope = interpretedScope();
   const found = app.classified.map((table, index) => {
-    const typeLabel = table.type === "sales" ? "Parece contener ventas" : table.type === "inventory" ? "Parece contener inventario" : "Información adicional";
+    const typeLabel = table.type === "sales" ? "Parece contener ventas" : table.type === "inventory" ? "Parece contener inventario" : table.type === "additional" ? "Información complementaria. No la necesitamos en esta versión" : "No estamos seguros de qué contiene";
     return `<li class="found-sheet ${table.type}">
       <div><strong>${safe(table.fileName)}</strong><span>Hoja: ${safe(table.sheetName)}</span></div>
       <div><b>${typeLabel}</b><small>Confianza: ${safe(table.typeConfidence)}</small></div>
@@ -290,49 +345,78 @@ function interpretationPanel() {
     .map((table, index) => ({ table, index }))
     .filter(item => ["sales", "inventory"].includes(item.table.type));
   const additional = app.classified.filter(table => table.type === "additional");
+  const unknown = app.classified.filter(table => table.type === "unknown");
   return `<section class="panel interpretation-panel">
     <p class="eyebrow">Analista San José · ${app.semanticMode === "remote-ai" ? "interpretación remota" : "motor local de respaldo"}</p>
     <h2>Esto es lo que encontramos</h2>
     <p>Revisamos archivos, hojas, encabezados, tipos de datos y muestras de valores.</p>
     <ul class="found-list">${found}</ul>
     ${additional.length ? `<p class="optional-note">También encontramos ${countText(additional.length, "una hoja", "hojas")} con información adicional. Esta versión de San José se concentra únicamente en ventas e inventario.</p>` : ""}
+    ${unknown.length ? `<p class="optional-note">No logramos reconocer ${countText(unknown.length, "una hoja", "hojas")}. Puedes continuar si ya encontramos ventas o inventario.</p>` : ""}
     <h2>Esto es lo que entendimos</h2>
     <p>Solo pedimos tu intervención cuando una correspondencia no es completamente clara.</p>
     <div class="sheet-mappings">
       ${relevant.map(item => mappingCard(item.table, item.index)).join("")}
     </div>
     <div id="mapping-issues">${issues.map(issue => `<div class="low-stop"><h3>${safe(issue.title)}</h3><p>${safe(issue.message)}</p><small>${safe(issue.help)}</small></div>`).join("")}</div>
-    <div class="actions">
+    ${interpretationScopeMessage(scope)}
+    <div class="partial-actions">
       <button class="button secondary" type="button" id="clear-files">Elegir otros archivos</button>
-      <button id="confirm-mapping" class="button gold" type="button" ${issues.length ? "disabled" : ""}>Confirmar y analizar →</button>
+      ${scope.hasSales && !scope.hasInventory ? '<button class="button secondary" type="button" data-focus-upload>Agregar inventario</button>' : ""}
+      ${scope.hasInventory && !scope.hasSales ? '<button class="button secondary" type="button" data-focus-upload>Agregar ventas</button>' : ""}
+      <button id="confirm-mapping" class="button gold" type="button" ${issues.length ? "disabled" : ""}>${scope.hasSales && !scope.hasInventory ? "Sí, analizar mis ventas" : scope.hasInventory && !scope.hasSales ? "Continuar con lo que tenemos" : "Confirmar y analizar"} →</button>
     </div>
   </section>`;
 }
 
 function mappingCard(table, tableIndex) {
-  const roles = semanticRoles[table.type];
+  const assignments = Object.entries(table.interpretation.assignments);
+  const clear = assignments.filter(([, assignment]) => assignment?.confidence === "Alta");
+  const doubtfulByHeader = new Map();
+  assignments.filter(([, assignment]) => assignment && assignment.confidence !== "Alta").forEach(([role, assignment]) => {
+    const previous = doubtfulByHeader.get(assignment.header);
+    if (!previous || assignment.score > previous.assignment.score) doubtfulByHeader.set(assignment.header, { role, assignment });
+  });
   return `<article class="mapping-card">
     <header><div><span>${table.type === "sales" ? "Ventas" : "Inventario"}</span><h3>${safe(table.sheetName)}</h3></div><small>${safe(table.fileName)}</small></header>
-    ${Object.entries(roles).map(([role, config]) => mappingRow(table, tableIndex, role, config)).join("")}
+    <div class="understood-list">${clear.map(([role, assignment]) => `<div><span>${safe(semanticRoles[table.type][role].label)}</span><strong>“${safe(assignment.header)}”</strong><small>Ejemplo: ${safe(assignment.sample || "sin muestra")}</small></div>`).join("")}</div>
+    ${[...doubtfulByHeader.entries()].map(([header, item]) => clarificationQuestion(table, tableIndex, header, item.role, item.assignment)).join("")}
   </article>`;
 }
 
-function mappingRow(table, tableIndex, role, config) {
-  const assignment = table.interpretation.assignments[role];
-  const options = table.headers.map(header => `<option value="${safe(header)}" ${assignment?.header === header ? "selected" : ""}>${safe(header)}</option>`).join("");
-  const needsReview = !assignment || assignment.confidence !== "Alta";
-  return `<div class="mapping-row ${needsReview ? "needs-review" : ""}">
-    <div class="mapping-found"><span>Interpretación</span><strong>${safe(config.label)}</strong><small>${assignment ? `Columna “${safe(assignment.header)}” · Ejemplo: ${safe(assignment.sample || "sin muestra")}` : "No identificada"}</small></div>
-    <div class="mapping-proposal"><span>Confianza</span><strong class="confidence ${(assignment?.confidence || "Baja").toLowerCase()}">${safe(assignment?.confidence || "Baja")}</strong></div>
-    <details ${needsReview ? "open" : ""}>
-      <summary>${needsReview ? "Confirma o corrige esta interpretación" : "Cambiar interpretación"}</summary>
-      <label>Columna correcta
-        <select class="mapping-select" data-table="${tableIndex}" data-role="${role}">
-          <option value="">No está en esta hoja</option>${options}
-        </select>
-      </label>
-    </details>
-  </div>`;
+function clarificationQuestion(table, tableIndex, header, proposedRole, assignment) {
+  const options = table.type === "sales"
+    ? [["cantidad", "Cantidad vendida"], ["valorTotal", "Valor de la venta"], ["producto", "Producto"], ["fecha", "Fecha de venta"]]
+    : [["stock", "Existencia disponible"], ["producto", "Producto"], ["costo", "Valor o costo"]];
+  const selected = app.clarifications[`${tableIndex}:${header}`] || "";
+  return `<section class="clarification-question">
+    <p class="eyebrow">Necesitamos tu ayuda para entender este dato</p>
+    <h4>No estamos seguros de qué significa “${safe(header)}”.</h4>
+    <p>Estos son algunos valores que encontramos:</p>
+    <div class="sample-values">${safe(assignment.sample || "Sin muestra")}</div>
+    <label>¿Qué representa esta información?
+      <select class="meaning-select" data-table="${tableIndex}" data-header="${safe(header)}" data-proposed="${proposedRole}">
+        <option value="">Selecciona</option>
+        ${options.map(([value, label]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${label}</option>`).join("")}
+        <option value="other" ${selected === "other" ? "selected" : ""}>Otra información</option>
+        <option value="unknown" ${selected === "unknown" ? "selected" : ""}>No sé</option>
+      </select>
+    </label>
+  </section>`;
+}
+
+function interpretedScope() {
+  const usable = assignment => assignment && assignment.header && assignment.confidence === "Alta";
+  const hasSales = app.classified.some(table => table.type === "sales" && usable(table.interpretation.assignments.fecha) && usable(table.interpretation.assignments.producto) && usable(table.interpretation.assignments.cantidad) && (usable(table.interpretation.assignments.precio) || usable(table.interpretation.assignments.valorTotal)));
+  const hasInventory = app.classified.some(table => table.type === "inventory" && usable(table.interpretation.assignments.producto) && usable(table.interpretation.assignments.stock));
+  return { hasSales, hasInventory };
+}
+
+function interpretationScopeMessage(scope) {
+  if (scope.hasSales && scope.hasInventory) return '<div class="scope-message success-scope"><h3>Perfecto. Encontramos información de ventas e inventario.</h3><p>Podemos realizar el análisis completo.</p></div>';
+  if (scope.hasSales) return '<div class="scope-message"><h3>Encontramos ventas, pero no inventario.</h3><p>Sí podemos ayudarte con tus ventas. Sin inventario no podremos evaluar productos acumulados ni posibles faltantes.</p></div>';
+  if (scope.hasInventory) return '<div class="scope-message"><h3>Encontramos inventario, pero no ventas.</h3><p>No afirmaremos qué se vende o permanece almacenado. Podemos orientarte sobre el siguiente dato que necesitas.</p></div>';
+  return "";
 }
 
 function qualityScreen() {
@@ -357,7 +441,28 @@ function qualityScreen() {
       <h2>Todavía no podemos decirte qué atender primero.</h2>
       <h3>Qué hace falta</h3><p>${safe(quality.missing)}</p>
       <h3>Qué puedes hacer</h3><p>${safe(quality.nextStep)}</p>
-    </div>${nav(3, null)}` : nav(3, 5, "Ver qué atender primero")}`;
+    </div>${nav(3, null)}` : app.analysis.adaptiveNeeded ? adaptiveQuestionPanel() : nav(3, 5, "Ver qué atender primero")}`;
+}
+
+function adaptiveQuestionPanel() {
+  const trend = app.analysis.priorities[0];
+  return `<form id="adaptive-form" class="panel adaptive-panel">
+    <p class="eyebrow">Antes de recomendarte qué hacer</p>
+    <h2>${safe(trend.title)}</h2>
+    <p>Necesitamos confirmar si ocurrió algo fuera de lo normal durante ese periodo.</p>
+    <label>¿Qué pasó?
+      <select name="eventoReciente" required>
+        <option value="">Selecciona</option>
+        <option>Cerramos algunos días</option>
+        <option>Tuvimos problemas para conseguir productos</option>
+        <option>Cambiamos precios</option>
+        <option>Perdimos un cliente importante</option>
+        <option>No pasó nada especial</option>
+        <option>Otro</option>
+      </select>
+    </label>
+    <div class="actions"><button class="button secondary" type="button" data-go="3">← Volver</button><button class="button gold" type="submit">Continuar con este contexto →</button></div>
+  </form>`;
 }
 
 function resultsScreen() {
@@ -489,8 +594,9 @@ function bindScreen() {
 
   if (app.step === 2) {
     $("#context-form").addEventListener("submit", saveContext);
-    $("#attempt-select").addEventListener("change", toggleResultQuestion);
-    toggleResultQuestion();
+    $("#context-form select[name='actividad']").addEventListener("change", toggleOtherBusiness);
+    toggleOtherBusiness();
+    setupSpeechRecognition();
   }
   if (app.step === 3) {
     document.querySelectorAll("[data-dataset]").forEach(button => button.addEventListener("click", () => selectDataset(button.dataset.dataset)));
@@ -503,18 +609,21 @@ function bindScreen() {
       dropZone.classList.remove("dragging");
       readUploads(event.dataTransfer.files);
     });
-    document.querySelectorAll(".mapping-select").forEach(select => select.addEventListener("change", changeMapping));
+    document.querySelectorAll(".meaning-select").forEach(select => select.addEventListener("change", changeMeaning));
     $("#confirm-mapping")?.addEventListener("click", confirmInterpretation);
     $("#clear-files")?.addEventListener("click", resetUploads);
+    document.querySelectorAll("[data-focus-upload]").forEach(button => button.addEventListener("click", () => $("#business-files")?.click()));
   }
   if ([7, 8].includes(app.step)) document.querySelectorAll(".task-check").forEach(input => input.addEventListener("change", updateTask));
+  if (app.step === 4) $("#adaptive-form")?.addEventListener("submit", saveAdaptiveContext);
   if (app.step === 9) $("#feedback-form").addEventListener("submit", saveFeedback);
 }
 
-function toggleResultQuestion() {
-  const visible = $("#attempt-select").value === "Sí";
-  $("#result-question").classList.toggle("hidden", !visible);
-  $("#result-question select").required = visible;
+function toggleOtherBusiness() {
+  const select = $("#context-form select[name='actividad']");
+  const visible = select.value === "Otro";
+  $("#other-business").classList.toggle("hidden", !visible);
+  $("#other-business input").required = visible;
 }
 
 function saveContext(event) {
@@ -522,6 +631,37 @@ function saveContext(event) {
   app.context = Object.fromEntries(new FormData(event.currentTarget));
   app.completed.form = true;
   go(3);
+}
+
+function saveAdaptiveContext(event) {
+  event.preventDefault();
+  app.context.eventoReciente = new FormData(event.currentTarget).get("eventoReciente");
+  app.analysis = analyze(app.dataset);
+  render();
+}
+
+function setupSpeechRecognition() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const button = $("#voice-button");
+  if (!Recognition || !button) return;
+  button.classList.remove("hidden");
+  button.addEventListener("click", () => {
+    const recognition = new Recognition();
+    recognition.lang = "es-CO";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    $("#voice-status").textContent = "Escuchando…";
+    button.disabled = true;
+    recognition.onresult = event => {
+      const transcript = Array.from(event.results).map(result => result[0].transcript).join(" ");
+      const textarea = $("#business-story");
+      textarea.value = [textarea.value.trim(), transcript].filter(Boolean).join(" ");
+      $("#voice-status").textContent = "Transcripción lista. Puedes editarla antes de continuar.";
+    };
+    recognition.onerror = () => { $("#voice-status").textContent = "No pudimos transcribir. Puedes escribir el contexto."; };
+    recognition.onend = () => { button.disabled = false; };
+    recognition.start();
+  });
 }
 
 function selectDataset(key) {
@@ -616,8 +756,11 @@ async function readTabularFile(file) {
 }
 
 async function readUploads(fileList) {
-  const files = Array.from(fileList || []);
-  if (!files.length) return;
+  const incoming = Array.from(fileList || []);
+  if (!incoming.length) return;
+  const files = app.source === "custom"
+    ? [...app.files, ...incoming].filter((file, index, all) => all.findIndex(candidate => candidate.name === file.name && candidate.size === file.size) === index)
+    : incoming;
   const invalid = files.find(file => !/\.(xlsx|xls|csv)$/i.test(file.name) || file.size > 5 * 1024 * 1024);
   if (invalid) {
     showUploadError(`${invalid.name}: usa Excel o CSV de máximo 5 MB.`);
@@ -633,6 +776,12 @@ async function readUploads(fileList) {
     app.classified = [];
     let usedRemote = false;
     for (const table of app.tables) {
+      table.businessContext = {
+        activity: app.context.actividad === "Otro" ? app.context.actividadOtro : app.context.actividad,
+        information_management: app.context.registro,
+        business_age: app.context.antiguedad,
+        optional_context: app.context.contextoLibre
+      };
       table.profiles = Object.fromEntries(table.headers.map(header => [header, columnProfile(table.rows, header)]));
       const local = localClassifyTable(table);
       const interpreted = await window.AIDataInterpreter.interpret(table, () => local.remote);
@@ -711,10 +860,10 @@ function inferInterpretation(table, type) {
 
 function localClassifyTable(table) {
   if (table.empty || !table.rows.length) return {
-    type: "additional",
+    type: "unknown",
     typeConfidence: "Baja",
     interpretations: {},
-    remote: { sheet_type: "additional", confidence: "low", columns: {} }
+    remote: { sheet_type: "unknown", confidence: "low", columns: {} }
   };
   const sales = inferInterpretation(table, "sales");
   const inventory = inferInterpretation(table, "inventory");
@@ -726,7 +875,7 @@ function localClassifyTable(table) {
   const salesBonus = /(venta|factur|despach|salida)/.test(name) ? 3 : 0;
   const inventoryBonus = /(invent|exist|bodega|stock)/.test(name) ? 3 : 0;
   const additionalName = /(cliente|proveedor|nomina|empleado|impuesto|resumen|contab|cartera)/.test(name);
-  let type = "additional";
+  let type = "unknown";
   let score = 0;
   if (salesScore + salesBonus >= 8 && salesScore + salesBonus > inventoryScore + inventoryBonus) { type = "sales"; score = salesScore + salesBonus; }
   else if (inventoryScore + inventoryBonus >= 7) { type = "inventory"; score = inventoryScore + inventoryBonus; }
@@ -778,7 +927,7 @@ function buildClassifiedTable(table, local, interpreted) {
 function requiredMappingIssues() {
   const issues = [];
   const relevant = type => app.classified.filter(table => table.type === type);
-  const usable = assignment => assignment && assignment.header && assignment.confidence !== "Baja";
+  const usable = assignment => assignment && assignment.header && assignment.confidence === "Alta";
   const completeSales = relevant("sales").filter(table => {
     const assignments = table.interpretation.assignments;
     return usable(assignments.fecha) && usable(assignments.producto) && usable(assignments.cantidad) && (usable(assignments.precio) || usable(assignments.valorTotal));
@@ -787,29 +936,40 @@ function requiredMappingIssues() {
     const assignments = table.interpretation.assignments;
     return usable(assignments.producto) && usable(assignments.stock);
   });
-  if (!completeSales.length) issues.push({
-    title: "No encontramos ventas suficientes para continuar",
-    message: relevant("sales").length ? "Hay una hoja que parece contener ventas, pero falta confirmar fecha, producto, cantidad o valor." : "No encontramos una hoja que podamos reconocer como ventas.",
-    help: "Busca una hoja con fecha, producto, unidades vendidas y precio o valor total."
-  });
-  if (!completeInventory.length) issues.push({
-    title: "No encontramos el inventario necesario",
-    message: relevant("inventory").length ? "Hay una hoja que parece contener inventario, pero falta confirmar producto o existencias." : "No encontramos una hoja que podamos reconocer como inventario.",
-    help: "Busca una hoja con el nombre o referencia del producto y las unidades disponibles."
-  });
+  if (!completeSales.length && !completeInventory.length) {
+    if (relevant("sales").length) issues.push({
+      title: "Necesitamos entender mejor las ventas",
+      message: "Encontramos una hoja de ventas, pero todavía no identificamos fecha, producto, cantidad y valor con suficiente seguridad.",
+      help: "Responde las preguntas marcadas arriba. Si eliges “No sé” en un dato indispensable, te explicaremos por qué lo necesitamos."
+    });
+    if (relevant("inventory").length) issues.push({
+      title: "Necesitamos entender mejor el inventario",
+      message: "Encontramos inventario, pero todavía no identificamos producto y existencias con suficiente seguridad.",
+      help: "Responde las preguntas marcadas arriba o agrega una hoja más clara."
+    });
+    if (!relevant("sales").length && !relevant("inventory").length) issues.push({
+      title: "Todavía no reconocemos ventas ni inventario",
+      message: "Encontramos archivos, pero su contenido parece complementario o desconocido.",
+      help: "Agrega un archivo con ventas o inventario y vuelve a intentarlo."
+    });
+  }
   return issues;
 }
 
-function changeMapping(event) {
+function changeMeaning(event) {
   const table = app.classified[Number(event.target.dataset.table)];
-  const role = event.target.dataset.role;
-  const header = event.target.value;
-  table.interpretation.assignments[role] = header ? {
+  const header = event.target.dataset.header;
+  const choice = event.target.value;
+  app.clarifications[`${event.target.dataset.table}:${header}`] = choice;
+  for (const [role, assignment] of Object.entries(table.interpretation.assignments)) {
+    if (assignment?.header === header) table.interpretation.assignments[role] = null;
+  }
+  if (semanticRoles[table.type][choice]) table.interpretation.assignments[choice] = {
     header,
     confidence: "Alta",
     score: 10,
     sample: table.profiles[header]?.sample || "Confirmada por el usuario"
-  } : null;
+  };
   render();
 }
 
@@ -852,6 +1012,7 @@ function buildCanonicalDataset() {
 
 function analyze(data) {
   const sales = data.sales || [], inventory = data.inventory || [];
+  const hasSales = sales.length > 0, hasInventory = inventory.length > 0;
   const saleValue = row => Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : Number.isFinite(numericValue(row.precio)) && Number.isFinite(numericValue(row.cantidad)) ? numericValue(row.precio) * numericValue(row.cantidad) : NaN;
   const validProductSales = sales.filter(row => String(row.producto || "").trim()).length;
   const validQuantitySales = sales.filter(row => Number.isFinite(numericValue(row.cantidad)) && numericValue(row.cantidad) >= 0).length;
@@ -877,45 +1038,62 @@ function analyze(data) {
   const costRows = inventory.filter(row => Number.isFinite(numericValue(row.costo)) && numericValue(row.costo) >= 0).length;
   const costCoverage = inventory.length ? costRows / inventory.length : 0;
   let score = 100;
-  if (sales.length < 5 || inventory.length < 2) score -= 30;
+  if (hasSales && sales.length < 5) score -= 30;
+  if (hasInventory && inventory.length < 2) score -= 30;
+  if (!hasSales && !hasInventory) score = 0;
   score -= Math.round((1 - completeness) * 40);
   if (negativeCount) score -= 15;
   if (duplicates.size) score -= 5;
-  if (period < 30) score -= 10;
-  if (relation < .5) score -= 10;
+  if (hasSales && period < 30) score -= 10;
+  if (hasSales && hasInventory && relation < .5) score -= 10;
+  if (hasSales !== hasInventory) score = Math.min(score, 78);
   score = Math.max(0, Math.min(100, score));
+  const enoughSales = hasSales && sales.length >= 5 && validProductSales / sales.length >= .7 && validValueSales / sales.length >= .7;
+  const enoughInventory = hasInventory && inventory.length >= 2 && validInventory / inventory.length >= .7;
+  if (!enoughSales && !enoughInventory) score = Math.min(score, 49);
   const level = score >= 80 ? "ALTA" : score >= 55 ? "MEDIA" : "BAJA";
-  const facts = [
-    { ok: sales.length >= 5, text: `Encontramos ${sales.length} registros de ventas.` },
-    { ok: inventory.length >= 2, text: `Encontramos ${inventory.length} productos en inventario.` },
-    { ok: completeness >= .9, text: `${percent(completeness)} de los datos esenciales están completos y tienen un formato utilizable.` },
-    { ok: relation >= .5, text: `Pudimos relacionar ${percent(relation)} de los productos vendidos con el inventario.` },
-    { ok: period >= 30, text: `La información de ventas cubre ${period} días.` },
-    { ok: !negativeCount, text: negativeCount ? `Encontramos ${countText(negativeCount, "un valor negativo", "valores negativos")} que conviene revisar.` : "No encontramos cantidades negativas inesperadas." },
-    { ok: costCoverage >= .5, text: costCoverage ? `Encontramos costo para ${percent(costCoverage)} del inventario.` : "No encontramos costos; no analizaremos rentabilidad." }
-  ];
+  const facts = [];
+  if (hasSales) {
+    facts.push({ ok: sales.length >= 5, text: `Encontramos ${sales.length} registros de ventas que cubren ${period} días.` });
+    facts.push({ ok: validProductSales === sales.length, text: `${percent(validProductSales / Math.max(1, sales.length))} de las ventas tiene producto.` });
+    facts.push({ ok: validQuantitySales === sales.length, text: `${percent(validQuantitySales / Math.max(1, sales.length))} de las ventas tiene cantidad válida.` });
+  } else facts.push({ ok: false, text: "No encontramos información de ventas." });
+  if (hasInventory) {
+    facts.push({ ok: enoughInventory, text: `Encontramos ${inventory.length} productos en inventario y ${percent(validInventory / Math.max(1, inventory.length))} tiene existencias válidas.` });
+    if (hasSales) facts.push({ ok: relation >= .5, text: `Pudimos relacionar ${percent(relation)} de los productos vendidos con el inventario.` });
+  } else facts.push({ ok: false, text: "No encontramos inventario. No evaluaremos productos acumulados ni posibles faltantes." });
+  facts.push({ ok: !negativeCount, text: negativeCount ? `Encontramos ${countText(negativeCount, "un valor negativo", "valores negativos")} que conviene revisar.` : "No encontramos cantidades negativas inesperadas." });
+  facts.push({ ok: costCoverage >= .5, text: costCoverage ? `Encontramos costo para ${percent(costCoverage)} del inventario.` : "No encontramos costos; no analizaremos rentabilidad." });
   const missingParts = [];
   if (validQuantitySales < sales.length) missingParts.push(`${countText(sales.length - validQuantitySales, "venta", "ventas")} sin cantidad válida`);
   if (validProductSales < sales.length) missingParts.push(`${countText(sales.length - validProductSales, "venta", "ventas")} sin producto`);
   if (validValueSales < sales.length) missingParts.push(`${countText(sales.length - validValueSales, "venta", "ventas")} sin valor utilizable`);
   if (validInventory < inventory.length) missingParts.push(`${countText(inventory.length - validInventory, "producto", "productos")} sin existencias válidas`);
-  if (sales.length < 5) missingParts.push("más registros de ventas");
-  if (inventory.length < 2) missingParts.push("un inventario con al menos dos productos");
+  if (hasSales && sales.length < 5) missingParts.push("más registros de ventas");
+  if (hasInventory && inventory.length < 2) missingParts.push("un inventario con al menos dos productos");
   const summary = level === "ALTA"
-    ? `Encontramos ${sales.length} ventas, ${inventory.length} productos y ${percent(completeness)} de los datos esenciales completos.`
-    : level === "MEDIA"
-      ? `Podemos ofrecer una orientación inicial, pero conviene revisar ${missingParts.join(", ") || "algunos datos"}.`
-      : "La información todavía no permite comparar ventas e inventario con suficiente confianza.";
+    ? `Podemos realizar el análisis completo con ${sales.length} ventas, ${inventory.length} productos y ${percent(completeness)} de los datos esenciales utilizables.`
+    : level === "MEDIA" && hasSales && !hasInventory
+      ? `Podemos orientarte con ${sales.length} ventas. Sin inventario, el análisis se limita a cambios y productos vendidos.`
+      : level === "MEDIA" && hasInventory && !hasSales
+        ? `Encontramos ${inventory.length} productos. No afirmaremos cuáles se venden o permanecen almacenados porque faltan ventas.`
+        : level === "MEDIA"
+          ? `Podemos hacer una orientación inicial, aunque conviene revisar ${missingParts.join(", ") || "algunos datos"}.`
+          : "Todavía no tenemos información suficiente para decirte qué atender primero.";
   const quality = {
     score,
     level,
     summary,
     facts,
-    missing: missingParts.length ? `Necesitamos corregir o completar: ${missingParts.join("; ")}.` : "Necesitamos más registros que permitan comparar ventas e inventario.",
+    missing: missingParts.length ? `Necesitamos corregir o completar: ${missingParts.join("; ")}.` : "Necesitamos al menos ventas utilizables o un inventario con productos y existencias.",
     nextStep: "Busca esas columnas o registros en el archivo que ya utiliza tu negocio, complétalos y vuelve a cargarlo."
   };
   const metrics = calculateMetrics(sales, inventory, period);
-  return { quality, metrics, priorities: level === "BAJA" ? [] : prioritize(metrics) };
+  const priorities = level === "BAJA" ? [] : prioritize(metrics, { hasSales, hasInventory, completeness });
+  const freeContext = normalize(`${app.context.contextoLibre || ""} ${app.context.eventoReciente || ""}`);
+  const trendFirst = priorities[0]?.type === "trend";
+  const contextMentionsChange = Boolean(app.context.eventoReciente) || /(cerr|problema|proveedor|precio|cliente|normal|vacacion|obra|cambio|perdi)/.test(freeContext);
+  return { quality, metrics, priorities, adaptiveNeeded: trendFirst && !contextMentionsChange };
 }
 
 function calculateMetrics(sales, inventory, period) {
@@ -933,6 +1111,22 @@ function calculateMetrics(sales, inventory, period) {
   });
   const ranked = Object.entries(byProduct).sort((a, b) => b[1].revenue - a[1].revenue);
   const topShare = revenue && ranked[0] ? ranked[0][1].revenue / revenue : 0;
+  const monthlyMap = {};
+  sales.forEach(row => {
+    const date = new Date(row.fecha), quantity = numericValue(row.cantidad);
+    const value = Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : quantity * numericValue(row.precio);
+    if (Number.isNaN(date.getTime()) || !Number.isFinite(value) || value < 0) return;
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    monthlyMap[key] = (monthlyMap[key] || 0) + value;
+  });
+  const monthly = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value }));
+  const windowSize = monthly.length >= 6 ? 3 : monthly.length >= 4 ? 2 : 0;
+  const priorMonths = windowSize ? monthly.slice(-windowSize * 2, -windowSize) : [];
+  const recentMonths = windowSize ? monthly.slice(-windowSize) : [];
+  const average = values => values.length ? values.reduce((sum, item) => sum + item.value, 0) / values.length : 0;
+  const priorAverage = average(priorMonths), recentAverage = average(recentMonths);
+  const trendChange = priorAverage ? (recentAverage - priorAverage) / priorAverage : 0;
+  const trendSustained = recentMonths.length > 1 && recentMonths.every(item => item.value < priorAverage) && recentMonths.every((item, index) => index === 0 || item.value <= recentMonths[index - 1].value);
   const inv = inventory.filter(row => row.producto && Number.isFinite(numericValue(row.stock))).map(row => ({
     ...row,
     stock: numericValue(row.stock),
@@ -944,12 +1138,31 @@ function calculateMetrics(sales, inventory, period) {
   const slowValue = slowItems.reduce((sum, row) => sum + (Number.isFinite(row.cost) ? row.stock * row.cost : 0), 0);
   const slowSales = slowItems.reduce((sum, row) => sum + row.sold, 0);
   const stockout = inv.filter(row => row.stock <= 5 && row.sold > 0).sort((a, b) => b.sold - a.sold)[0];
-  return { revenue, units, ranked, topShare, inv, slowItems, slowUnits, slowValue, slowSales, stockout, period, products: inv.length };
+  const inventoryValue = inv.reduce((sum, row) => sum + (Number.isFinite(row.cost) ? row.stock * row.cost : 0), 0);
+  const inventoryUnits = inv.reduce((sum, row) => sum + row.stock, 0);
+  return { revenue, units, ranked, topShare, monthly, priorAverage, recentAverage, trendChange, trendSustained, inv, inventoryValue, inventoryUnits, slowItems, slowUnits, slowValue, slowSales, stockout, period, products: inv.length };
 }
 
-function prioritize(metrics) {
+function priorityScore({ impact, urgency, reach, confidence }) {
+  return Math.round(impact * .35 + urgency * .30 + reach * .20 + confidence * .15);
+}
+
+function scored(finding, factors) {
+  return { ...finding, priorityFactors: factors, priorityScore: priorityScore(factors) };
+}
+
+function prioritize(metrics, scope) {
   const findings = [];
-  const concentration = {
+  if (scope.hasSales && metrics.trendSustained && metrics.trendChange <= -.15) findings.push(scored({
+    type: "trend",
+    title: `Tus ventas bajaron ${percent(Math.abs(metrics.trendChange))} en los meses más recientes.`,
+    reason: `El promedio mensual pasó de ${money.format(metrics.priorAverage)} a ${money.format(metrics.recentAverage)}.`,
+    evidence: `La caída aparece de forma sostenida en los últimos ${metrics.monthly.length >= 6 ? 3 : 2} meses disponibles.`,
+    meaning: "Es un cambio reciente que afecta el conjunto de las ventas y merece confirmarse antes de atribuirlo a una causa.",
+    action: "Confirma si ocurrió algo fuera de lo normal y revisa qué productos explican la mayor parte de la caída.",
+    indicator: "Valor vendido cada mes."
+  }, { impact: Math.min(100, Math.abs(metrics.trendChange) * 300), urgency: 95, reach: 100, confidence: metrics.monthly.length >= 6 ? 95 : 75 }));
+  const concentration = scored({
     type: "concentration",
     title: `Gran parte de tus ventas depende de ${metrics.ranked[0]?.[0] || "un solo producto"}.`,
     reason: `${metrics.ranked[0]?.[0] || "El producto principal"} representa ${percent(metrics.topShare)} del valor vendido.`,
@@ -957,7 +1170,7 @@ function prioritize(metrics) {
     meaning: "Una caída en ese producto puede afectar una parte importante de las ventas observadas.",
     action: "Comprueba si el patrón continúa y elige dos productos complementarios que puedas ofrecer junto al principal.",
     indicator: "Porcentaje del valor vendido que representa el producto principal."
-  };
+  }, { impact: metrics.topShare * 100, urgency: 45, reach: metrics.topShare * 100, confidence: 90 });
   const slow = metrics.slowItems.length ? {
     type: "slow",
     title: "Hay productos almacenados que casi no se venden.",
@@ -968,7 +1181,13 @@ function prioritize(metrics) {
     indicator: "Unidades disponibles de los productos almacenados que casi no se venden.",
     items: metrics.slowItems
   } : null;
-  const stockout = metrics.stockout ? {
+  const scoredSlow = slow ? scored(slow, {
+    impact: metrics.inventoryValue ? Math.min(100, metrics.slowValue / metrics.inventoryValue * 100) : Math.min(100, metrics.slowUnits / Math.max(1, metrics.inventoryUnits) * 100),
+    urgency: 75,
+    reach: Math.min(100, metrics.slowItems.length / Math.max(1, metrics.products) * 100),
+    confidence: scope.hasSales && scope.hasInventory ? 95 : 55
+  }) : null;
+  const stockout = metrics.stockout ? scored({
     type: "stockout",
     title: `Podrías quedarte sin ${metrics.stockout.producto}.`,
     reason: "El producto tiene ventas registradas y muy pocas unidades disponibles.",
@@ -976,10 +1195,18 @@ function prioritize(metrics) {
     meaning: "Si continúa vendiéndose al mismo ritmo, podrían aparecer ventas que el negocio no pueda atender.",
     action: "Confirma físicamente las existencias y revisa el siguiente pedido antes de que lleguen a cero.",
     indicator: "Días con el producto disponible sin llegar a cero."
-  } : null;
-  if (metrics.topShare >= .8) findings.push(concentration);
-  if (slow) findings.push(slow);
-  if (metrics.topShare >= .6 && metrics.topShare < .8) findings.push(concentration);
+  }, { impact: 75, urgency: 95, reach: Math.min(100, metrics.stockout.sold / Math.max(1, metrics.units) * 100), confidence: 95 }) : null;
+  if (!scope.hasSales && scope.hasInventory) findings.push(scored({
+    type: "inventory-only",
+    title: "Agrega ventas antes de decidir qué producto atender.",
+    reason: `Encontramos ${metrics.products} productos y ${metrics.inventoryUnits} unidades disponibles, pero ninguna venta.`,
+    evidence: metrics.inventoryValue ? `El costo registrado del inventario es ${money.format(metrics.inventoryValue)}.` : "No hay ventas que permitan comparar movimiento por producto.",
+    meaning: "Sin ventas o movimientos no podemos afirmar qué producto se vende, permanece almacenado o podría agotarse.",
+    action: "Busca un archivo con fecha, producto, cantidad y valor vendido para completar el análisis.",
+    indicator: "Número de registros de ventas agregados al próximo análisis."
+  }, { impact: 80, urgency: 90, reach: 100, confidence: 100 }));
+  if (scope.hasSales && metrics.topShare >= .6) findings.push(concentration);
+  if (scope.hasSales && scope.hasInventory && scoredSlow) findings.push(scoredSlow);
   if (stockout) findings.push(stockout);
   const fallbacks = [
     {
@@ -1010,12 +1237,16 @@ function prioritize(metrics) {
       indicator: "Semanas actualizadas sin interrupción."
     }
   ];
-  for (const fallback of fallbacks) if (findings.length < 3 && !findings.some(item => item.type === fallback.type)) findings.push(fallback);
-  return findings.slice(0, 3);
+  for (const fallback of fallbacks) if (findings.length < 3 && !findings.some(item => item.type === fallback.type)) findings.push(scored(fallback, { impact: 35, urgency: 35, reach: 45, confidence: scope.completeness * 100 }));
+  return findings.sort((a, b) => b.priorityScore - a.priorityScore).slice(0, 3);
 }
 
 function metricCards() {
   const metrics = app.analysis.metrics;
+  if (!metrics.ranked.length && metrics.products) return `<article class="stat"><span>Productos en inventario</span><strong>${metrics.products}</strong></article>
+    <article class="stat"><span>Unidades disponibles</span><strong>${metrics.inventoryUnits}</strong></article>
+    <article class="stat"><span>Costo registrado</span><strong>${metrics.inventoryValue ? money.format(metrics.inventoryValue) : "No disponible"}</strong></article>
+    <article class="stat"><span>Ventas encontradas</span><strong>0</strong></article>`;
   return `<article class="stat"><span>Valor vendido</span><strong>${money.format(metrics.revenue)}</strong></article>
     <article class="stat"><span>Unidades vendidas</span><strong>${metrics.units}</strong></article>
     <article class="stat"><span>Días revisados</span><strong>${metrics.period}</strong></article>
@@ -1025,6 +1256,16 @@ function metricCards() {
 function getPlan() {
   const finding = app.analysis?.priorities[0];
   if (!finding) return [];
+  if (finding.type === "trend") return [
+    { when: "HOY", action: "Confirma qué productos y semanas explican la caída reciente.", explain: app.context.eventoReciente ? `Ten en cuenta el contexto indicado: ${app.context.eventoReciente}.` : "Compara el periodo reciente con los meses anteriores." },
+    { when: "ESTA SEMANA", action: "Elige una causa comprobable y una acción pequeña para responder.", explain: "Evita cambiar precios, compras y promociones al mismo tiempo." },
+    { when: "EN 14 DÍAS", action: "Compara nuevamente el valor vendido.", explain: "Revisa si la caída se detuvo, continuó o empezó a recuperarse." }
+  ];
+  if (finding.type === "inventory-only") return [
+    { when: "HOY", action: "Ubica dónde registras las ventas de tu negocio.", explain: "Busca fecha, producto, cantidad y valor vendido." },
+    { when: "ESTA SEMANA", action: "Exporta o organiza esos registros en Excel o CSV.", explain: "No necesitas cambiar los nombres de las columnas." },
+    { when: "EN 14 DÍAS", action: "Vuelve a analizar ventas e inventario juntos.", explain: "San José podrá comparar qué se vende y qué permanece disponible." }
+  ];
   if (finding.type === "slow") {
     const count = Math.min(10, finding.items?.length || 1);
     return [
@@ -1104,7 +1345,7 @@ function downloadExecutiveSummary() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "resumen-ejecutivo-san-jose-v3.html";
+  link.download = "resumen-ejecutivo-san-jose-v4.html";
   document.body.appendChild(link);
   link.click();
   link.remove();

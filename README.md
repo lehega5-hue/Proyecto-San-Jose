@@ -1,117 +1,89 @@
-# San José – Transformación Estratégica · MVP V3
+# San José – Transformación Estratégica · MVP V4
 
-San José recibe la información que una pequeña empresa ya utiliza y muestra qué debería atender primero.
+San José ayuda a propietarios y gerentes de pequeñas empresas colombianas a entender qué merece atención primero a partir de sus ventas e inventario.
 
 > **Tus datos te muestran qué atender primero.**
 
 **ARCHIVO → COMPRENSIÓN → EVIDENCIA → PRIORIDAD → 3 ACCIONES**
 
-## Qué demuestra esta versión
+## Abrir la aplicación
 
-El MVP se concentra únicamente en **ventas e inventario**:
+La aplicación es estática y compatible con GitHub Pages. No requiere cuenta, backend ni `localhost`:
 
-1. recibe uno o varios archivos Excel o CSV;
-2. inspecciona todas las hojas;
-3. identifica ventas, inventario e información adicional;
-4. propone correspondencias de columnas y muestra su confianza;
-5. calcula calidad y cifras con código determinístico;
-6. presenta un hallazgo principal, dos secundarios y tres acciones.
+- Sitio público: <https://lehega5-hue.github.io/Proyecto-San-Jose/>
+- Alternativa local opcional: `python -m http.server 8765` y abrir <http://localhost:8765/>
 
-No hay login, backend, base de datos, pagos ni almacenamiento de archivos.
+## Recorrido V4
 
-## Cómo abrirlo
+1. Responde tres preguntas estructuradas: actividad, forma de administrar la información y antigüedad.
+2. Opcionalmente agrega contexto libre por texto o dictado. El navegador transcribe el audio y no lo almacena.
+3. Sube uno o varios XLS, XLSX o CSV en una única entrada. Se leen todas las hojas.
+4. Revisa cómo se interpretaron las hojas y responde una pregunta sencilla si una columna es ambigua.
+5. Continúa con ventas, inventario o ambos. La aplicación limita sus conclusiones según la información disponible.
+6. Revisa calidad, tres hallazgos ordenados, una prioridad principal y un plan de exactamente tres acciones.
+7. Marca avances, registra comentarios y consulta el resumen de prueba.
 
-Desde la carpeta del proyecto ejecuta **python -m http.server 8765** y abre **http://localhost:8765/**.
+## Qué cambió en V4
 
-También puede abrirse **index.html** directamente, aunque algunos navegadores aplican restricciones adicionales a archivos locales.
+- Contexto reducido a tres preguntas obligatorias y un campo libre opcional.
+- Dictado opcional con `SpeechRecognition` cuando el navegador lo soporta.
+- Flujos parciales: ventas sin inventario e inventario sin ventas.
+- Aclaraciones humanas de columnas, una por una, con muestras y la opción **No sé**.
+- Clasificación explícita de hojas como ventas, inventario, complementaria o desconocida.
+- Detección de caída reciente sostenida en ventas.
+- Priorización reproducible por impacto, urgencia, alcance y confianza.
+- Pregunta adaptativa solo cuando una caída prioritaria necesita contexto adicional.
+- Calidad respaldada por cantidades y porcentajes calculados.
+- Batería automatizada de diez casos en `tests/run-tests.js`.
 
-## Recorrido
+## Reglas de seguridad analítica
 
-1. **Cuéntanos lo esencial:** tres preguntas obligatorias y una cuarta condicional.
-2. **Sube tu información:** una sola zona admite uno o varios archivos XLSX, XLS o CSV.
-3. **Mira qué atender primero:** calidad explicada con cifras y una prioridad dominante.
-4. **Sigue un plan sencillo:** Hoy, Esta semana y En 14 días.
+- Solo ventas: puede analizar cambios y concentración; no afirma inventario acumulado ni faltantes.
+- Solo inventario: informa existencias y cobertura de costo; no afirma ventas, rotación ni productos de bajo movimiento.
+- Información parcial: la calidad nunca puede ser Alta.
+- Información insuficiente: detiene la recomendación y explica qué falta.
+- La interpretación semántica no calcula cifras; los cálculos y la priorización son determinísticos.
+- La decisión final corresponde al empresario.
 
-Casos ficticios:
+## IA opcional y secretos
 
-- Caso A: productos almacenados que casi no se venden.
-- Caso B: gran parte de las ventas depende de pocos productos.
-- Caso C: información insuficiente; el análisis debe detenerse.
+`ai-interpreter.js` funciona en modo local por defecto. Puede consultar un servicio remoto propio únicamente si se configura una URL HTTPS pública.
 
-## Analista San José
+**No se guardan API keys, tokens, contraseñas ni secretos en el repositorio ni en el navegador.** Si se conecta un proveedor de IA, la credencial debe existir exclusivamente como variable de entorno de una función serverless. Ante error, timeout o respuesta inválida, la aplicación vuelve al modo local.
 
-El componente **AIDataInterpreter**, en **ai-interpreter.js**, tiene dos modos:
-
-- **remote-ai:** servicio seguro configurado fuera de GitHub Pages;
-- **local-fallback:** motor semántico local siempre disponible.
-
-La demostración funciona sin IA externa. Si no hay endpoint, tarda demasiado o responde con JSON inválido, el fallback local toma el control.
-
-Responsabilidades:
-
-- IA o motor semántico: interpreta hojas y columnas.
-- Código determinístico: limpia datos y calcula cifras.
-- Reglas determinísticas: ordenan la importancia.
-- San José: explica el resultado.
-- Empresario: toma y ejecuta la decisión final.
-
-No se guardan API keys en JavaScript. Consulta **ARQUITECTURA_IA.md** antes de conectar un servicio remoto.
-
-## Interpretación y confirmación
-
-Después de una carga real se muestra **Esto es lo que encontramos**:
-
-- archivo y hoja;
-- clasificación como ventas, inventario o información adicional;
-- nivel de confianza;
-- columna propuesta;
-- ejemplo de valores.
-
-Confianza Media o Baja solicita confirmación. Confianza Alta permanece visible y puede corregirse mediante **Cambiar interpretación**.
-
-Clientes, proveedores, nómina, impuestos y resúmenes se clasifican como información adicional y no se analizan.
-
-## Calidad de la información
-
-Los niveles Alta, Media y Baja se explican con cifras calculadas:
-
-- registros encontrados;
-- porcentaje de datos esenciales completos;
-- productos relacionados entre ventas e inventario;
-- días cubiertos;
-- valores negativos;
-- cobertura de costos.
-
-Calidad Baja detiene la recomendación y explica qué falta y qué puede hacer el empresario.
+Consulta [ARQUITECTURA_IA.md](ARQUITECTURA_IA.md) antes de habilitar ese servicio.
 
 ## Privacidad
 
-- Los archivos se procesan localmente.
-- No se envían ni almacenan en un servidor.
-- Deben usarse datos ficticios o anonimizados.
-- La decisión final y su ejecución corresponden al empresario.
+- Los archivos se procesan en el navegador.
+- El modo local no envía ni almacena archivos.
+- El dictado usa la capacidad disponible del navegador y San José no conserva el audio.
+- Para pruebas deben utilizarse datos ficticios o anonimizados.
+- Si se habilita IA remota, deben enviarse solo metadatos y muestras mínimas anonimizadas.
 
-## Archivos principales
+## Desarrollo y pruebas
 
-- **index.html:** estructura y landing.
-- **app.js:** recorrido, motor local, cálculos y priorización.
-- **ai-interpreter.js:** adaptador remoto opcional y fallback.
-- **overrides.css:** identidad visual y responsive.
-- **assets/logo-san-jose-v3.png:** logo oficial proporcionado.
-- **RESULTADOS_PRUEBAS.md:** evidencia de QA.
+No hay proceso de compilación. Para ejecutar las pruebas automatizadas:
+
+```powershell
+node tests/run-tests.js
+```
+
+Archivos principales:
+
+- `index.html`: estructura y landing.
+- `app.js`: recorrido, carga, cálculos, calidad y priorización.
+- `ai-interpreter.js`: adaptador remoto opcional y fallback local.
+- `overrides.css`: identidad visual y diseño adaptable.
+- `assets/logo-san-jose-v3.png`: logo oficial proporcionado.
+- `tests/run-tests.js`: diez pruebas reproducibles.
+- `RESULTADOS_PRUEBAS.md`: evidencia consolidada de QA.
 
 ## Limitaciones actuales
 
-- No conserva estado después de actualizar.
-- No analiza devoluciones, pedidos pendientes, estacionalidad o ventas perdidas.
-- No calcula rentabilidad si no existen costos.
-- El endpoint remoto de IA no está desplegado.
-- El resumen se descarga como HTML y se guarda como PDF mediante impresión.
-
-## Si algo falla
-
-- Recarga con Ctrl + F5.
-- Confirma que cada archivo pese máximo 5 MB.
-- Cada hoja debe tener encabezados y al menos una fila.
-- Confirma las correspondencias de confianza Media o Baja.
-- Si falta ventas o inventario, agrega la hoja o el dato que indique la aplicación.
+- El estado se pierde al actualizar la página; esto evita conservar datos empresariales.
+- La precisión de la carga depende de que cada hoja tenga encabezados y al menos una fila.
+- No analiza devoluciones, pedidos pendientes, ventas perdidas ni estacionalidad externa.
+- No calcula rentabilidad si no existen costos confiables.
+- La transcripción por voz depende del soporte y permisos del navegador.
+- El endpoint remoto de IA no forma parte de este repositorio.
