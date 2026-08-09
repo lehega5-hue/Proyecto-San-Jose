@@ -465,6 +465,15 @@ p { text-wrap: pretty; }
 .plan-signal small { display: block; margin-top: 9px; color: var(--muted); }
 .plan-no-signal { max-width: 780px; margin: 0; color: #4c5667; }
 .plan-responsibility { max-width: 920px; margin: 24px auto 0; padding: 18px 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: .86rem; text-align: center; }
+.plan-finished { max-width: 700px; margin: 30px 0 0 auto; padding: 22px 24px; border-left: 4px solid var(--green); background: #edf7f2; }
+.plan-finished h2 { margin: 0 0 5px; font: 500 1.65rem Georgia, serif; }
+.plan-finished p { margin: 0; color: #405447; }
+.plan-closing-actions { margin-top: 34px; }
+.plan-pending-dialog { width: min(560px, calc(100% - 30px)); padding: clamp(24px, 5vw, 34px); border: 0; border-top: 5px solid var(--gold); border-radius: 14px; box-shadow: var(--shadow); }
+.plan-pending-dialog::backdrop { background: rgba(6, 27, 63, .62); }
+.plan-pending-dialog h2 { margin: 0 0 8px; font: 500 clamp(1.5rem, 3vw, 1.9rem)/1.2 Georgia, serif; }
+.plan-pending-dialog p { margin: 0; color: var(--muted); }
+.plan-pending-dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 26px; }
 .opportunities-summary { max-width: 1120px; }
 .opportunities-order { max-width: 760px; margin: 20px 0 0; padding-left: 15px; border-left: 3px solid var(--gold); color: var(--navy); }
 .opportunity-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 32px; }
@@ -609,6 +618,9 @@ p { text-wrap: pretty; }
   .stage-four-problem { grid-template-columns: 1fr; }
   .stage-four-problem img { width: 112px; height: 112px; }
   .plan-signal-grid { grid-template-columns: 1fr; }
+  .plan-finished { margin-left: 0; }
+  .plan-pending-dialog .dialog-actions { align-items: stretch; flex-direction: column; }
+  .plan-pending-dialog .button { width: 100%; }
   .opportunity-grid, .opportunity-method ol { grid-template-columns: 1fr; }
   .execution-opportunity { grid-template-columns: 1fr; }
   .execution-opportunity img { width: 105px; height: 105px; }

@@ -51,7 +51,7 @@ const source = fs.readFileSync(appPath, "utf8") + `
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
   roleDisplayLabel, primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, followupScreen, feedbackScreen,
+  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen,
   syncOpportunityCycle, decideOpportunityAfterReview,
   buildFeedbackRecord, recordOpportunityReview, detectFollowupEvents,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
@@ -68,7 +68,7 @@ const {
   columnDataQuality, columnIdentification, roleDisplayLabel,
   primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, followupScreen, feedbackScreen,
+  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen,
   syncOpportunityCycle, decideOpportunityAfterReview,
   buildFeedbackRecord, recordOpportunityReview, detectFollowupEvents,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
@@ -1421,21 +1421,25 @@ test("ETAPA 4 J: la pantalla usa lenguaje simple y reserva las metas para el cie
   assert.ok(html.includes(">Hoy<") && html.includes(">Meta<"));
 });
 
-test("EJECUCIÓN A: organiza oportunidad, señales y plan con el logo oficial", () => {
+test("NAVEGACIÓN DEL PLAN A: elimina la vista repetida y prepara el paso directo para contar qué pasó", () => {
   setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
   app.opportunityHistory = [];
   app.currentOpportunityKey = null;
+  app.planDetailOpen = true;
   const actionPlan = getActionPlan();
-  const html = followupScreen();
+  const html = planScreen();
   const activityCount = actionPlan.phases.flatMap(phase => phase.activities).length;
-  assert.ok(html.includes("Avanza una acción a la vez"));
-  assert.ok(html.includes("Completa el plan paso a paso. Cuando termines, cuéntanos cómo te fue para revisar qué sigue."));
-  assert.ok(html.includes("Oportunidad que estamos atendiendo"));
-  assert.ok(!html.includes("Problema que estamos atendiendo"));
-  assert.ok(html.includes("assets/logo-san-jose-azul.png"));
-  assert.ok(html.includes("¿Cómo sabremos si está mejorando?"));
-  assert.ok(html.includes("Estas actividades están pensadas para trabajar esta oportunidad."));
   assert.ok(html.includes("Tu plan en 3 fases"));
+  assert.ok(html.includes("Problema que estamos atendiendo"));
+  assert.ok(!html.includes("Avanza una acción a la vez"));
+  assert.ok(!html.includes("Oportunidad que estamos atendiendo"));
+  assert.ok(!html.includes("Hacer seguimiento"));
+  assert.ok(html.includes("Cuéntanos qué pasó →"));
+  assert.ok(html.includes("Todavía tienes actividades pendientes."));
+  assert.ok(html.includes("Puedes contarnos cómo te fue hasta ahora o volver al plan."));
+  assert.ok(html.includes("Volver al plan"));
+  assert.ok(html.includes("Contarnos qué pasó"));
+  assert.ok(html.includes("assets/logo-san-jose-azul.png"));
   assert.equal((html.match(/class="task-check"/g) || []).length, activityCount);
   actionPlan.signals.forEach(signal => {
     assert.ok(html.includes(signal.name));
@@ -1445,20 +1449,36 @@ test("EJECUCIÓN A: organiza oportunidad, señales y plan con el logo oficial", 
   assert.equal((html.match(/La decisión final y su ejecución corresponden al empresario\./g) || []).length, 1);
 });
 
-test("EJECUCIÓN B: no muestra más de tres señales ni lenguaje técnico", () => {
+test("NAVEGACIÓN DEL PLAN B: al completar todas las actividades muestra el cierre acordado", () => {
   setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
   app.opportunityHistory = [];
   app.currentOpportunityKey = null;
-  const html = followupScreen().toLowerCase();
+  app.planDetailOpen = true;
+  planScreen();
+  app.tasks = app.tasks.map(() => true);
+  const html = planScreen();
+  assert.ok(html.includes("Terminaste este plan."));
+  assert.ok(html.includes("Ahora cuéntanos cómo te fue para revisar qué sigue."));
+  assert.ok(html.includes('class="plan-finished "'));
+  assert.equal((html.match(/Cuéntanos qué pasó →/g) || []).length, 1);
+});
+
+test("NAVEGACIÓN DEL PLAN C: no muestra más de tres señales ni lenguaje técnico", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  app.opportunityHistory = [];
+  app.currentOpportunityKey = null;
+  app.planDetailOpen = true;
+  const html = planScreen().toLowerCase();
   assert.ok(getActionPlan().signals.length <= 3);
   ["kpi", "indicador de gestión", "target", "baseline", "performance", "seguimiento estratégico", "medición de desempeño", "cierre de proyecto", "iteración"].forEach(term => assert.ok(!html.includes(term), `aparece ${term}`));
 });
 
-test("EJECUCIÓN C: una nueva oportunidad crea otro ciclo y no reutiliza actividades", () => {
+test("NAVEGACIÓN DEL PLAN D: una nueva oportunidad crea otro ciclo y no reutiliza actividades", () => {
   setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
   app.opportunityHistory = [];
   app.currentOpportunityKey = null;
-  followupScreen();
+  app.planDetailOpen = true;
+  planScreen();
   const firstKey = app.currentOpportunityKey;
   const firstOpportunity = app.opportunityHistory[0].oportunidadAtendida;
   app.tasks = Array(getActionPlan().phases.flatMap(phase => phase.activities).length).fill(true);
@@ -1466,7 +1486,7 @@ test("EJECUCIÓN C: una nueva oportunidad crea otro ciclo y no reutiliza activid
   app.dataset = inventoryData;
   app.analysis = analyze(inventoryData, new Date("2026-08-08T12:00:00Z"));
   app.actionPlan = null;
-  followupScreen();
+  planScreen();
   assert.notEqual(app.currentOpportunityKey, firstKey);
   assert.equal(app.opportunityHistory.length, 2);
   assert.equal(app.opportunityHistory[0].oportunidadAtendida, firstOpportunity);
@@ -1475,7 +1495,7 @@ test("EJECUCIÓN C: una nueva oportunidad crea otro ciclo y no reutiliza activid
   assert.ok(app.opportunityHistory[1].actividades.every(item => item.completada === false));
 });
 
-test("EJECUCIÓN D: completar actividades no decide por sí solo pasar a otra oportunidad", () => {
+test("NAVEGACIÓN DEL PLAN E: completar actividades no decide por sí solo pasar a otra oportunidad", () => {
   const insufficient = decideOpportunityAfterReview({ hasNewData: false, activitiesCompleted: true });
   const stillPriority = decideOpportunityAfterReview({ hasNewData: true, outcome: "improved", improvedEnough: true, remainsHighestPriority: true, activitiesCompleted: true });
   const nextOpportunity = decideOpportunityAfterReview({ hasNewData: true, outcome: "improved", improvedEnough: true, remainsHighestPriority: false });
@@ -1497,6 +1517,8 @@ test("DESPUÉS DEL PLAN A: muestra dos preguntas rápidas y una sola pregunta ab
   assert.equal((html.match(/<textarea/g) || []).length, 1);
   assert.ok(html.includes("Escribe o cuéntanos con tu voz"));
   assert.ok(html.includes("Guardar y revisar qué sigue →"));
+  assert.ok(html.includes('data-go="7">← Volver al plan'));
+  assert.ok(!html.includes('data-go="8"'));
   assert.ok(html.includes("Solo usamos lo que escribas o dictemos como texto para esta revisión."));
 });
 

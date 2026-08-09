@@ -65,7 +65,7 @@ const stepNames = [
   "Lo más importante",
   "Evidencia del hallazgo",
   "Plan sencillo",
-  "Seguimiento",
+  "Cuéntanos qué pasó",
   "Cuéntanos qué pasó",
   "Qué sigue"
 ];
@@ -176,7 +176,7 @@ function render() {
   $("#progress-label").textContent = `Etapa ${stage} de 4 · ${stageNames[stage - 1]}`;
   $("#progress-title").textContent = stepNames[app.step - 1];
   $("#progress-bar").style.width = `${stage / 4 * 100}%`;
-  const screens = [welcome, contextScreen, dataScreen, qualityScreen, resultsScreen, evidenceScreen, planScreen, followupScreen, feedbackScreen, nextScreen];
+  const screens = [welcome, contextScreen, dataScreen, qualityScreen, resultsScreen, evidenceScreen, planScreen, feedbackScreen, feedbackScreen, nextScreen];
   $("#screen").innerHTML = screens[app.step - 1]();
   $("#screen").focus({ preventScroll: true });
   bindScreen();
@@ -968,11 +968,16 @@ function planScreen() {
   if (!app.analysis) return missingState();
   if (!app.planDetailOpen) return opportunitiesSummaryScreen();
   app.completed.plan = true;
+  const checklist = stageFourPlanChecklist();
+  const activityCount = getActionPlan().phases.flatMap(phase => phase.activities).length;
+  const planFinished = activityCount > 0 && app.tasks.filter(Boolean).length === activityCount;
   return `<div class="stage-four-plan"><p class="eyebrow">Un paso a la vez</p>
     <h1 class="screen-title">Tu plan en 3 fases</h1>
     <p class="screen-intro">Primero revisamos qué cambió, después actuamos y al final comprobamos si mejoró.</p>
-    ${stageFourPlanChecklist()}</div>
-    <div class="actions"><button id="back-opportunities" class="button secondary" type="button">← Ver oportunidades</button><div class="right"><button class="button gold" type="button" data-go="8">Hacer seguimiento →</button></div></div>`;
+    ${checklist}</div>
+    <section id="plan-finished-message" class="plan-finished ${planFinished ? "" : "hidden"}" aria-live="polite"><h2>Terminaste este plan.</h2><p>Ahora cuéntanos cómo te fue para revisar qué sigue.</p></section>
+    <div class="actions plan-closing-actions"><button id="back-opportunities" class="button secondary" type="button">← Ver oportunidades</button><div class="right"><button id="plan-feedback-button" class="button gold" type="button">Cuéntanos qué pasó →</button></div></div>
+    <dialog id="plan-pending-dialog" class="plan-pending-dialog" aria-labelledby="plan-pending-title"><h2 id="plan-pending-title">Todavía tienes actividades pendientes.</h2><p>Puedes contarnos cómo te fue hasta ahora o volver al plan.</p><div class="dialog-actions"><button id="return-to-plan" class="button secondary" type="button">Volver al plan</button><button id="continue-to-feedback" class="button gold" type="button">Contarnos qué pasó</button></div></dialog>`;
 }
 
 function opportunitiesSummaryScreen() {
@@ -993,7 +998,8 @@ function stageFourPlanChecklist() {
   const actionPlan = getActionPlan();
   const plan = actionPlan.phases;
   const activities = plan.flatMap(phase => phase.activities);
-  if (app.tasks.length !== activities.length) app.tasks = Array(activities.length).fill(false);
+  const opportunity = syncOpportunityCycle(actionPlan);
+  if (opportunity.changed || app.tasks.length !== activities.length) app.tasks = Array(activities.length).fill(false);
   const done = app.tasks.filter(Boolean).length;
   const phaseNames = ["Entender qué cambió", "Actuar sobre lo encontrado", "Comprobar si mejoró"];
   let activityIndex = 0;
@@ -1018,13 +1024,6 @@ function stageFourPlanChecklist() {
     }).join("")}</div>
     <section class="plan-measures stage-four-signals"><span>¿Cómo sabremos si mejoró?</span><h2>Compara estas señales al terminar la tercera fase</h2>${signals}</section>
     <p class="plan-responsibility">San José te ayuda a identificar prioridades y posibles acciones a partir de tus datos. La decisión final y su ejecución corresponden al empresario.</p>`;
-}
-
-function opportunityExplanation(finding) {
-  if (["stock-risk-general", "stockout"].includes(finding?.type)) return "Estamos trabajando primero en cuidar la disponibilidad de los productos importantes según sus ventas recientes.";
-  if (["inventory-accumulation", "inventory-excess", "inventory-no-movement", "slow"].includes(finding?.type)) return "Estamos trabajando primero en entender qué existencias necesitan atención y cómo se están moviendo.";
-  if (["sales-decline", "general-decline", "profit-decline"].includes(finding?.type) || /caída|bajando|reducción/i.test(finding?.problemaGeneral || finding?.title || "")) return "Estamos trabajando primero en recuperar las ventas y entender qué está explicando esta caída.";
-  return "Estamos trabajando primero en el foco que más puede ayudar a mejorar la situación actual.";
 }
 
 function syncOpportunityCycle(actionPlan) {
@@ -1058,41 +1057,6 @@ function decideOpportunityAfterReview(review = {}) {
   return { next: true, state: "Mejoró suficientemente" };
 }
 
-function followupScreen() {
-  return `<p class="eyebrow">Ejecuta tu plan</p>
-    <h1 class="screen-title">Avanza una acción a la vez</h1>
-    <p class="screen-intro">Completa el plan paso a paso. Cuando termines, cuéntanos cómo te fue para revisar qué sigue.</p>
-    ${planChecklist()}
-    ${nav(7, 9, "Contarnos qué pasó")}`;
-}
-
-function planChecklist() {
-  const actionPlan = getActionPlan();
-  const plan = actionPlan.phases;
-  const activities = plan.flatMap(phase => phase.activities);
-  const opportunity = syncOpportunityCycle(actionPlan);
-  if (opportunity.changed || app.tasks.length !== activities.length) app.tasks = Array(activities.length).fill(false);
-  const done = app.tasks.filter(Boolean).length;
-  const finding = app.analysis?.priorities?.[0];
-  const signals = (actionPlan.signals || []).slice(0, 3);
-  let activityIndex = 0;
-  return `<section class="plan-problem execution-opportunity" aria-labelledby="execution-opportunity-title"><div><span>Oportunidad que estamos atendiendo</span><h2 id="execution-opportunity-title">${safe(actionPlan.problemGeneral)}</h2><p>${safe(opportunityExplanation(finding))}</p><p class="opportunity-focus">Empezaremos por: ${safe(actionPlan.causeWorked)}</p></div><img src="assets/logo-san-jose-azul.png" alt="San José – Transformación Estratégica"></section>
-    <section class="execution-signals" aria-labelledby="execution-signals-title"><h2 id="execution-signals-title">¿Cómo sabremos si está mejorando?</h2>${signals.length ? `<div>${signals.map(signal => `<article><h3>${safe(signal.name)}</h3><dl><div><dt>Hoy</dt><dd>${safe(signal.today)}</dd></div><div><dt>Meta</dt><dd>${safe(signal.target)}</dd></div></dl></article>`).join("")}</div>` : `<p>Todavía no tenemos cifras suficientes para definir una meta responsable.</p>`}</section>
-    <div class="plan-progress"><strong id="task-count">${done} de ${activities.length}</strong><span>actividades completadas</span></div>
-    <div class="execution-plan-heading"><span>Tu plan en 3 fases</span><p>Estas actividades están pensadas para trabajar esta oportunidad.</p></div>
-    <ol class="action-timeline" aria-label="Línea de tiempo del plan">${plan.map((phase, index) => `<li><span class="timeline-dot" aria-hidden="true"></span><b>${safe(phase.when)}</b><small>${index === 0 ? "Primero" : index === 1 ? "Luego" : "Después revisa"}</small></li>`).join("")}</ol>
-    <div class="plan-phases">${plan.map((phase, phaseIndex) => {
-      const phaseStart = activityIndex;
-      activityIndex += phase.activities.length;
-      const phaseDone = app.tasks.slice(phaseStart, activityIndex).filter(Boolean).length;
-      return `<article class="plan-phase"><header><div><span>Fase ${phaseIndex + 1}</span><b>${safe(phase.when)}</b></div><small data-phase-progress="${phaseIndex}">${phaseDone} de ${phase.activities.length} actividades</small></header><h2>${safe(phase.action)}</h2><p class="phase-evidence">${safe(phase.evidence)}</p><div class="phase-objective"><span>Objetivo</span><strong>${safe(phase.objective)}</strong></div><div class="phase-activities">${phase.activities.map((activity, localIndex) => {
-        const index = phaseStart + localIndex;
-        return `<label class="action-check ${app.tasks[index] ? "completed" : ""}"><input class="task-check" type="checkbox" data-task="${index}" data-phase="${phaseIndex}" ${app.tasks[index] ? "checked" : ""}><span class="check-mark" aria-hidden="true"></span><span class="action-copy"><strong>${safe(activity)}</strong></span></label>`;
-      }).join("")}</div></article>`;
-    }).join("")}</div>
-    <p class="plan-responsibility execution-responsibility">San José te ayuda a identificar prioridades y posibles acciones a partir de tus datos. La decisión final y su ejecución corresponden al empresario.</p>`;
-}
-
 function feedbackScreen() {
   return `<p class="eyebrow">Después del plan</p>
     <h1 class="screen-title">Cuéntanos cómo te fue</h1>
@@ -1112,7 +1076,7 @@ function feedbackScreen() {
         <small class="feedback-privacy">Solo usamos lo que escribas o dictemos como texto para esta revisión.</small>
       </section>
       <section class="feedback-next"><h2>Esto nos ayudará a revisar qué sigue</h2><p>San José tendrá en cuenta lo que hiciste, lo que pasó y los nuevos cambios de tu negocio antes de mostrarte la siguiente prioridad.</p></section>
-      <div class="actions"><button class="button secondary" type="button" data-go="8">← Volver</button><button class="button gold" type="submit">Guardar y revisar qué sigue →</button></div>
+      <div class="actions"><button class="button secondary" type="button" data-go="7">← Volver al plan</button><button class="button gold" type="submit">Guardar y revisar qué sigue →</button></div>
     </form>`;
 }
 
@@ -1154,6 +1118,13 @@ function bindScreen() {
   $("#back-to-welcome")?.addEventListener("click", () => location.reload());
   $("#open-plan-detail")?.addEventListener("click", () => { app.planDetailOpen = true; render(); window.scrollTo({ top: 0, behavior: "smooth" }); });
   $("#back-opportunities")?.addEventListener("click", () => { app.planDetailOpen = false; render(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+  $("#plan-feedback-button")?.addEventListener("click", () => {
+    const activityCount = getActionPlan().phases.flatMap(phase => phase.activities).length;
+    if (app.tasks.filter(Boolean).length < activityCount) $("#plan-pending-dialog")?.showModal();
+    else go(9);
+  });
+  $("#return-to-plan")?.addEventListener("click", () => $("#plan-pending-dialog")?.close());
+  $("#continue-to-feedback")?.addEventListener("click", () => { $("#plan-pending-dialog")?.close(); go(9); });
 
   if (app.step === 2) {
     const contextForm = $("#context-form");
@@ -1186,9 +1157,9 @@ function bindScreen() {
     $("#clear-files")?.addEventListener("click", resetUploads);
     document.querySelectorAll("[data-focus-upload]").forEach(button => button.addEventListener("click", () => $("#business-files")?.click()));
   }
-  if ([7, 8].includes(app.step)) document.querySelectorAll(".task-check").forEach(input => input.addEventListener("change", updateTask));
+  if (app.step === 7) document.querySelectorAll(".task-check").forEach(input => input.addEventListener("change", updateTask));
   if (app.step === 4) $("#adaptive-form")?.addEventListener("submit", saveAdaptiveContext);
-  if (app.step === 9) {
+  if ([8, 9].includes(app.step)) {
     $("#feedback-form").addEventListener("submit", saveFeedback);
     setupStoryTextarea("#feedback-story");
     setupSpeechRecognition({
@@ -3152,6 +3123,7 @@ function updateTask(event) {
   app.tasks[index] = event.target.checked;
   const done = app.tasks.filter(Boolean).length;
   document.querySelectorAll("#task-count").forEach(element => { element.textContent = `${done} de ${app.tasks.length}`; });
+  $("#plan-finished-message")?.classList.toggle("hidden", done !== app.tasks.length || app.tasks.length === 0);
   let offset = 0;
   getActionPlan().phases.forEach((phase, phaseIndex) => {
     const phaseDone = app.tasks.slice(offset, offset + phase.activities.length).filter(Boolean).length;
