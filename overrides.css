@@ -364,9 +364,10 @@ p { text-wrap: pretty; }
 .analysis-details { margin-top: 38px; padding: 20px; border: 1px solid var(--line); background: var(--white); }
 .analysis-details > summary { font-size: 1.05rem; }
 .management-report { display: grid; gap: 0; margin-top: 24px; }
-.management-report > header { padding: clamp(24px, 4vw, 38px); border-top: 4px solid var(--gold); background: var(--navy); color: var(--white); }
+.management-report > header { display: grid; grid-template-columns: minmax(0, 1fr) minmax(130px, 190px); gap: 28px; align-items: center; padding: clamp(24px, 4vw, 38px); border-top: 4px solid var(--gold); background: var(--navy); color: var(--white); }
 .management-report > header h2 { margin: 5px 0 12px; color: var(--white); font: 500 clamp(2rem, 3.6vw, 3rem)/1.08 Georgia, serif; }
 .management-report > header p:last-child { max-width: 720px; margin-bottom: 0; color: #e5e7eb; }
+.management-logo { display: block; justify-self: end; width: min(100%, 170px); height: auto; border-radius: 4px; }
 .management-report > section { padding: 28px clamp(20px, 4vw, 38px); border-bottom: 1px solid var(--line); }
 .management-report > section h3 { margin: 0 0 14px; color: var(--navy); font: 500 clamp(1.4rem, 2.4vw, 1.85rem)/1.2 Georgia, serif; }
 .management-report > section h4 { margin: 22px 0 8px; color: var(--navy); }
@@ -501,6 +502,8 @@ p { text-wrap: pretty; }
   .result-chart { padding: 20px 16px; }
   .download-summary-action { align-items: stretch; flex-direction: column; }
   .download-summary-action .button { width: 100%; }
+  .management-report > header { grid-template-columns: minmax(0, 1fr) 110px; gap: 18px; }
+  .management-logo { width: 110px; }
   .product-bar-row { grid-template-columns: minmax(80px, .8fr) minmax(90px, 1.2fr) auto; }
   .preliminary { flex-direction: column; }
   .decision-note { font-size: .7rem; }
@@ -530,6 +533,8 @@ p { text-wrap: pretty; }
   .app-header { height: 64px; }
   .screen { width: min(100% - 24px, 1120px); }
   .screen-title { font-size: 2.35rem; }
+  .management-report > header { grid-template-columns: 1fr; }
+  .management-logo { justify-self: start; width: 105px; }
   .mapping-grid > section { padding: 14px; }
   .compact-form .form-grid { grid-template-columns: 1fr; }
   .compact-form .form-grid label:last-child { grid-column: auto; max-width: none; }

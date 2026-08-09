@@ -918,7 +918,7 @@ function managementDetailHtml(main, presentation, insufficient) {
   const hypotheses = diagnosis?.hipotesisPorValidar || [];
   const foci = diagnosis?.focosPrioritarios || [];
   const details = quality.details.filter(item => ["Fecha de venta", "Producto de ventas", "Cantidad vendida", "Valor de la venta"].includes(item.label)).slice(0, 4);
-  return `<div class="management-report"><header><p class="section-kicker">Mini informe gerencial</p><h2>Resumen para tomar decisiones</h2><p>Revisamos tu información. Estos son los puntos más importantes para entender qué está pasando.</p></header>
+  return `<div class="management-report"><header><div class="management-heading"><p class="section-kicker">Mini informe gerencial</p><h2>Resumen para tomar decisiones</h2><p>Revisamos tu información. Estos son los puntos más importantes para entender qué está pasando.</p></div><img class="management-logo" src="assets/logo-san-jose-azul.png" alt="San José - Transformación Estratégica"></header>
     ${managementSalesHtml()}${managementObservedCausesHtml()}
     <section><h3>Qué deberías revisar primero</h3>${insufficient ? `<p><strong>Todavía no tenemos información suficiente para decirte qué atender primero.</strong></p><p>${safe(quality.reasons[0] || resultQualityCopy(quality))}</p>` : `<p><strong>${safe(presentation.title)}</strong></p><p>${safe(presentation.found)}</p>${foci.length ? `<ol>${foci.slice(0, 3).map(item => `<li><strong>${safe(item.categoria)}</strong><br>${safe(item.evidencia)}</li>`).join("")}</ol>` : `<p>${safe(diagnosticReviewText(main))}</p>`}<p>${safe(urgencyReviewPrefix(main.nivelUrgencia))}</p>`}</section>
     <section><h3>Lo que todavía no podemos saber</h3>${hypotheses.length ? `<p><strong>Posibles explicaciones por confirmar:</strong></p><ul>${hypotheses.map(item => `<li>${safe(item)}</li>`).join("")}</ul><p>Estas posibilidades no están demostradas por los datos.</p>` : ""}${limitations.length ? `<p><strong>Información que limita el diagnóstico:</strong></p><ul>${limitations.map(item => `<li>${safe(item)}</li>`).join("")}</ul>` : "<p>No encontramos una limitación importante para las conclusiones mostradas.</p>"}</section>
@@ -2994,45 +2994,242 @@ function showTestSummary() {
   $("#test-dialog").showModal();
 }
 
-function executiveSummaryHtml() {
-  if (!app.analysis) return "";
+const executiveResponsibilityNote = "Este informe presenta orientaciones y recomendaciones basadas en la información suministrada. San José no toma decisiones por la empresa. La revisión, interpretación final y ejecución de acciones son responsabilidad exclusiva de los propietarios, administradores o responsables del negocio.";
+
+function executiveSummaryModel() {
+  if (!app.analysis) return null;
   const { metrics, resultQuality: quality } = app.analysis;
+  const diagnosis = app.analysis.diagnostico || {};
   const finding = app.analysis.priorities[0];
   const presentation = finding ? priorityPresentation(finding) : null;
-  const secondary = stageThreeSecondaryFindings();
-  const limitations = analysisLimitations();
-  const hypotheses = app.analysis.diagnostico?.hipotesisPorValidar || [];
   const cards = stageThreeSummaryCards();
   const comparison = trendComparison(metrics.monthly, metrics.chartBasis);
-  const recent = metrics.monthly.slice(-6);
-  const maximum = Math.max(...recent.map(item => item.value), 1);
-  const chart = recent.length >= 2 ? `<div class="report-chart">${recent.map((item, index) => `<div><i style="height:${Math.max(4, item.value / maximum * 100)}%" class="${index === recent.length - 1 ? "latest" : ""}"></i><span>${safe(monthName(item.month))}</span></div>`).join("")}</div>` : `<p>No mostramos un gráfico porque no encontramos suficientes meses completos.</p>`;
+  const dates = (app.dataset?.sales || []).map(row => new Date(row.fecha)).filter(date => !Number.isNaN(date.getTime())).sort((a, b) => a - b);
+  const period = dates.length ? `${new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(dates[0])} a ${new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(dates.at(-1))}` : "No pudimos calcular el periodo porque no encontramos fechas utilizables.";
+  const salesText = comparison.available ? trendMeaning(metrics.monthly, metrics.chartBasis) : comparison.reason;
+  const inventory = app.dataset?.inventory || [];
+  const inventoryText = !inventory.length
+    ? "No encontramos inventario; por eso no evaluamos productos acumulados ni posibles faltantes."
+    : metrics.linkedProducts
+      ? `Pudimos relacionar ${readableNumber(metrics.linkedProducts)} productos entre ventas e inventario.`
+      : "Encontramos inventario, pero no pudimos relacionarlo con suficiente claridad con los productos vendidos.";
   const valueOf = item => metrics.chartBasis === "value" ? item[1].revenue : item[1].units;
   const total = metrics.chartBasis === "value" ? metrics.revenue : metrics.units;
-  const products = metrics.chartBasis && total ? metrics.ranked.slice(0, 5).map(item => `<li><strong>${safe(item[0])}</strong>: ${readablePercent(valueOf(item) / total)} ${metrics.chartBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}</li>`).join("") : "<li>No encontramos información suficiente para comparar productos.</li>";
-  const dates = (app.dataset?.sales || []).map(row => new Date(row.fecha)).filter(date => !Number.isNaN(date.getTime())).sort((a, b) => a - b);
-  const periodText = dates.length ? `${new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(dates[0])} a ${new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(dates.at(-1))}` : "No pudimos calcular el periodo porque no encontramos fechas utilizables.";
-  const latestText = comparison.available ? trendMeaning(metrics.monthly, metrics.chartBasis) : comparison.reason;
-  const prioritySection = presentation ? `<section class="priority"><p class="tag">Lo primero que deberías revisar</p><h2>${safe(presentation.title)}</h2><ul>${presentation.metrics.slice(0, 4).map(item => `<li>${safe(item)}</li>`).join("")}</ul><p><strong>Por qué:</strong> ${safe(presentation.important)}</p></section>` : `<section class="priority"><h2>Todavía no podemos indicar una prioridad</h2><p>${safe(quality.reasons[0] || resultQualityCopy(quality))}</p></section>`;
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Resumen del análisis · San José</title><style>@page{margin:14mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;max-width:820px;margin:28px auto;padding:0 18px;line-height:1.4;font-size:13px}h1,h2{font-family:Georgia,serif;color:#011235}h1{font-size:30px;margin:5px 0}h2{font-size:20px;margin-bottom:8px}header{border-bottom:4px solid #D8A63A;padding-bottom:14px}.tag{color:#9a6500;font-weight:800;text-transform:uppercase;letter-spacing:.08em}section{margin:20px 0;break-inside:avoid}.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.card{padding:12px;border-top:3px solid #D8A63A;background:#f7f7f6}.card strong{display:block;color:#011235;font-size:17px}.priority{padding:16px;border-left:5px solid #D8A63A;background:#f8f2e4}.report-chart{height:150px;display:flex;align-items:end;gap:10px;border-bottom:1px solid #aeb8c6;padding-top:10px}.report-chart div{height:120px;flex:1;display:grid;grid-template-rows:1fr auto;align-items:end;text-align:center}.report-chart i{display:block;width:60%;min-height:3px;margin:auto auto 0;background:#011235}.report-chart i.latest{background:#D8A63A}.report-chart span{font-size:10px;margin-top:5px}ul{padding-left:20px}li{margin:5px 0}button{background:#011235;color:#fff;border:0;padding:10px 14px}@media print{button{display:none}body{margin:0;padding:0}.page-break{break-before:page}}</style></head><body><header><p class="tag">San José · Transformación Estratégica</p><h1>Resumen del análisis</h1><p>Una explicación corta para tomar decisiones.</p><small>${new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date())}</small></header>
-    <section><h2>Periodo revisado</h2><p>${safe(periodText)}</p><p><strong>Calidad de la información: ${quality.score} % · ${safe(quality.level[0] + quality.level.slice(1).toLowerCase())}</strong><br>${safe(resultQualityCopy(quality))}</p></section>
-    <section><h2>Cifras principales</h2><div class="cards">${cards.map(card => `<div class="card"><strong>${safe(card.value)}</strong><span>${safe(card.label)}</span>${card.note ? `<small>${safe(card.note)}</small>` : ""}</div>`).join("")}</div></section>
-    <section><h2>Qué pasó en el último mes completo</h2><p>${safe(latestText)}</p>${chart}</section>
-    <section><h2>Productos que más aportan</h2><ul>${products}</ul></section>${prioritySection}
-    ${secondary.length ? `<section><h2>También encontramos</h2><ul>${secondary.map(item => `<li>${safe(item.sentence)}</li>`).join("")}</ul></section>` : ""}
-    <section><h2>Lo que todavía no podemos saber</h2>${hypotheses.length ? `<p><strong>Posibles explicaciones por confirmar:</strong></p><ul>${hypotheses.map(item => `<li>${safe(item)}</li>`).join("")}</ul><p>Estas posibilidades no están demostradas por los datos.</p>` : ""}${limitations.length ? `<p><strong>Información que limita el diagnóstico:</strong></p><ul>${limitations.map(item => `<li>${safe(item)}</li>`).join("")}</ul>` : "<p>No encontramos una limitación importante para las conclusiones mostradas.</p>"}</section>
-    <button onclick="window.print()">Imprimir o guardar como PDF</button></body></html>`;
+  const products = metrics.chartBasis && total ? metrics.ranked.slice(0, 5).map(item => ({
+    label: item[0],
+    share: valueOf(item) / total,
+    text: `${readablePercent(valueOf(item) / total)} ${metrics.chartBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}`
+  })) : [];
+  const reviewItems = (diagnosis.focosPrioritarios || []).map(item => item.evidencia).filter(Boolean).slice(0, 3);
+  const limitations = analysisLimitations();
+  const hypotheses = diagnosis.hipotesisPorValidar || [];
+  return {
+    title: "Resumen para tomar decisiones",
+    subtitle: "Revisamos tu información. Estos son los puntos más importantes para entender qué está pasando.",
+    date: new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date()),
+    period,
+    overview: [salesText, inventoryText].filter(Boolean),
+    causes: (diagnosis.causasObservadas || []).slice(0, 3),
+    products,
+    priority: presentation ? {
+      title: presentation.title,
+      metrics: presentation.metrics.slice(0, 4),
+      important: presentation.important,
+      reviewItems: reviewItems.length ? reviewItems : [diagnosticReviewText(finding)]
+    } : { title: "Todavía no podemos indicar una prioridad", metrics: [], important: quality.reasons[0] || resultQualityCopy(quality), reviewItems: [] },
+    context: (diagnosis.coincidenciasContextoDatos || []).map(item => item.texto || item).slice(0, 2),
+    unknown: [...hypotheses, ...limitations].filter(Boolean),
+    quality: {
+      label: `${quality.score} % · ${quality.level[0] + quality.level.slice(1).toLowerCase()}`,
+      explanation: resultQualityCopy(quality),
+      details: quality.details.slice(0, 6).map(item => `${item.label}: ${readablePercent(item.rate)} utilizable`)
+    },
+    cards,
+    monthly: metrics.monthly.slice(-6).map(item => ({ label: monthName(item.month), value: item.value })),
+    chartLabel: metrics.chartBasis === "value" ? "Valor vendido por mes" : metrics.chartBasis === "quantity" ? "Unidades vendidas por mes" : "Ventas por mes",
+    responsibility: executiveResponsibilityNote
+  };
 }
 
-function downloadExecutiveSummary() {
+function pdfSafeText(value) {
+  return String(value ?? "").replace(/[\u2010-\u2015]/g, "-").replace(/\u2192/g, ">").replace(/[\u00a0\u202f]/g, " ");
+}
+
+async function buildExecutiveSummaryPdf(logoBytes) {
+  const model = executiveSummaryModel();
+  if (!model || !globalThis.PDFLib) throw new Error("No fue posible preparar el resumen en PDF.");
+  const { PDFDocument, StandardFonts, PageSizes, rgb } = globalThis.PDFLib;
+  const pdf = await PDFDocument.create();
+  pdf.setTitle("Resumen para tomar decisiones - San José");
+  pdf.setAuthor("San José - Transformación Estratégica");
+  pdf.setSubject("Orientación empresarial basada en la información suministrada");
+  const regular = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const serif = await pdf.embedFont(StandardFonts.TimesRomanBold);
+  const logo = await pdf.embedPng(logoBytes);
+  const PAGE_WIDTH = 595.28, PAGE_HEIGHT = 841.89, MARGIN = 46, CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+  const navy = rgb(1 / 255, 18 / 255, 53 / 255), gold = rgb(216 / 255, 166 / 255, 58 / 255), ink = rgb(31 / 255, 41 / 255, 55 / 255), muted = rgb(101 / 255, 112 / 255, 134 / 255), pale = rgb(248 / 255, 242 / 255, 228 / 255), line = rgb(220 / 255, 225 / 255, 233 / 255), white = rgb(1, 1, 1);
+  const pages = [];
+  let page, y;
+  const newPage = first => {
+    page = pdf.addPage(PageSizes.A4);
+    pages.push(page);
+    if (first) {
+      page.drawRectangle({ x: 0, y: PAGE_HEIGHT - 154, width: PAGE_WIDTH, height: 154, color: navy });
+      page.drawRectangle({ x: 0, y: PAGE_HEIGHT - 158, width: PAGE_WIDTH, height: 4, color: gold });
+      page.drawText("MINI INFORME GERENCIAL", { x: MARGIN, y: PAGE_HEIGHT - 48, size: 8, font: bold, color: gold });
+      page.drawText(pdfSafeText(model.title), { x: MARGIN, y: PAGE_HEIGHT - 83, size: 24, font: serif, color: white });
+      wrap(model.subtitle, regular, 9.5, 330).slice(0, 2).forEach((lineText, index) => page.drawText(lineText, { x: MARGIN, y: PAGE_HEIGHT - 106 - index * 12, size: 9.5, font: regular, color: white }));
+      page.drawText(pdfSafeText(model.date), { x: MARGIN, y: PAGE_HEIGHT - 132, size: 8, font: regular, color: rgb(.82, .85, .9) });
+      page.drawImage(logo, { x: PAGE_WIDTH - MARGIN - 104, y: PAGE_HEIGHT - 139, width: 104, height: 104 });
+      y = PAGE_HEIGHT - 184;
+    } else {
+      page.drawRectangle({ x: MARGIN, y: PAGE_HEIGHT - 29, width: CONTENT_WIDTH, height: 2, color: gold });
+      page.drawText("SAN JOSE - TRANSFORMACION ESTRATEGICA", { x: MARGIN, y: PAGE_HEIGHT - 22, size: 7, font: bold, color: navy });
+      y = PAGE_HEIGHT - 54;
+    }
+  };
+  const ensure = height => { if (y - height < 58) newPage(false); };
+  const wrap = (text, font, size, width) => {
+    const words = pdfSafeText(text).split(/\s+/).filter(Boolean), lines = [];
+    let current = "";
+    words.forEach(word => {
+      const candidate = current ? `${current} ${word}` : word;
+      if (font.widthOfTextAtSize(candidate, size) <= width || !current) current = candidate;
+      else { lines.push(current); current = word; }
+    });
+    if (current) lines.push(current);
+    return lines.length ? lines : [""];
+  };
+  const paragraph = (text, options = {}) => {
+    const font = options.font || regular, size = options.size || 10, color = options.color || ink, width = options.width || CONTENT_WIDTH, indent = options.indent || 0, lineHeight = options.lineHeight || size * 1.42;
+    const lines = wrap(text, font, size, width - indent);
+    lines.forEach(lineText => { ensure(lineHeight + 3); page.drawText(lineText, { x: MARGIN + indent, y, size, font, color }); y -= lineHeight; });
+    y -= options.after ?? 7;
+  };
+  const sectionTitle = title => {
+    ensure(45);
+    y -= 7;
+    page.drawText(pdfSafeText(title), { x: MARGIN, y, size: 15, font: serif, color: navy });
+    y -= 8;
+    page.drawRectangle({ x: MARGIN, y, width: 36, height: 2, color: gold });
+    y -= 18;
+  };
+  const bullets = items => items.forEach(item => paragraph(`- ${item}`, { indent: 8, after: 3 }));
+
+  newPage(true);
+  paragraph(`Periodo revisado: ${model.period}`, { font: bold, color: navy, after: 14 });
+  sectionTitle("Cifras clave del análisis");
+  for (let index = 0; index < model.cards.length; index += 2) {
+    ensure(68);
+    const row = model.cards.slice(index, index + 2);
+    row.forEach((card, column) => {
+      const x = MARGIN + column * (CONTENT_WIDTH / 2 + 5), width = CONTENT_WIDTH / 2 - 5;
+      page.drawRectangle({ x, y: y - 52, width, height: 58, color: rgb(.97, .975, .98), borderColor: line, borderWidth: .5 });
+      page.drawRectangle({ x, y: y + 3, width, height: 3, color: gold });
+      page.drawText(pdfSafeText(card.value), { x: x + 12, y: y - 18, size: 15, font: bold, color: navy, maxWidth: width - 24 });
+      const labelLines = wrap(card.label, regular, 8.5, width - 24).slice(0, 2);
+      labelLines.forEach((label, lineIndex) => page.drawText(label, { x: x + 12, y: y - 34 - lineIndex * 10, size: 8.5, font: regular, color: muted }));
+    });
+    y -= 70;
+  }
+
+  sectionTitle("Qué pasó con tus ventas / inventario");
+  model.overview.forEach(item => paragraph(item));
+  if (model.monthly.length >= 2) {
+    ensure(178);
+    paragraph(model.chartLabel, { font: bold, color: navy, after: 5 });
+    const chartHeight = 105, baseY = y - chartHeight, maxValue = Math.max(...model.monthly.map(item => item.value), 1), gap = 12, barWidth = (CONTENT_WIDTH - gap * (model.monthly.length - 1)) / model.monthly.length;
+    page.drawRectangle({ x: MARGIN, y: baseY, width: CONTENT_WIDTH, height: .7, color: line });
+    model.monthly.forEach((item, index) => {
+      const height = Math.max(4, item.value / maxValue * 88), x = MARGIN + index * (barWidth + gap);
+      page.drawRectangle({ x: x + barWidth * .2, y: baseY, width: barWidth * .6, height, color: index === model.monthly.length - 1 ? gold : navy });
+      const label = pdfSafeText(item.label);
+      page.drawText(label, { x: x + Math.max(0, (barWidth - regular.widthOfTextAtSize(label, 7)) / 2), y: baseY - 13, size: 7, font: regular, color: muted });
+    });
+    y = baseY - 25;
+  }
+
+  ensure(76 + Math.max(1, model.causes.length) * 20 + model.products.length * 32);
+  sectionTitle("Qué productos o datos están explicando el resultado");
+  if (model.causes.length) bullets(model.causes);
+  else paragraph("Todavía no encontramos factores observados suficientes para explicar el resultado sin convertir hipótesis en hechos.");
+  if (model.products.length) {
+    y -= 3;
+    model.products.forEach(item => {
+      ensure(29);
+      paragraph(`${item.label}: ${item.text}`, { font: bold, color: navy, after: 2 });
+      page.drawRectangle({ x: MARGIN, y, width: CONTENT_WIDTH, height: 6, color: line });
+      page.drawRectangle({ x: MARGIN, y, width: CONTENT_WIDTH * item.share, height: 6, color: gold });
+      y -= 14;
+    });
+  }
+
+  sectionTitle("Qué deberías revisar primero");
+  ensure(70);
+  page.drawRectangle({ x: MARGIN, y: y - 12, width: 5, height: 26, color: gold });
+  paragraph(model.priority.title, { font: serif, size: 14, color: navy, indent: 15, after: 8 });
+  bullets(model.priority.metrics);
+  paragraph(`Por qué es importante: ${model.priority.important}`, { color: muted });
+  if (model.priority.reviewItems.length) {
+    paragraph("Revisa ahora:", { font: bold, color: navy, after: 3 });
+    bullets(model.priority.reviewItems);
+  }
+  if (model.context.length) {
+    paragraph("Tuvimos en cuenta lo que nos contaste", { font: bold, color: rgb(.6, .4, 0), after: 3 });
+    bullets(model.context);
+  }
+
+  sectionTitle("Lo que todavía no podemos saber");
+  if (model.unknown.length) bullets(model.unknown);
+  else paragraph("No encontramos una limitación importante para las conclusiones mostradas.");
+
+  const responsibilityLines = wrap(model.responsibility, regular, 9.5, CONTENT_WIDTH - 28);
+  const responsibilityHeight = responsibilityLines.length * 13 + 28;
+  ensure(118 + model.quality.details.length * 18 + responsibilityHeight);
+  sectionTitle("Calidad de la información");
+  paragraph(`Calidad de la información: ${model.quality.label}`, { font: bold, size: 12, color: navy });
+  paragraph(model.quality.explanation);
+  bullets(model.quality.details);
+
+  ensure(responsibilityHeight + 50);
+  sectionTitle("Importante");
+  page.drawRectangle({ x: MARGIN, y: y - responsibilityHeight + 10, width: CONTENT_WIDTH, height: responsibilityHeight, color: pale, borderColor: gold, borderWidth: 1 });
+  let noteY = y - 8;
+  responsibilityLines.forEach(lineText => { page.drawText(lineText, { x: MARGIN + 14, y: noteY, size: 9.5, font: regular, color: ink }); noteY -= 13; });
+  y -= responsibilityHeight + 2;
+
+  pages.forEach((pdfPage, index) => {
+    pdfPage.drawRectangle({ x: MARGIN, y: 40, width: CONTENT_WIDTH, height: .5, color: line });
+    pdfPage.drawText("San José - Transformación Estratégica", { x: MARGIN, y: 25, size: 7.5, font: regular, color: muted });
+    const pageLabel = `${index + 1} / ${pages.length}`;
+    pdfPage.drawText(pageLabel, { x: PAGE_WIDTH - MARGIN - regular.widthOfTextAtSize(pageLabel, 7.5), y: 25, size: 7.5, font: regular, color: muted });
+  });
+  return pdf.save();
+}
+
+async function downloadExecutiveSummary() {
   if (!app.analysis || app.analysis.resultQuality.level === "BAJA") return;
-  const blob = new Blob([executiveSummaryHtml()], { type: "text/html;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "resumen-ejecutivo-san-jose.html";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const button = $("#download-summary");
+  const originalLabel = button?.textContent || "Descargar resumen ejecutivo";
+  try {
+    if (button) { button.disabled = true; button.textContent = "Preparando PDF…"; }
+    const response = await fetch("assets/logo-san-jose-azul.png");
+    if (!response.ok) throw new Error("No fue posible cargar el logo oficial.");
+    const bytes = await buildExecutiveSummaryPdf(new Uint8Array(await response.arrayBuffer()));
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "resumen-ejecutivo-san-jose.pdf";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    console.error(error);
+    window.alert("No pudimos generar el PDF. Intenta nuevamente.");
+  } finally {
+    if (button) { button.disabled = false; button.textContent = originalLabel; }
+  }
 }

@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const PDFLib = require("../assets/pdf-lib.min.js");
 
 const noop = () => {};
 const fallbackElement = {
@@ -34,6 +35,7 @@ const sandbox = {
   setTimeout,
   clearTimeout,
   URL: { createObjectURL: () => "blob:test", revokeObjectURL: noop },
+  PDFLib,
   window: { scrollTo: noop }
 };
 sandbox.window.window = sandbox.window;
@@ -49,7 +51,7 @@ const source = fs.readFileSync(appPath, "utf8") + `
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
   roleDisplayLabel, primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen,
+  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 };
 `;
@@ -64,7 +66,7 @@ const {
   columnDataQuality, columnIdentification, roleDisplayLabel,
   primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen,
+  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 } = sandbox.__test;
 const tests = [];
@@ -913,7 +915,36 @@ test("ETAPA 3 FINAL J: un producto que se deteriora puede convertirse en la mism
 test("ETAPA 3 FINAL K: valor monetario ausente siempre muestra la causa específica", () => {
   setStageThree({ sales: stageThreeSales({ value: false }), inventory: [] });
   assert.ok(resultsScreen().includes("No encontramos una columna de valor total ni información suficiente de cantidad y precio para calcularlo."));
-  assert.ok(executiveSummaryHtml().includes("No encontramos una columna de valor total"));
+  assert.ok(executiveSummaryModel().unknown.some(item => item.includes("No encontramos una columna de valor total")));
+});
+
+test("PDF 1: el modelo conserva contenido gerencial, calidad, limitaciones y responsabilidad", () => {
+  setStageThree({ sales: stageThreeSales(), inventory: [] });
+  const model = executiveSummaryModel();
+  assert.equal(model.title, "Resumen para tomar decisiones");
+  assert.ok(model.overview.length >= 2);
+  assert.ok(model.priority.title);
+  assert.ok(model.quality.label.includes("%"));
+  assert.ok(model.cards.length >= 4);
+  assert.ok(model.monthly.length >= 2);
+  assert.ok(model.unknown.some(item => item.includes("inventario")));
+  assert.ok(model.responsibility.includes("San José no toma decisiones por la empresa"));
+});
+
+test("PDF 2: genera un archivo PDF A4 real con logo y varias páginas legibles", async () => {
+  setStageThree({ sales: datasets.ejemploVentas.sales, inventory: [] });
+  const logo = fs.readFileSync(path.join(__dirname, "..", "assets", "logo-san-jose-azul.png"));
+  const bytes = await buildExecutiveSummaryPdf(logo);
+  assert.equal(Buffer.from(bytes).subarray(0, 5).toString("ascii"), "%PDF-");
+  const document = await PDFLib.PDFDocument.load(bytes);
+  assert.ok(document.getPageCount() >= 2);
+  assert.equal(Math.round(document.getPage(0).getWidth()), 595);
+  assert.equal(Math.round(document.getPage(0).getHeight()), 842);
+  assert.equal(document.getTitle(), "Resumen para tomar decisiones - San José");
+  if (process.env.SAN_JOSE_PDF_QA_PATH) {
+    fs.mkdirSync(path.dirname(process.env.SAN_JOSE_PDF_QA_PATH), { recursive: true });
+    fs.writeFileSync(process.env.SAN_JOSE_PDF_QA_PATH, bytes);
+  }
 });
 
 test("ETAPA 3 FINAL L: sin inventario no genera análisis de existencias", () => {
