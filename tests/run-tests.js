@@ -49,7 +49,7 @@ const source = fs.readFileSync(appPath, "utf8") + `
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
   roleDisplayLabel, primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan,
+  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 };
 `;
@@ -64,7 +64,7 @@ const {
   columnDataQuality, columnIdentification, roleDisplayLabel,
   primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan,
+  executiveSummaryHtml, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 } = sandbox.__test;
 const tests = [];
@@ -650,6 +650,8 @@ function setStageThree(data, referenceDate = new Date("2026-08-08T12:00:00Z")) {
   app.context = {};
   app.dataset = data;
   app.analysis = analyze(data, referenceDate);
+  app.tasks = [];
+  app.actionPlan = null;
   return app.analysis;
 }
 
@@ -1112,6 +1114,92 @@ test("DIAGNÓSTICO 8: un margen porcentual no se suma ni se presenta como dinero
   assert.ok(main.evidence.includes("10 %"));
   assert.ok(!presentation.metrics[1].includes("$"));
   assert.equal(main.magnitudDetalle.valorDejadoDeGenerar, null);
+});
+
+test("ETAPA 4 A: una situación crítica usa hoy, 3 días y 7 días", () => {
+  setStageThree({ sales: businessRows({ "Referencia 4": [100, 100, 100, 10, 10, 10] }), inventory: [] });
+  const plan = getActionPlan();
+  assert.equal(plan.urgency, "Crítico");
+  assert.deepEqual(Array.from(plan.phases, phase => phase.when), ["HOY", "EN 3 DÍAS", "EN 7 DÍAS"]);
+  assert.equal(plan.phases.length, 3);
+  assert.ok(plan.phases.every(phase => phase.activities.length >= 1 && phase.activities.length <= 3));
+  assert.ok(plan.phases[0].action.includes("Referencia 4"));
+});
+
+test("ETAPA 4 B: una prioridad importante usa hoy, 8 días y 15 días", () => {
+  setStageThree({ sales: businessRows({ A: [60, 60, 60, 40, 40, 40], B: [40, 40, 40, 30, 30, 30] }), inventory: [] });
+  const plan = getActionPlan();
+  assert.equal(plan.urgency, "Importante");
+  assert.deepEqual(Array.from(plan.phases, phase => phase.when), ["HOY", "EN 8 DÍAS", "EN 15 DÍAS"]);
+});
+
+test("ETAPA 4 C: usa clientes y comercial reales relacionados con el producto principal", () => {
+  const sales = [];
+  for (let month = 1; month <= 6; month += 1) {
+    const recent = month > 3;
+    sales.push({ fecha: `2026-0${month}-10`, producto: "Referencia 4", cliente: "Cliente Norte", vendedor: "Comercial A", cantidad: recent ? 10 : 50, valorTotal: (recent ? 10 : 50) * 1000 });
+    sales.push({ fecha: `2026-0${month}-11`, producto: "Referencia 4", cliente: "Cliente Sur", vendedor: "Comercial A", cantidad: recent ? 10 : 30, valorTotal: (recent ? 10 : 30) * 1000 });
+    sales.push({ fecha: `2026-0${month}-12`, producto: "Referencia estable", cliente: "Cliente Centro", vendedor: "Comercial B", cantidad: 20, valorTotal: 20000 });
+  }
+  setStageThree({ sales, inventory: [] });
+  const plan = getActionPlan();
+  assert.ok(plan.phases[0].action.includes("2 clientes"));
+  assert.ok(plan.phases[0].action.includes("Referencia 4"));
+  assert.ok(plan.phases[0].evidence.includes("Cliente Norte"));
+  assert.ok(plan.phases[0].evidence.includes("Cliente Sur"));
+  assert.ok(plan.phases[0].activities.some(item => item.includes("Comercial A")));
+});
+
+test("ETAPA 4 D: no inventa clientes ni comerciales cuando no están disponibles", () => {
+  setStageThree({ sales: businessRows({ "Referencia 4": [100, 100, 100, 30, 30, 30] }), inventory: [] });
+  const plan = getActionPlan();
+  const text = JSON.stringify(plan.phases);
+  assert.ok(plan.phases[0].action.includes("Referencia 4"));
+  assert.ok(!text.includes("Cliente A"));
+  assert.ok(!text.includes("Comercial A"));
+  assert.ok(text.includes("Identifica con tu equipo"));
+});
+
+test("ETAPA 4 E: exceso y riesgo de inventario producen planes diferentes", () => {
+  const excessSales = businessRows({ A: [2, 2, 2, 2, 2, 2], B: [98, 98, 98, 98, 98, 98] });
+  setStageThree({ sales: excessSales, inventory: [{ producto: "A", stock: 900 }, { producto: "B", stock: 1000 }] });
+  const excess = getActionPlan();
+  assert.ok(["inventory-excess", "inventory-accumulation"].includes(app.analysis.priorities[0].type));
+  assert.ok(excess.phases[0].action.includes("Antes de hacer nuevas compras"));
+  assert.ok(excess.phases[2].action.includes("existencias"));
+
+  const riskSales = businessRows({ A: [70, 70, 70, 70, 70, 70], B: [30, 30, 30, 30, 30, 30] });
+  setStageThree({ sales: riskSales, inventory: [{ producto: "A", stock: 10 }, { producto: "B", stock: 90 }] });
+  const risk = getActionPlan();
+  assert.equal(app.analysis.priorities[0].type, "stock-risk-general");
+  assert.ok(risk.phases[0].action.includes("Confirma las existencias"));
+  assert.ok(risk.phases[1].action.includes("reposición"));
+  assert.ok(risk.phases[2].action.includes("disponibilidad"));
+});
+
+test("ETAPA 4 F: prepara el seguimiento antes contra después", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  const plan = getActionPlan();
+  const handoff = plan.handoff;
+  ["problemGeneral", "causaTrabajada", "accionesPropuestas", "actividades", "fechaInicio", "fechaRevision", "indicadoresSeguimiento", "valorBase"].forEach(field => assert.ok(Object.hasOwn(handoff, field), `falta ${field}`));
+  assert.equal(handoff.accionesPropuestas.length, 3);
+  assert.equal(handoff.actividades.length, plan.phases.flatMap(phase => phase.activities).length);
+  assert.ok(handoff.indicadoresSeguimiento.length >= 1 && handoff.indicadoresSeguimiento.length <= 3);
+  assert.ok(handoff.valorBase.promedioMensualReciente !== null);
+  assert.equal(app.actionPlan.fechaRevision, handoff.fechaRevision);
+});
+
+test("ETAPA 4 G: la pantalla muestra problema, línea de tiempo, fases y progreso por actividad", () => {
+  setStageThree({ sales: businessRows({ A: [60, 60, 60, 30, 30, 30], B: [40, 40, 40, 30, 30, 30] }), inventory: [] });
+  const html = planScreen();
+  const activityCount = getActionPlan().phases.flatMap(phase => phase.activities).length;
+  assert.ok(html.includes("Tres acciones para empezar"));
+  assert.ok(html.includes("Problema que estamos atendiendo"));
+  assert.ok(html.includes("Línea de tiempo del plan"));
+  assert.ok(html.includes("Fase 1") && html.includes("Fase 2") && html.includes("Fase 3"));
+  assert.ok(html.includes(`0 de ${activityCount}`));
+  assert.ok(html.includes("Qué revisar para saber si funcionó"));
+  assert.equal((html.match(/class="task-check"/g) || []).length, activityCount);
 });
 
 (async () => {

@@ -35,7 +35,8 @@ const app = {
   semanticPending: false,
   clarifications: {},
   additionalSections: {},
-  tasks: [false, false, false],
+  tasks: [],
+  actionPlan: null,
   activePriority: 0,
   feedback: {},
   completed: {
@@ -945,8 +946,8 @@ function planScreen() {
   if (!app.analysis) return missingState();
   app.completed.plan = true;
   return `<p class="eyebrow">Sigue un plan sencillo</p>
-    <h1 class="screen-title">Tres acciones. Nada más.</h1>
-    <p class="screen-intro">Marca cada acción cuando la completes. El plan responde únicamente al hallazgo principal.</p>
+    <h1 class="screen-title">Tres acciones para empezar</h1>
+    <p class="screen-intro">Primero entiende el foco principal, luego actúa sobre él y después revisa si la situación mejoró.</p>
     ${planChecklist()}
     ${nav(6, 8, "Hacer seguimiento")}`;
 }
@@ -960,15 +961,25 @@ function followupScreen() {
 }
 
 function planChecklist() {
-  const plan = getPlan();
+  const actionPlan = getActionPlan();
+  const plan = actionPlan.phases;
+  const activities = plan.flatMap(phase => phase.activities);
+  if (app.tasks.length !== activities.length) app.tasks = Array(activities.length).fill(false);
   const done = app.tasks.filter(Boolean).length;
-  return `<div class="plan-progress"><strong id="task-count">${done} de 3</strong><span>acciones completadas</span></div>
-    <div class="action-list">${plan.map((item, index) => `<label class="action-check ${app.tasks[index] ? "completed" : ""}">
-      <input class="task-check" type="checkbox" data-task="${index}" ${app.tasks[index] ? "checked" : ""}>
-      <span class="check-mark" aria-hidden="true"></span>
-      <span class="action-copy"><b>${item.when}</b><strong>${safe(item.action)}</strong><small>${safe(item.explain)}</small></span>
-    </label>`).join("")}</div>
-    <div class="followup-summary"><span>Qué observar</span><strong>${safe(app.analysis.priorities[0].indicator)}</strong></div>`;
+  let activityIndex = 0;
+  return `<section class="plan-problem" aria-labelledby="plan-problem-title"><span>Problema que estamos atendiendo</span><h2 id="plan-problem-title">${safe(actionPlan.problemGeneral)}</h2><p><strong>Lo primero que vamos a trabajar:</strong> ${safe(actionPlan.causeWorked)}</p></section>
+    <div class="plan-progress"><strong id="task-count">${done} de ${activities.length}</strong><span>actividades completadas</span></div>
+    <ol class="action-timeline" aria-label="Línea de tiempo del plan">${plan.map((phase, index) => `<li><span class="timeline-dot" aria-hidden="true"></span><b>${safe(phase.when)}</b><small>${index === 0 ? "Primero" : index === 1 ? "Luego" : "Después revisa"}</small></li>`).join("")}</ol>
+    <div class="plan-phases">${plan.map((phase, phaseIndex) => {
+      const phaseStart = activityIndex;
+      activityIndex += phase.activities.length;
+      const phaseDone = app.tasks.slice(phaseStart, activityIndex).filter(Boolean).length;
+      return `<article class="plan-phase"><header><div><span>Fase ${phaseIndex + 1}</span><b>${safe(phase.when)}</b></div><small data-phase-progress="${phaseIndex}">${phaseDone} de ${phase.activities.length} actividades</small></header><h2>${safe(phase.action)}</h2><p class="phase-evidence">${safe(phase.evidence)}</p><div class="phase-objective"><span>Objetivo</span><strong>${safe(phase.objective)}</strong></div><div class="phase-activities">${phase.activities.map((activity, localIndex) => {
+        const index = phaseStart + localIndex;
+        return `<label class="action-check ${app.tasks[index] ? "completed" : ""}"><input class="task-check" type="checkbox" data-task="${index}" data-phase="${phaseIndex}" ${app.tasks[index] ? "checked" : ""}><span class="check-mark" aria-hidden="true"></span><span class="action-copy"><strong>${safe(activity)}</strong></span></label>`;
+      }).join("")}</div></article>`;
+    }).join("")}</div>
+    <section class="plan-measures"><span>Qué revisar para saber si funcionó</span><h2>Mira estas señales en la fecha de revisión</h2><ul>${actionPlan.indicators.map(indicator => `<li><strong>${safe(indicator.name)}</strong><small>${safe(indicator.comparison)}</small></li>`).join("")}</ul></section>`;
 }
 
 function feedbackScreen() {
@@ -990,11 +1001,13 @@ function radioQuestion(name, label, options) {
 
 function nextScreen() {
   const [main, second] = app.analysis?.priorities || [];
+  const actionPlan = getActionPlan();
+  const totalActivities = actionPlan.phases.flatMap(phase => phase.activities).length;
   return `<p class="eyebrow">Qué sigue</p>
     <h1 class="screen-title">Con esta nueva información podemos revisar qué sigue.</h1>
     <div class="continuity-grid">
       <article class="completion"><span>Hallazgo trabajado</span><h2>${safe(main?.title || "Completar la información")}</h2><p>${safe(main?.evidence || "")}</p></article>
-      <article class="panel"><span>Progreso del plan</span><h3>${app.tasks.filter(Boolean).length} de 3 acciones</h3><p><strong>Qué observar:</strong> ${safe(main?.indicator || "Por definir")}</p></article>
+      <article class="panel"><span>Progreso del plan</span><h3>${app.tasks.filter(Boolean).length} de ${totalActivities} actividades</h3><p><strong>Qué revisar:</strong> ${safe(actionPlan.indicators.map(item => item.name).join(", ") || main?.indicator || "Por definir")}</p></article>
       <article class="panel"><span>Siguiente hallazgo</span><h3>${safe(second?.title || "Mantener tus datos actualizados")}</h3><p>${safe(second?.evidence || "")}</p></article>
     </div>
     <div class="final-actions">
@@ -2634,79 +2647,187 @@ function metricCards() {
     <article class="stat"><span>Relación con inventario</span><strong>${metrics.inv.length ? `${readableNumber(metrics.linkedProducts)} productos relacionados` : "No encontramos inventario"}</strong>${metrics.inv.length && !metrics.linkedProducts ? "<small>No comparamos ventas e inventario porque los productos no coincidieron.</small>" : ""}</article>`;
 }
 
-function getPlan() {
+function actionPlanTiming(level) {
+  if (level === "Crítico") return { labels: ["HOY", "EN 3 DÍAS", "EN 7 DÍAS"], days: [0, 3, 7] };
+  if (level === "Importante") return { labels: ["HOY", "EN 8 DÍAS", "EN 15 DÍAS"], days: [0, 8, 15] };
+  return { labels: ["ESTA SEMANA", "EN 15 DÍAS", "EN 30 DÍAS"], days: [7, 15, 30] };
+}
+
+function isoDateAfter(days) {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function planRowMeasure(row, basis) {
+  const quantity = numericValue(row.cantidad);
+  const value = Number.isFinite(numericValue(row.valorTotal)) ? numericValue(row.valorTotal) : quantity * numericValue(row.precio);
+  if (basis === "value") return Number.isFinite(value) && value >= 0 ? value : 0;
+  if (basis === "profit") return Number.isFinite(numericValue(row.utilidad)) ? numericValue(row.utilidad) : 0;
+  return Number.isFinite(quantity) && quantity >= 0 ? quantity : 0;
+}
+
+function relatedDeclineEntities(product, role) {
+  const metrics = app.analysis?.metrics;
+  const panorama = metrics?.panorama;
+  if (!panorama?.reliable) return [];
+  const priorMonths = new Set(panorama.prior.map(item => item.month));
+  const recentMonths = new Set(panorama.recent.map(item => item.month));
+  const grouped = {};
+  (app.dataset?.sales || []).forEach(row => {
+    if (product && normalize(row.producto) !== normalize(product)) return;
+    const label = String(row[role] || "").trim();
+    const date = new Date(row.fecha);
+    if (!label || Number.isNaN(date.getTime())) return;
+    const month = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+    if (!priorMonths.has(month) && !recentMonths.has(month)) return;
+    const key = normalize(label);
+    grouped[key] ||= { name: label, prior: 0, recent: 0 };
+    grouped[key][priorMonths.has(month) ? "prior" : "recent"] += planRowMeasure(row, panorama.basis);
+  });
+  const declining = Object.values(grouped).map(item => ({ ...item, loss: Math.max(0, item.prior - item.recent), inactive: item.prior > 0 && item.recent === 0 })).filter(item => item.loss > 0).sort((a, b) => b.loss - a.loss);
+  const totalLoss = declining.reduce((sum, item) => sum + item.loss, 0);
+  return declining.map(item => ({ ...item, contribution: totalLoss ? item.loss / totalLoss : 0 }));
+}
+
+function planProductNames(finding) {
+  const metrics = app.analysis?.metrics;
+  const fromItems = (finding.items || []).map(item => item.producto).filter(Boolean);
+  const fromDriver = finding.driver?.dimension === "producto" && finding.driver.product ? [finding.driver.product] : [];
+  const fromDecline = (finding.type === "profit-decline" ? metrics.utilityDrivers : metrics.productDrivers || []).filter(item => item.delta < 0).slice(0, 2).map(item => item.product);
+  const fromFocus = (finding.focosPrioritarios || []).map(item => item.evidencia?.split(/ explica| representa| tiene/)[0]).filter(Boolean);
+  return [...new Set([...fromItems, ...fromDriver, ...fromDecline, ...fromFocus])].slice(0, 2);
+}
+
+function latestInventoryBaseline(products) {
+  const selected = new Set(products.map(normalize));
+  const latest = {};
+  (app.dataset?.inventory || []).forEach(row => {
+    const product = String(row.producto || "").trim();
+    if (!product || (selected.size && !selected.has(normalize(product)))) return;
+    const date = new Date(row.fechaCorte);
+    const timestamp = Number.isNaN(date.getTime()) ? 0 : date.getTime();
+    const current = latest[normalize(product)];
+    if (!current || timestamp >= current.timestamp) latest[normalize(product)] = { product, stock: numericValue(row.stock), timestamp };
+  });
+  return Object.values(latest).filter(item => Number.isFinite(item.stock)).map(item => ({ producto: item.product, unidades: item.stock }));
+}
+
+function salesActionPlan(finding, diagnosis, timing, products) {
+  const metrics = app.analysis.metrics;
+  const primaryProduct = products[0] || "los productos que más explican el cambio";
+  const customerDetails = diagnosis.datosDisponibles.clientes ? relatedDeclineEntities(products[0], "cliente").slice(0, 5) : [];
+  const sellerDetails = diagnosis.datosDisponibles.comerciales ? relatedDeclineEntities(products[0], "vendedor").slice(0, 2) : [];
+  const customerNames = customerDetails.map(item => item.name);
+  const customerShare = customerDetails.reduce((sum, item) => sum + item.contribution, 0);
+  const sellerName = sellerDetails[0]?.name;
+  const hasValue = metrics.valueRate >= .70;
+  const hasUnits = metrics.quantityRate >= .70;
+  const isProfit = finding.type === "profit-decline";
+  const measureName = isProfit ? utilityName(metrics) : metrics.panorama.basis === "value" ? "valor vendido" : "unidades vendidas";
+  const causeEvidence = diagnosis.causasObservadas[0] || diagnosis.focosPrioritarios[0]?.evidencia || finding.reason;
+  const firstAction = customerNames.length
+    ? `Revisa los ${customerNames.length} clientes que más redujeron la compra de ${primaryProduct}.`
+    : sellerName ? `Revisa con ${sellerName} qué cambió en las ventas de ${primaryProduct}.`
+      : `Revisa qué cambió en las ventas de ${products.join(" y ") || primaryProduct}.`;
+  const firstEvidence = customerNames.length
+    ? `${customerNames.join(", ")} explican ${percent(customerShare)} de las reducciones observadas entre los clientes de ${primaryProduct}.`
+    : causeEvidence;
+  const firstActivities = [
+    `Compara el ${measureName} anterior y reciente de ${primaryProduct}.`,
+    sellerName ? `Revisa con ${sellerName} qué cambió, sin asumir que el comercial causó la reducción.` : customerNames.length ? "Pregunta a quienes atienden estos clientes qué cambió." : "Identifica con tu equipo cuáles clientes o pedidos cambiaron.",
+    "Anota la razón encontrada y separa lo confirmado de lo que todavía es una posibilidad."
+  ];
+  const secondTarget = customerNames.length ? "los clientes priorizados" : products.length ? products.join(" y ") : "el foco señalado";
+  const phases = [
+    { when: timing.labels[0], objective: "Entender qué cambió en el foco de mayor impacto.", action: firstAction, evidence: firstEvidence, activities: firstActivities },
+    { when: timing.labels[1], objective: isProfit ? `Corregir una causa confirmada que esté reduciendo el ${measureName}.` : "Responder a la causa confirmada con una acción pequeña y clara.", action: customerNames.length ? `Habla con ${secondTarget} y define cómo recuperar su compra después de confirmar qué cambió.` : `Actúa sobre la causa confirmada de ${secondTarget}.`, evidence: `No asumimos que precio, competencia, servicio o disponibilidad sean la causa hasta comprobarlo.`, activities: [customerNames.length ? "Contacta a los clientes priorizados y pregunta qué cambió." : "Confirma si cambió la demanda, la disponibilidad, el servicio o el precio.", "Define una sola acción para cada causa confirmada.", "Anota qué hiciste y desde qué fecha."] },
+    { when: timing.labels[2], objective: "Comprobar si la situación empezó a mejorar y ajustar si hace falta.", action: customerNames.length ? `Revisa si las ventas de ${primaryProduct} y de los clientes priorizados empezaron a mejorar.` : `Revisa si el ${measureName} de ${products.join(" y ") || primaryProduct} empezó a mejorar.`, evidence: "Compara con el promedio de los últimos tres meses completos; no uses un periodo incompleto.", activities: [hasUnits ? "Compara las unidades vendidas." : `Compara el ${measureName}.`, hasValue ? "Compara el valor vendido." : "Usa la misma medida disponible en el diagnóstico.", customerNames.length ? "Revisa cuántos clientes volvieron a comprar y ajusta si no hay mejora." : "Ajusta la acción si no hay mejora."] }
+  ];
+  const indicators = [];
+  if (customerNames.length) indicators.push({ name: "Clientes que volvieron a comprar", comparison: `Compara los próximos ${timing.days[2]} días con el periodo reciente.` });
+  if (hasUnits) indicators.push({ name: "Unidades vendidas", comparison: "Compáralas con el promedio reciente usando periodos equivalentes." });
+  if (hasValue && indicators.length < 3) indicators.push({ name: "Valor vendido", comparison: "Compáralo con el promedio de los últimos tres meses completos." });
+  if (isProfit) indicators.unshift({ name: utilityName(metrics)[0].toUpperCase() + utilityName(metrics).slice(1), comparison: "Compáralo con el promedio reciente y revisa que la venta no mejore a costa de la rentabilidad." });
+  return { phases, indicators: indicators.slice(0, 3), causeEvidence };
+}
+
+function inventoryActionPlan(finding, diagnosis, timing, products) {
+  const metrics = app.analysis.metrics;
+  const names = products.join(" y ") || "los productos señalados";
+  const isRisk = ["stock-risk-general", "stockout"].includes(finding.type);
+  const inventoryOnly = finding.type === "inventory-only";
+  const noMovement = finding.type === "inventory-no-movement";
+  const causeEvidence = diagnosis.causasObservadas[0] || diagnosis.focosPrioritarios[0]?.evidencia || finding.reason;
+  if (inventoryOnly) return {
+    causeEvidence,
+    phases: [
+      { when: timing.labels[0], objective: "Conseguir la información necesaria para comparar existencias y ventas.", action: "Ubica dónde registras las ventas de tu negocio.", evidence: "Hoy solo tenemos una fotografía de inventario y no podemos afirmar si hay exceso o falta de existencias.", activities: ["Busca fecha, producto y cantidad vendida.", "Incluye valor vendido si lo tienes.", "Confirma que los productos usan nombres o referencias reconocibles."] },
+      { when: timing.labels[1], objective: "Preparar un archivo que San José pueda revisar.", action: "Organiza o exporta los registros de ventas en Excel o CSV.", evidence: "No necesitas cambiar los nombres originales de las columnas.", activities: ["Incluye varios meses completos si están disponibles.", "Revisa que las fechas sean válidas.", "Guarda una copia antes de hacer cambios."] },
+      { when: timing.labels[2], objective: "Obtener un diagnóstico conjunto sin inventar relaciones.", action: "Vuelve a analizar ventas e inventario juntos.", evidence: "Solo compararemos productos que podamos relacionar con suficiente claridad.", activities: ["Carga los dos archivos.", "Confirma las columnas identificadas.", "Revisa el nuevo resultado y define un punto de partida."] }
+    ],
+    indicators: [{ name: "Meses de ventas disponibles", comparison: "Busca al menos seis meses completos cuando sea posible." }, { name: "Productos relacionados", comparison: "Revisa cuántas referencias aparecen tanto en ventas como en inventario." }]
+  };
+  const firstAction = isRisk ? `Confirma las existencias físicas de ${names}.` : `Antes de hacer nuevas compras de ${names}, revisa lo que ya tienes.`;
+  const secondAction = isRisk ? `Confirma cuáles de ${names} necesitan reposición.` : `Define cómo mover primero las unidades disponibles de ${names}.`;
+  const thirdAction = isRisk ? `Revisa si la disponibilidad de ${names} mejoró y si evitaste ventas sin atender.` : `Comprueba si las existencias de ${names} empezaron a bajar.`;
+  const phases = [
+    { when: timing.labels[0], objective: isRisk ? "Confirmar qué productos podrían quedarse sin unidades." : noMovement ? "Confirmar las unidades y el tiempo sin movimiento." : "Confirmar cuánto inventario tienes frente a las ventas recientes.", action: firstAction, evidence: causeEvidence, activities: ["Confirma las existencias físicas.", diagnosis.datosDisponibles.ventas ? "Revisa las unidades vendidas recientemente." : "Registra las ventas recientes que todavía no estén en el archivo.", diagnosis.datosDisponibles.compras ? "Confirma compras o pedidos pendientes." : "Confirma manualmente si hay pedidos pendientes."] },
+    { when: timing.labels[1], objective: isRisk ? "Reponer únicamente lo que la demanda y la disponibilidad justifican." : "Mover las existencias actuales sin asumir una causa ni regalar margen.", action: secondAction, evidence: isRisk ? "La reposición debe considerar ventas recientes, unidades disponibles y tiempo de entrega." : "No recomendamos descuentos o promociones sin revisar primero la causa y la rentabilidad.", activities: isRisk ? ["Prioriza los productos con más ventas y menos cobertura.", "Confirma cantidades y fecha de entrega con el proveedor.", "Anota qué productos decidiste reponer y por qué."] : [diagnosis.datosDisponibles.clientes ? "Revisa qué clientes compraban estos productos." : "Pregunta a tu equipo qué clientes compraban estos productos.", diagnosis.datosDisponibles.comerciales ? "Revisa oportunidades con los comerciales relacionados." : "Revisa oportunidades con quienes atienden a tus clientes.", "Define una acción específica por producto después de confirmar la causa."] },
+    { when: timing.labels[2], objective: isRisk ? "Comprobar si mejoró la disponibilidad sin acumular unidades innecesarias." : "Comprobar si bajaron las existencias sin afectar la rentabilidad.", action: thirdAction, evidence: "Compara con las unidades disponibles al iniciar el plan.", activities: isRisk ? ["Compara las unidades disponibles.", "Revisa las unidades vendidas y las ventas que no pudiste atender.", "Ajusta la reposición si la disponibilidad no mejoró."] : ["Compara las unidades disponibles con el nivel inicial.", "Compara las unidades y el valor vendido.", diagnosis.datosDisponibles.utilidad ? "Revisa la utilidad y ajusta si no hay mejora." : "Ajusta la acción si no hay mejora."] }
+  ];
+  const indicators = isRisk
+    ? [{ name: "Unidades disponibles", comparison: "Compáralas con el nivel inicial y con las ventas recientes." }, { name: "Unidades vendidas", comparison: "Revisa si la disponibilidad permitió atender la demanda." }, { name: "Ventas que no pudiste atender", comparison: "Anota cada caso desde el inicio del plan." }]
+    : [{ name: "Unidades disponibles", comparison: "Compáralas con el nivel registrado al iniciar el plan." }, { name: "Unidades vendidas", comparison: "Compáralas con el periodo reciente equivalente." }, noMovement ? { name: "Días sin movimiento", comparison: "Revisa si los productos volvieron a tener salidas." } : diagnosis.datosDisponibles.utilidad ? { name: "Utilidad", comparison: "Confirma que mover inventario no reduzca la rentabilidad." } : { name: "Valor vendido", comparison: "Compáralo con el periodo reciente equivalente." }];
+  return { phases, indicators: indicators.slice(0, 3), causeEvidence };
+}
+
+function getActionPlan() {
   const finding = app.analysis?.priorities[0];
-  if (!finding) return [];
-  if (finding.type === "business-decline") {
-    const drivers = (finding.drivers || []).slice(0, 2).map(item => item.dimension === "cliente" ? `el cliente ${item.product}` : item.dimension === "vendedor" ? `el comercial ${item.product}` : item.product);
-    const names = drivers.length ? drivers.join(" y ") : "los productos que más bajaron";
-    return [
-      { when: "HOY", action: `Revisa qué cambió en las ventas de ${names}.`, explain: "Estos productos explican la mayor parte de la reducción reciente." },
-      { when: "ESTA SEMANA", action: "Compara precio, clientes y disponibilidad frente a los tres meses anteriores.", explain: "Busca una causa comprobable antes de cambiar varias decisiones al mismo tiempo." },
-      { when: "EN 14 DÍAS", action: "Revisa si las ventas empezaron a recuperarse frente al promedio reciente.", explain: "Usa la misma medida y compara meses completos." }
-    ];
-  }
-  if (["inventory-accumulation", "inventory-excess"].includes(finding.type)) {
-    const products = (finding.items || []).slice(0, 2).map(item => item.producto).join(" y ") || "los productos con más existencias frente a sus ventas";
-    return [
-      { when: "HOY", action: `Revisa ${products} antes de volver a comprarlos.`, explain: "Confirma físicamente las existencias y las ventas pendientes de registrar." },
-      { when: "ESTA SEMANA", action: "Define cómo mover las unidades que ya tienes.", explain: "Prueba una acción por producto para saber cuál funciona." },
-      { when: "EN 14 DÍAS", action: "Compara nuevamente existencias y ventas.", explain: "No afirmes que el inventario creció si todavía solo tienes una fotografía actual." }
-    ];
-  }
-  if (finding.type === "stock-risk-general") {
-    const products = (finding.items || []).slice(0, 2).map(item => item.producto).join(" y ") || "los productos con pocas existencias";
-    return [
-      { when: "HOY", action: `Confirma las existencias físicas de ${products}.`, explain: "Revisa también pedidos pendientes y tiempos de entrega." },
-      { when: "ESTA SEMANA", action: "Ajusta el siguiente pedido usando las ventas recientes.", explain: "Prioriza los productos que sostienen una parte importante de las ventas." },
-      { when: "EN 14 DÍAS", action: "Comprueba si los productos se mantuvieron disponibles.", explain: "Registra cualquier venta que no pudiste atender por falta de unidades." }
-    ];
-  }
-  if (finding.type === "product-decline" && finding.driver) return [
-    { when: "HOY", action: `Revisa qué cambió en las ventas de ${finding.driver.product}.`, explain: "Compara los dos periodos de tres meses usados por San José." },
-    { when: "ESTA SEMANA", action: "Compara clientes, precio y disponibilidad del producto.", explain: "El problema está localizado y tiene peso suficiente en el negocio." },
-    { when: "EN 14 DÍAS", action: "Comprueba si sus ventas empezaron a recuperarse.", explain: finding.indicator }
-  ];
-  if (finding.type === "trend") return [
-    { when: "HOY", action: "Confirma qué productos y semanas explican la caída reciente.", explain: app.context.eventoReciente ? `Ten en cuenta el contexto indicado: ${app.context.eventoReciente}.` : "Compara el periodo reciente con los meses anteriores." },
-    { when: "ESTA SEMANA", action: "Elige una causa comprobable y una acción pequeña para responder.", explain: "Evita cambiar precios, compras y promociones al mismo tiempo." },
-    { when: "EN 14 DÍAS", action: "Compara nuevamente el valor vendido.", explain: "Revisa si la caída se detuvo, continuó o empezó a recuperarse." }
-  ];
-  if (finding.type === "inventory-only") return [
-    { when: "HOY", action: "Ubica dónde registras las ventas de tu negocio.", explain: "Busca fecha, producto, cantidad y valor vendido." },
-    { when: "ESTA SEMANA", action: "Exporta o organiza esos registros en Excel o CSV.", explain: "No necesitas cambiar los nombres de las columnas." },
-    { when: "EN 14 DÍAS", action: "Vuelve a analizar ventas e inventario juntos.", explain: "San José podrá comparar qué se vende y qué permanece disponible." }
-  ];
-  if (finding.type === "slow") {
-    const count = Math.min(10, finding.items?.length || 1);
-    return [
-      { when: "HOY", action: `Revisa ${count === 1 ? "el producto" : `los ${count} productos`} con más unidades almacenadas y pocas ventas.`, explain: "Confirma físicamente las existencias y las ventas pendientes de registrar." },
-      { when: "ESTA SEMANA", action: "Define cuáles puedes promocionar, vender juntos o dejar de comprar temporalmente.", explain: "Cambia una sola decisión por producto para poder observar qué funciona." },
-      { when: "EN 14 DÍAS", action: "Comprueba si disminuyeron las existencias de esos productos.", explain: "Compara las unidades disponibles con las registradas hoy." }
-    ];
-  }
-  if (finding.type === "concentration") return [
-    { when: "HOY", action: "Confirma cuánto depende la venta del producto principal.", explain: "Revisa si el patrón también aparece en semanas anteriores." },
-    { when: "ESTA SEMANA", action: "Elige dos productos complementarios para ofrecer junto al principal.", explain: "Haz una prueba pequeña sin cambiar varias cosas al mismo tiempo." },
-    { when: "EN 14 DÍAS", action: "Compara nuevamente cuánto representa el producto principal.", explain: "Observa si otros productos empezaron a aportar más ventas." }
-  ];
-  if (finding.type === "stockout") return [
-    { when: "HOY", action: "Confirma las existencias físicas y los pedidos pendientes.", explain: "Asegúrate de que el registro coincide con la bodega." },
-    { when: "ESTA SEMANA", action: "Ajusta el siguiente pedido usando las ventas recientes.", explain: "Considera también cuánto tarda el proveedor en entregar." },
-    { when: "EN 14 DÍAS", action: "Comprueba si el producto se mantuvo disponible.", explain: "Registra cualquier día en que no pudiste atender una venta." }
-  ];
-  return [
-    { when: "HOY", action: "Confirma que el dato señalado representa lo que ocurrió.", explain: "Compara el registro con la operación real." },
-    { when: "ESTA SEMANA", action: "Prueba una mejora pequeña relacionada con el hallazgo.", explain: "Cambia una sola cosa para observar su efecto." },
-    { when: "EN 14 DÍAS", action: "Compara nuevamente el indicador.", explain: finding.indicator }
-  ];
+  const diagnosis = app.analysis?.diagnostico;
+  if (!finding || !diagnosis) return { problemGeneral: "Información insuficiente", causeWorked: "Completar la información", phases: [], indicators: [] };
+  const timing = actionPlanTiming(diagnosis.nivelUrgencia);
+  const products = planProductNames(finding);
+  const inventoryTypes = ["inventory-accumulation", "inventory-excess", "inventory-no-movement", "stock-risk-general", "stockout", "inventory-only", "slow"];
+  const detail = finding.dominio === "inventario" || inventoryTypes.includes(finding.type)
+    ? inventoryActionPlan(finding, diagnosis, timing, products)
+    : salesActionPlan(finding, diagnosis, timing, products);
+  const baseline = {
+    periodo: diagnosis.periodoAnalizado,
+    promedioMensualReciente: app.analysis.metrics.panorama?.reliable ? app.analysis.metrics.panorama.recentAverage : null,
+    unidad: app.analysis.metrics.panorama?.basis === "value" ? "valor vendido" : "unidades vendidas",
+    inventario: latestInventoryBaseline(products)
+  };
+  const handoff = {
+    problemGeneral: diagnosis.problemGeneral,
+    causaTrabajada: detail.causeEvidence,
+    accionesPropuestas: detail.phases.map(phase => phase.action),
+    actividades: detail.phases.flatMap((phase, phaseIndex) => phase.activities.map(activity => ({ fase: phaseIndex + 1, momento: phase.when, actividad: activity }))),
+    fechaInicio: isoDateAfter(0),
+    fechaRevision: isoDateAfter(timing.days[2]),
+    indicadoresSeguimiento: detail.indicators,
+    valorBase: baseline
+  };
+  app.actionPlan = handoff;
+  return { problemGeneral: diagnosis.problemGeneral, causeWorked: detail.causeEvidence, urgency: diagnosis.nivelUrgencia, phases: detail.phases, indicators: detail.indicators, handoff };
+}
+
+function getPlan() {
+  return getActionPlan().phases;
 }
 
 function updateTask(event) {
   const index = Number(event.target.dataset.task);
   app.tasks[index] = event.target.checked;
   const done = app.tasks.filter(Boolean).length;
-  document.querySelectorAll("#task-count").forEach(element => { element.textContent = `${done} de 3`; });
+  document.querySelectorAll("#task-count").forEach(element => { element.textContent = `${done} de ${app.tasks.length}`; });
+  let offset = 0;
+  getActionPlan().phases.forEach((phase, phaseIndex) => {
+    const phaseDone = app.tasks.slice(offset, offset + phase.activities.length).filter(Boolean).length;
+    document.querySelectorAll(`[data-phase-progress="${phaseIndex}"]`).forEach(element => { element.textContent = `${phaseDone} de ${phase.activities.length} actividades`; });
+    offset += phase.activities.length;
+  });
   event.target.closest(".action-check")?.classList.toggle("completed", event.target.checked);
 }
 
