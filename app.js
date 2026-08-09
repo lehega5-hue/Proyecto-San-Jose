@@ -39,6 +39,7 @@ const app = {
   actionPlan: null,
   opportunityHistory: [],
   currentOpportunityKey: null,
+  planDetailOpen: false,
   activePriority: 0,
   feedback: {},
   completed: {
@@ -164,6 +165,7 @@ $("#test-summary-button").addEventListener("click", showTestSummary);
 $(".dialog-close").addEventListener("click", () => $("#test-dialog").close());
 
 function go(step) {
+  if (step === 7 && app.step <= 6) app.planDetailOpen = false;
   app.step = Math.max(1, Math.min(10, step));
   render();
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -964,12 +966,27 @@ function evidenceScreen() {
 
 function planScreen() {
   if (!app.analysis) return missingState();
+  if (!app.planDetailOpen) return opportunitiesSummaryScreen();
   app.completed.plan = true;
   return `<div class="stage-four-plan"><p class="eyebrow">Un paso a la vez</p>
     <h1 class="screen-title">Tu plan en 3 fases</h1>
     <p class="screen-intro">Primero revisamos qué cambió, después actuamos y al final comprobamos si mejoró.</p>
     ${stageFourPlanChecklist()}</div>
-    ${nav(6, 8, "Hacer seguimiento")}`;
+    <div class="actions"><button id="back-opportunities" class="button secondary" type="button">← Ver oportunidades</button><div class="right"><button class="button gold" type="button" data-go="8">Hacer seguimiento →</button></div></div>`;
+}
+
+function opportunitiesSummaryScreen() {
+  const opportunities = (app.analysis?.priorities || []).slice(0, 3);
+  const count = opportunities.length;
+  const cards = opportunities.map((finding, index) => {
+    const presentation = priorityPresentation(finding);
+    const title = finding.problemaGeneral || finding.title || presentation.title;
+    const explanation = finding.evidence || finding.reason || presentation.found;
+    const labels = ["Atender primero", "Atender después", "Mantener en observación"];
+    return `<article class="opportunity-card ${index === 0 ? "primary" : "pending"}"><header><span>Oportunidad ${index + 1}</span><b>${labels[index]}</b></header><h2>${safe(title)}</h2><p>${safe(explanation)}</p>${presentation.metrics?.length ? `<ul>${presentation.metrics.slice(0, 2).map(metric => `<li>${safe(metric)}</li>`).join("")}</ul>` : ""}${index === 0 ? `<button id="open-plan-detail" class="button gold" type="button">Trabajar esta oportunidad →</button>` : `<span class="opportunity-later">La veremos después</span>`}</article>`;
+  }).join("");
+  const missing = Math.max(0, 3 - count);
+  return `<section class="opportunities-summary"><p class="eyebrow">Primero mira el panorama</p><h1 class="screen-title">${count ? `Tus ${count} oportunidades de mejora` : "Oportunidades de mejora"}</h1><p class="screen-intro">${count ? `San José encontró ${count === 1 ? "un tema" : `${count} temas`} que conviene trabajar. Vamos a avanzar uno por uno, empezando por el más importante.` : "Todavía no encontramos una oportunidad con información suficiente para sustentarla."}</p>${count ? `<p class="opportunities-order">Primero verás ${count === 1 ? "la oportunidad disponible" : `las ${count} oportunidades`}. Luego entraremos a la primera para trabajarla en 3 fases.</p>` : ""}<div class="opportunity-grid">${cards}</div>${missing ? `<aside class="opportunity-missing">${missing === 1 ? "No pudimos construir una tercera oportunidad" : "No pudimos construir las otras oportunidades"} porque falta información suficiente para sustentarlas.</aside>` : ""}${count ? `<aside class="opportunity-method"><h2>¿Cómo vamos a trabajar esto?</h2><p>San José te mostrará primero la oportunidad más importante.</p><ol><li>Entender qué cambió</li><li>Actuar</li><li>Comprobar si mejoró</li></ol></aside>` : ""}${nav(6, null)}</section>`;
 }
 
 function stageFourPlanChecklist() {
@@ -1135,6 +1152,8 @@ function bindScreen() {
   $("#download-summary")?.addEventListener("click", downloadExecutiveSummary);
   $("#restart-demo")?.addEventListener("click", () => location.reload());
   $("#back-to-welcome")?.addEventListener("click", () => location.reload());
+  $("#open-plan-detail")?.addEventListener("click", () => { app.planDetailOpen = true; render(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+  $("#back-opportunities")?.addEventListener("click", () => { app.planDetailOpen = false; render(); window.scrollTo({ top: 0, behavior: "smooth" }); });
 
   if (app.step === 2) {
     const contextForm = $("#context-form");

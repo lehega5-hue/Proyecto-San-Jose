@@ -465,6 +465,28 @@ p { text-wrap: pretty; }
 .plan-signal small { display: block; margin-top: 9px; color: var(--muted); }
 .plan-no-signal { max-width: 780px; margin: 0; color: #4c5667; }
 .plan-responsibility { max-width: 920px; margin: 24px auto 0; padding: 18px 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: .86rem; text-align: center; }
+.opportunities-summary { max-width: 1120px; }
+.opportunities-order { max-width: 760px; margin: 20px 0 0; padding-left: 15px; border-left: 3px solid var(--gold); color: var(--navy); }
+.opportunity-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 32px; }
+.opportunity-card { display: flex; min-width: 0; flex-direction: column; padding: 24px; border: 1px solid var(--line); border-top: 4px solid #9aa5b5; background: var(--white); box-shadow: 0 8px 25px rgba(1,18,53,.05); }
+.opportunity-card.primary { border-top-color: var(--gold); box-shadow: 0 13px 34px rgba(1,18,53,.11); }
+.opportunity-card header { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.opportunity-card header span { color: var(--muted); font-size: .68rem; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
+.opportunity-card header b { padding: 5px 8px; border-radius: 20px; background: #f1f3f6; color: var(--navy); font-size: .7rem; }
+.opportunity-card.primary header b { background: var(--gold-soft); color: #74500d; }
+.opportunity-card h2 { margin: 20px 0 10px; color: var(--navy); font: 500 clamp(1.35rem, 2vw, 1.75rem)/1.18 Georgia, serif; }
+.opportunity-card > p { margin: 0; color: var(--muted); font-size: .9rem; }
+.opportunity-card ul { display: grid; gap: 7px; margin: 20px 0 24px; padding: 0; list-style: none; }
+.opportunity-card li { padding-top: 7px; border-top: 1px solid var(--line); color: var(--navy); font-size: .82rem; font-weight: 750; }
+.opportunity-card .button { width: 100%; margin-top: auto; }
+.opportunity-later { display: block; margin-top: auto; padding: 12px; border: 1px solid var(--line); color: var(--muted); font-size: .82rem; font-weight: 750; text-align: center; }
+.opportunity-missing { margin-top: 18px; padding: 16px 18px; border-left: 3px solid var(--gold); background: #fffaf0; color: var(--muted); }
+.opportunity-method { margin-top: 28px; padding: clamp(22px, 3vw, 30px); background: var(--navy); color: var(--white); }
+.opportunity-method h2 { margin: 0 0 7px; color: var(--white); font: 500 clamp(1.4rem, 2.5vw, 1.9rem)/1.2 Georgia, serif; }
+.opportunity-method p { margin: 0; color: #e5e7eb; }
+.opportunity-method ol { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0 0; padding: 0; list-style: none; counter-reset: opportunity-steps; }
+.opportunity-method li { display: flex; gap: 10px; align-items: center; counter-increment: opportunity-steps; }
+.opportunity-method li::before { content: counter(opportunity-steps); display: grid; flex: 0 0 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--gold); color: var(--navy); font-weight: 900; }
 .execution-opportunity { display: grid; grid-template-columns: minmax(0, 1fr) 140px; gap: clamp(24px, 5vw, 52px); align-items: center; }
 .execution-opportunity img { display: block; width: 140px; height: 140px; object-fit: contain; }
 .execution-opportunity .opportunity-focus { margin-top: 12px; color: var(--white); font-weight: 750; }
@@ -587,6 +609,7 @@ p { text-wrap: pretty; }
   .stage-four-problem { grid-template-columns: 1fr; }
   .stage-four-problem img { width: 112px; height: 112px; }
   .plan-signal-grid { grid-template-columns: 1fr; }
+  .opportunity-grid, .opportunity-method ol { grid-template-columns: 1fr; }
   .execution-opportunity { grid-template-columns: 1fr; }
   .execution-opportunity img { width: 105px; height: 105px; }
   .execution-signals > div { grid-template-columns: 1fr; }

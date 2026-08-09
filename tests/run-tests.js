@@ -719,6 +719,7 @@ function setStageThree(data, referenceDate = new Date("2026-08-08T12:00:00Z"), c
   app.analysis = analyze(data, referenceDate);
   app.tasks = [];
   app.actionPlan = null;
+  app.planDetailOpen = false;
   return app.analysis;
 }
 
@@ -1253,6 +1254,44 @@ test("DIAGNÓSTICO 8: un margen porcentual no se suma ni se presenta como dinero
   assert.equal(main.magnitudDetalle.valorDejadoDeGenerar, null);
 });
 
+test("ETAPA 4 RESUMEN A: presenta primero las tres oportunidades sin desarrollar el plan", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20], B: [40, 40, 40, 30, 30, 30] }), inventory: [] });
+  const html = planScreen();
+  assert.ok(html.includes("Tus 3 oportunidades de mejora"));
+  assert.ok(html.includes("Vamos a avanzar uno por uno"));
+  assert.equal((html.match(/class="opportunity-card/g) || []).length, 3);
+  assert.ok(html.includes("Atender primero"));
+  assert.ok(html.includes("Atender después"));
+  assert.ok(html.includes("Mantener en observación"));
+  assert.equal((html.match(/id="open-plan-detail"/g) || []).length, 1);
+  assert.equal((html.match(/Trabajar esta oportunidad →/g) || []).length, 1);
+  assert.equal((html.match(/La veremos después/g) || []).length, 2);
+  assert.ok(html.includes("¿Cómo vamos a trabajar esto?"));
+  assert.ok(html.includes("Entender qué cambió") && html.includes("Actuar") && html.includes("Comprobar si mejoró"));
+  assert.ok(!html.includes("class=\"plan-phases\""));
+});
+
+test("ETAPA 4 RESUMEN B: muestra solo oportunidades sustentadas y explica la faltante", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  app.analysis.priorities = app.analysis.priorities.slice(0, 2);
+  const html = planScreen();
+  assert.ok(html.includes("Tus 2 oportunidades de mejora"));
+  assert.equal((html.match(/class="opportunity-card/g) || []).length, 2);
+  assert.ok(html.includes("No pudimos construir una tercera oportunidad porque falta información suficiente"));
+  assert.equal((html.match(/id="open-plan-detail"/g) || []).length, 1);
+});
+
+test("ETAPA 4 RESUMEN C: el detalle existente se abre después del resumen", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  assert.ok(planScreen().includes("class=\"opportunities-summary\""));
+  app.planDetailOpen = true;
+  const detail = planScreen();
+  assert.ok(detail.includes("Tu plan en 3 fases"));
+  assert.ok(detail.includes("class=\"plan-phases\""));
+  assert.ok(detail.includes("← Ver oportunidades"));
+  assert.ok(!detail.includes("class=\"opportunity-grid\""));
+});
+
 test("ETAPA 4 A: una situación crítica usa hoy, 2 días y 7 días", () => {
   setStageThree({ sales: businessRows({ "Referencia 4": [100, 100, 100, 10, 10, 10] }), inventory: [] });
   const plan = getActionPlan();
@@ -1328,6 +1367,7 @@ test("ETAPA 4 F: prepara el seguimiento antes contra después", () => {
 
 test("ETAPA 4 G: la pantalla muestra problema, línea de tiempo, fases y progreso por actividad", () => {
   setStageThree({ sales: businessRows({ A: [60, 60, 60, 30, 30, 30], B: [40, 40, 40, 30, 30, 30] }), inventory: [] });
+  app.planDetailOpen = true;
   const html = planScreen();
   const activityCount = getActionPlan().phases.flatMap(phase => phase.activities).length;
   assert.ok(html.includes("Tu plan en 3 fases"));
@@ -1373,6 +1413,7 @@ test("ETAPA 4 I: la meta de clientes se adapta a la cantidad realmente afectada"
 
 test("ETAPA 4 J: la pantalla usa lenguaje simple y reserva las metas para el cierre", () => {
   setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  app.planDetailOpen = true;
   const html = planScreen();
   ["Gantt", "KPI", "indicador", "target", "baseline", "performance", "mitigación", "framework", "root cause", "gap"].forEach(term => assert.ok(!html.toLowerCase().includes(term.toLowerCase()), `aparece ${term}`));
   const phaseSection = html.slice(html.indexOf("plan-phases"), html.indexOf("stage-four-signals"));
