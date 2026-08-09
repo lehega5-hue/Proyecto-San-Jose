@@ -683,6 +683,80 @@ test("UX: Cliente, Comercial y Utilidad usan la misma plantilla y la sección co
   assert.ok(!inventoryHtml.includes("Datos que pueden mejorar el análisis"));
 });
 
+test("INVENTARIO OPCIONAL 1: producto y existencia continúan sin tarjetas opcionales", () => {
+  const rows = [{ Producto: "A", Existencia: 12 }];
+  const table = makeTable("inventory", rows, {});
+  table.interpretation = inferInterpretation(table, "inventory");
+  resetInterpretation([table]);
+  const html = mappingCard(table, 0);
+  assert.ok(!html.includes("Datos que pueden mejorar el análisis"));
+  assert.ok(html.includes("Con los datos principales podemos continuar con el análisis."));
+});
+
+test("INVENTARIO OPCIONAL 2: costo y último movimiento aparecen sin opcionales de ventas", () => {
+  const rows = [{ Producto: "A", Existencia: 12, Costo: 4500, "Último movimiento": "2026-07-15" }];
+  const table = makeTable("inventory", rows, {});
+  table.interpretation = inferInterpretation(table, "inventory");
+  resetInterpretation([table]);
+  const html = mappingCard(table, 0);
+  for (const label of ["Costo unitario", "Fecha del último movimiento"]) assert.ok(html.includes(label), label);
+  for (const label of ["Cliente", "Comercial / vendedor", "Utilidad"]) assert.ok(!html.includes(label), label);
+  assert.equal((html.match(/optional-rows/g) || []).length, 1);
+});
+
+test("INVENTARIO OPCIONAL 3: stock mínimo y máximo se detectan y conservan separados", () => {
+  const rows = [{ Producto: "A", Existencia: 12, "Stock mínimo": 5, "Stock máximo": 20 }];
+  const table = makeTable("inventory", rows, {});
+  table.interpretation = inferInterpretation(table, "inventory");
+  resetInterpretation([table]);
+  const html = mappingCard(table, 0);
+  assert.ok(html.includes("Stock mínimo"));
+  assert.ok(html.includes("Stock máximo"));
+  assert.ok(!html.includes("Cliente"));
+});
+
+test("INVENTARIO OPCIONAL 4: un archivo combinado no mezcla campos de ventas e inventario", () => {
+  const salesRows = [{ Fecha: "2026-07-01", Producto: "A", Cantidad: 2, Cliente: "Ana", Comercial: "Luis", Utilidad: 3000 }];
+  const inventoryRows = [{ Producto: "A", Existencia: 12, Costo: 4500, "Último movimiento": "2026-07-15", "Stock mínimo": 5 }];
+  const sales = makeTable("sales", salesRows, {});
+  const inventory = makeTable("inventory", inventoryRows, {});
+  sales.fileName = inventory.fileName = "datos-negocio.xlsx";
+  sales.interpretation = inferInterpretation(sales, "sales");
+  inventory.interpretation = inferInterpretation(inventory, "inventory");
+  resetInterpretation([sales, inventory]);
+  const salesHtml = mappingCard(sales, 0);
+  const inventoryHtml = mappingCard(inventory, 1);
+  for (const label of ["Cliente", "Comercial / vendedor", "Utilidad"]) assert.ok(salesHtml.includes(label), label);
+  for (const label of ["Costo unitario", "Fecha del último movimiento", "Stock mínimo"]) assert.ok(inventoryHtml.includes(label), label);
+  for (const role of ["cliente", "vendedor", "utilidad"]) assert.ok(!inventoryHtml.includes(`data-role="${role}"`), role);
+});
+
+test("INVENTARIO OPCIONAL 5: los campos confirmados pasan al conjunto canónico y habilitan evidencia real", () => {
+  const rows = [
+    { Producto: "A", Existencia: 12, "Valor inventario": 54000, Entradas: 4, Salidas: 2, Bodega: "Principal" },
+    { Producto: "B", Existencia: 8, "Valor inventario": 32000, Entradas: 0, Salidas: 1, Bodega: "Norte" }
+  ];
+  const table = makeTable("inventory", rows, {});
+  table.interpretation = inferInterpretation(table, "inventory");
+  Object.values(table.interpretation.assignments).filter(Boolean).forEach(item => { item.confirmed = true; });
+  resetInterpretation([table]);
+  const canonical = buildCanonicalDataset();
+  assert.equal(canonical.inventory[0].valorInventario, 54000);
+  assert.equal(canonical.inventory[0].entradas, 4);
+  assert.equal(canonical.inventory[0].salidas, 2);
+  assert.equal(canonical.inventory[0].bodega, "Principal");
+  const result = analyze(canonical, new Date("2026-08-01"));
+  assert.equal(result.metrics.inventoryValue, 86000);
+  assert.equal(result.diagnostico.datosDisponibles.compras, true);
+  assert.equal(result.diagnostico.datosDisponibles.movimientosInventario, true);
+});
+
+test("INVENTARIO OPCIONAL 6: sin compras, entradas ni historia no afirma disponibilidad de compras", () => {
+  const result = analyze({ sales: [], inventory: [{ producto: "A", stock: 12 }, { producto: "B", stock: 8 }] }, new Date("2026-08-01"));
+  assert.equal(result.diagnostico.datosDisponibles.compras, false);
+  assert.equal(result.diagnostico.datosDisponibles.movimientosInventario, false);
+});
+
 test("ANALÍTICA 7: No usar ignora la columna sin borrar el archivo", () => {
   const rows = [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 2, Cliente: "Ana" }];
   const table = makeTable("sales", rows, { fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad"), cliente: assignment("Cliente") });

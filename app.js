@@ -128,9 +128,13 @@ const semanticRoles = {
     stock: { label: "Existencia actual", group: "main", description: "Nos permite saber cuántas unidades hay disponibles.", terms: ["existencia", "existencias", "stock", "inventario", "saldo", "disponible", "cantidad actual"] },
     fechaCorte: { label: "Fecha de inventario", group: "additional", recommended: true, description: "Ayuda a saber a qué momento corresponden las existencias.", terms: ["fecha corte", "fecha inventario", "fecha saldo", "corte"] },
     costo: { label: "Costo unitario", group: "additional", terms: ["costo", "coste", "valor costo", "costo unitario"] },
+    valorInventario: { label: "Valor del inventario", group: "additional", terms: ["valor inventario", "valor del inventario", "valor stock", "valor existencia", "costo total inventario"] },
     ultimoMovimiento: { label: "Fecha del último movimiento", group: "additional", terms: ["ultimo movimiento", "fecha movimiento", "última salida", "ultima entrada"] },
-    inventarioMinimo: { label: "Inventario mínimo", group: "additional", terms: ["inventario minimo", "stock minimo", "mínimo"] },
-    inventarioMaximo: { label: "Inventario máximo", group: "additional", terms: ["inventario maximo", "stock maximo", "máximo"] },
+    entradas: { label: "Entradas", group: "additional", terms: ["entradas", "unidades entrada", "cantidad entrada", "ingresos inventario"] },
+    compras: { label: "Compras", group: "additional", terms: ["compras", "unidades compradas", "cantidad comprada", "recepciones compra"] },
+    salidas: { label: "Salidas", group: "additional", terms: ["salidas", "unidades salida", "cantidad salida", "egresos inventario"] },
+    inventarioMinimo: { label: "Stock mínimo", group: "additional", terms: ["inventario minimo", "stock minimo", "existencia minima", "mínimo"] },
+    inventarioMaximo: { label: "Stock máximo", group: "additional", terms: ["inventario maximo", "stock maximo", "existencia maxima", "máximo"] },
     puntoReposicion: { label: "Punto de reposición", group: "additional", terms: ["punto reposicion", "punto pedido", "reorden"] },
     reservada: { label: "Cantidad reservada", group: "additional", terms: ["reservada", "cantidad reservada", "comprometida"] },
     disponible: { label: "Cantidad disponible", group: "additional", terms: ["cantidad disponible", "disponible venta"] },
@@ -142,6 +146,11 @@ const semanticRoles = {
     lote: { label: "Lote", group: "additional", terms: ["lote", "numero lote"] },
     vencimiento: { label: "Fecha de vencimiento", group: "additional", terms: ["vencimiento", "fecha vencimiento", "caducidad"] }
   }
+};
+
+const optionalRolesByType = {
+  sales: ["cliente", "vendedor", "utilidad"],
+  inventory: ["costo", "valorInventario", "ultimoMovimiento", "entradas", "compras", "salidas", "inventarioMinimo", "inventarioMaximo", "bodega", "categoria"]
 };
 
 const normalize = value => String(value ?? "")
@@ -611,7 +620,7 @@ function interpretationPanel() {
 
 function mappingCard(table, tableIndex) {
   const mainRoles = primaryRolesFor(table.type);
-  const optionalRoles = additionalRolesFor(table.type);
+  const optionalRoles = additionalRolesFor(table.type, table);
   const additionalKey = `${tableIndex}:${table.type}`;
   const additionalOpen = Boolean(app.additionalSections[additionalKey]);
   return `<article class="mapping-card">
@@ -619,7 +628,7 @@ function mappingCard(table, tableIndex) {
     <section class="needed-data"><h4>Datos principales de ${table.type === "sales" ? "ventas" : "inventario"}</h4><p>${table.type === "sales" ? "Necesitamos fecha, producto y al menos una medida de la venta." : "Necesitamos producto y existencia actual."}</p></section>
     <div class="interpretation-rows">${mainRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}</div>
     ${table.type === "sales" ? `<section class="measure-section"><div><h4>Medida de la venta</h4><p>Debe existir al menos una: cantidad vendida o valor de la venta.</p></div><div class="interpretation-rows">${["cantidad", "valorTotal"].map(role => interpretationRow(table, tableIndex, role)).join("")}</div></section>` : ""}
-    ${optionalRoles.length ? `<details class="additional-data" data-additional-key="${additionalKey}" ${additionalOpen ? "open" : ""}><summary><span>Datos que pueden mejorar el análisis</span><b>Ver datos adicionales</b></summary><div class="optional-rows">${optionalRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}</div></details>` : ""}
+    ${optionalRoles.length ? `<details class="additional-data" data-additional-key="${additionalKey}" ${additionalOpen ? "open" : ""}><summary><span>Datos que pueden mejorar el análisis</span><b>Ver datos adicionales</b></summary><div class="optional-rows">${optionalRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}</div></details>` : table.type === "inventory" ? '<p class="optional-data-note">Con los datos principales podemos continuar con el análisis.</p>' : ""}
   </article>`;
 }
 
@@ -627,8 +636,13 @@ function primaryRolesFor(type) {
   return type === "sales" ? ["fecha", "producto"] : type === "inventory" ? ["producto", "stock"] : [];
 }
 
-function additionalRolesFor(type) {
-  return type === "sales" ? ["cliente", "vendedor", "utilidad"] : [];
+function additionalRolesFor(type, table) {
+  const configured = optionalRolesByType[type] || [];
+  if (type !== "inventory") return configured;
+  return configured.filter(role => {
+    const assignment = table?.interpretation?.assignments?.[role];
+    return Boolean(assignment?.header && (assignment.confirmed || ["Alta", "Media"].includes(assignment.confidence)));
+  });
 }
 
 function primaryReviewProgress() {
@@ -704,7 +718,7 @@ function columnDataQuality(table, header, role) {
   const values = rows.map(row => row[header]);
   const empty = values.filter(value => String(value ?? "").trim() === "").length;
   const dateRoles = ["fecha", "fechaCorte", "ultimoMovimiento", "vencimiento"];
-  const numericRoles = ["cantidad", "precio", "valorTotal", "costo", "utilidad", "stock", "inventarioMinimo", "inventarioMaximo", "puntoReposicion", "reservada", "disponible", "pendienteRecibir", "tiempoEntrega", "descuento"];
+  const numericRoles = ["cantidad", "precio", "valorTotal", "costo", "utilidad", "stock", "valorInventario", "entradas", "compras", "salidas", "inventarioMinimo", "inventarioMaximo", "puntoReposicion", "reservada", "disponible", "pendienteRecibir", "tiempoEntrega", "descuento"];
   const usable = values.filter(value => {
     if (String(value ?? "").trim() === "") return false;
     if (dateRoles.includes(role)) return isValidDateValue(value);
@@ -742,7 +756,7 @@ function isValidDateValue(value) {
 }
 
 function ambiguousMeaningChooser(table, tableIndex, role, assignment) {
-  const preferred = table.type === "sales" ? ["valorTotal", "precio", "costo", "cantidad", "producto", "fecha"] : ["stock", "costo", "producto", "fechaCorte"];
+  const preferred = table.type === "sales" ? ["valorTotal", "precio", "costo", "cantidad", "producto", "fecha"] : ["stock", "producto", "fechaCorte", ...optionalRolesByType.inventory];
   return `<div class="ambiguous-meaning"><label>¿Qué representa “${safe(assignment.header)}”?
     <select class="ambiguous-role-select" data-table="${tableIndex}" data-role="${role}" data-header="${safe(assignment.header)}"><option value="">Selecciona</option>${preferred.map(optionRole => `<option value="${optionRole}" ${role === optionRole ? "selected" : ""}>${safe(semanticRoles[table.type][optionRole].label)}</option>`).join("")}<option value="other">Otra información</option><option value="unknown">No sé</option></select>
   </label></div>`;
@@ -1900,7 +1914,7 @@ function semanticScore(header, role, config, profile) {
   }
   if (role === "producto" && /(producto|articulo|descripcion|mercancia|referencia|sku)/.test(name)) score += 3;
   if (["fecha", "fechaCorte", "ultimoMovimiento", "vencimiento"].includes(role)) score += profile.dates * 6;
-  if (["cantidad", "precio", "valorTotal", "costo", "utilidad", "stock", "inventarioMinimo", "inventarioMaximo", "puntoReposicion", "reservada", "disponible", "pendienteRecibir", "tiempoEntrega", "descuento"].includes(role)) score += profile.numeric * 3;
+  if (["cantidad", "precio", "valorTotal", "costo", "utilidad", "stock", "valorInventario", "entradas", "compras", "salidas", "inventarioMinimo", "inventarioMaximo", "puntoReposicion", "reservada", "disponible", "pendienteRecibir", "tiempoEntrega", "descuento"].includes(role)) score += profile.numeric * 3;
   if (role === "producto") score += profile.text * 2;
   return score;
 }
@@ -1957,11 +1971,11 @@ function localClassifyTable(table) {
 }
 
 function remoteRole(role) {
-  return ({ fecha: "date", producto: "product", cantidad: "quantity", precio: "unit_price", valorTotal: "sale_value", stock: "stock", costo: "cost" })[role] || role;
+  return ({ fecha: "date", producto: "product", cantidad: "quantity", precio: "unit_price", valorTotal: "sale_value", stock: "stock", costo: "cost", valorInventario: "inventory_value", ultimoMovimiento: "last_movement", entradas: "entries", compras: "purchases", salidas: "exits", inventarioMinimo: "minimum_stock", inventarioMaximo: "maximum_stock", bodega: "warehouse", categoria: "category" })[role] || role;
 }
 
 function localRole(role) {
-  return ({ date: "fecha", product: "producto", quantity: "cantidad", unit_price: "precio", sale_value: "valorTotal", stock: "stock", cost: "costo" })[role] || role;
+  return ({ date: "fecha", product: "producto", quantity: "cantidad", unit_price: "precio", sale_value: "valorTotal", stock: "stock", cost: "costo", inventory_value: "valorInventario", last_movement: "ultimoMovimiento", entries: "entradas", purchases: "compras", exits: "salidas", minimum_stock: "inventarioMinimo", maximum_stock: "inventarioMaximo", warehouse: "bodega", category: "categoria" })[role] || role;
 }
 
 function buildClassifiedTable(table, local, interpreted) {
@@ -2630,6 +2644,12 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
       ...row,
       stock,
       cost: numericValue(row.costo),
+      directInventoryValue: numericValue(row.valorInventario),
+      entries: numericValue(row.entradas),
+      purchases: numericValue(row.compras),
+      exits: numericValue(row.salidas),
+      minimumStock: numericValue(row.inventarioMinimo),
+      maximumStock: numericValue(row.inventarioMaximo),
       sold: linked ? salesByKey[key].units : null,
       recentSold,
       recentMonthlyAverage,
@@ -2643,8 +2663,15 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
   const linkedProducts = new Set(inv.filter(row => row.linked).map(row => normalize(row.producto))).size;
   const relationCoverage = Object.keys(salesByKey).length ? linkedProducts / Object.keys(salesByKey).length : 0;
   const canCompareInventoryMovement = quantityRate >= .7 && recentUnitMonths.length > 0;
-  const excessItems = canCompareInventoryMovement ? inv.filter(row => row.linked && row.stock > 0 && (row.recentSold === 0 || row.coverageMonths >= 6 || (row.stockShare >= .15 && row.recentSalesShare <= .05))).sort((a, b) => b.stockShare - a.stockShare) : [];
-  const riskItems = canCompareInventoryMovement ? inv.filter(row => row.linked && row.recentSold > 0 && row.coverageMonths !== null && row.coverageMonths <= 1.5 && row.recentSalesShare >= .05).sort((a, b) => b.recentSalesShare - a.recentSalesShare) : [];
+  const excessItems = inv.filter(row => row.stock > 0 && (
+    (Number.isFinite(row.maximumStock) && row.maximumStock >= 0 && row.stock > row.maximumStock)
+    || (canCompareInventoryMovement && row.linked && (row.recentSold === 0 || row.coverageMonths >= 6 || (row.stockShare >= .15 && row.recentSalesShare <= .05)))
+  )).sort((a, b) => b.stockShare - a.stockShare);
+  const riskItems = inv.filter(row => (
+    Number.isFinite(row.minimumStock) && row.minimumStock >= 0 && row.stock <= row.minimumStock
+  ) || (
+    canCompareInventoryMovement && row.linked && row.recentSold > 0 && row.coverageMonths !== null && row.coverageMonths <= 1.5 && row.recentSalesShare >= .05
+  )).sort((a, b) => b.recentSalesShare - a.recentSalesShare);
   const noMovementItems = canCompareInventoryMovement ? inv.filter(row => row.linked && row.stock > 0 && row.recentSold === 0).sort((a, b) => b.stock - a.stock) : [];
   const staleMovementItems = inv.filter(row => row.stock > 0 && row.daysSinceLastMovement !== null && row.daysSinceLastMovement >= 180).sort((a, b) => b.stock - a.stock);
   const excessInventoryShare = currentInventoryUnits ? excessItems.reduce((sum, row) => sum + row.stock, 0) / currentInventoryUnits : 0;
@@ -2660,12 +2687,19 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
           : riskSalesShare >= .20 ? "RIESGO DE FALTA DE INVENTARIO" : "INVENTARIO EQUILIBRADO";
   const slowItems = excessItems;
   const slowUnits = slowItems.reduce((sum, row) => sum + row.stock, 0);
-  const slowValue = slowItems.reduce((sum, row) => sum + (Number.isFinite(row.cost) ? row.stock * row.cost : 0), 0);
+  const inventoryRowValue = row => Number.isFinite(row.directInventoryValue) && row.directInventoryValue >= 0
+    ? row.directInventoryValue
+    : Number.isFinite(row.cost) && row.cost >= 0 ? row.stock * row.cost : 0;
+  const slowValue = slowItems.reduce((sum, row) => sum + inventoryRowValue(row), 0);
   const slowSales = slowItems.reduce((sum, row) => sum + row.sold, 0);
   const stockout = riskItems[0];
-  const inventoryValue = inv.reduce((sum, row) => sum + (Number.isFinite(row.cost) ? row.stock * row.cost : 0), 0);
+  const inventoryValue = inv.reduce((sum, row) => sum + inventoryRowValue(row), 0);
   const inventoryUnits = inv.reduce((sum, row) => sum + row.stock, 0);
   const inventoryCostRate = inv.length ? inv.filter(row => Number.isFinite(row.cost) && row.cost >= 0).length / inv.length : 0;
+  const inventoryValueRate = inv.length ? inv.filter(row => Number.isFinite(row.directInventoryValue) && row.directInventoryValue >= 0).length / inv.length : 0;
+  const hasInventoryEntries = inv.some(row => Number.isFinite(row.entries) && row.entries >= 0);
+  const hasInventoryPurchases = inv.some(row => Number.isFinite(row.purchases) && row.purchases >= 0);
+  const hasInventoryExits = inv.some(row => Number.isFinite(row.exits) && row.exits >= 0);
   return {
     revenue, units, utility, utilityMode, quantityRows, valueRows, utilityRows, quantityRate, valueRate, utilityRate, customerRate, sellerRate, ranked, rankingBasis, chartBasis, topShare,
     monthly, allMonthly, currentMonthExcluded: allMonthly.some(item => item.month === currentMonth),
@@ -2676,7 +2710,7 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
     slowValue, slowSales, stockout, excessItems, riskItems, noMovementItems, staleMovementItems, excessInventoryShare, riskSalesShare, noMovementShare, staleMovementShare,
     inventoryHistory: inventoryHistory.map(item => ({ date: item.date, units: item.units })), inventoryChange, inventoryStatus,
     recentUnitsTotal, period, products: inv.length, salesProducts: ranked.length, linkedProducts,
-    relationCoverage, inventoryCostRate,
+    relationCoverage, inventoryCostRate, inventoryValueRate, hasInventoryEntries, hasInventoryPurchases, hasInventoryExits,
     valueUnavailableReason: valueRows === 0
       ? "No encontramos una columna de valor total ni información suficiente de cantidad y precio para calcularlo."
       : `${readablePercent(1 - valueRate)} de los registros no tiene un valor de venta utilizable.`,
@@ -3131,10 +3165,12 @@ function buildDiagnosticHandoff(primary, metrics, resultQuality, data) {
       utilidad: metrics.utilityRate >= .70,
       precios: sales.some(row => Number.isFinite(numericValue(row.precio))),
       costosInventario: metrics.inventoryCostRate >= .70,
+      valorInventario: metrics.inventoryValueRate >= .70 || metrics.inventoryCostRate >= .70,
       historialVentas: panorama.reliable,
       historialInventario: metrics.inventoryHistory.length >= 2,
       relacionVentasInventario: metrics.linkedProducts > 0,
-      compras: false,
+      compras: metrics.hasInventoryPurchases || metrics.hasInventoryEntries,
+      movimientosInventario: metrics.hasInventoryEntries || metrics.hasInventoryPurchases || metrics.hasInventoryExits || metrics.inventoryHistory.length >= 2,
       visitasComerciales: false,
       competencia: false
     },
