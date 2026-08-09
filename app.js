@@ -38,7 +38,14 @@ const app = {
   tasks: [],
   actionPlan: null,
   opportunityHistory: [],
+  analysisCycles: [],
+  currentAnalysisCycleId: null,
+  newCyclePending: false,
   currentOpportunityKey: null,
+  activeOpportunityIndex: 0,
+  opportunityAttempt: 1,
+  lastOpportunityDecision: null,
+  cycleSummaryOpen: false,
   planDetailOpen: false,
   activePriority: 0,
   feedback: {},
@@ -63,7 +70,7 @@ const stepNames = [
   "Sube tu información",
   "Calidad de tu información",
   "Lo más importante",
-  "Evidencia del hallazgo",
+  "Evidencia de la oportunidad",
   "Plan sencillo",
   "Cuéntanos qué pasó",
   "Cuéntanos qué pasó",
@@ -169,6 +176,120 @@ function go(step) {
   app.step = Math.max(1, Math.min(10, step));
   render();
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function currentAnalysisCycle() {
+  return app.analysisCycles.find(cycle => cycle.cycleId === app.currentAnalysisCycleId) || null;
+}
+
+function analysisCycleComparison(analysis) {
+  const previous = app.analysisCycles.at(-1);
+  if (!previous) return [];
+  const messages = [];
+  const previousChange = previous.datosAnalizados?.cambioVentas;
+  const currentChange = analysis.metrics?.panorama?.reliable ? analysis.metrics.panorama.change : null;
+  if (Number.isFinite(previousChange) && Number.isFinite(currentChange)) {
+    const previousText = previousChange < 0 ? `habían bajado ${readablePercent(Math.abs(previousChange))}` : `habían cambiado ${readablePercent(Math.abs(previousChange))}`;
+    const currentText = currentChange < 0 ? `ahora están ${readablePercent(Math.abs(currentChange))} por debajo del periodo comparable` : `ahora muestran una variación de ${readablePercent(currentChange)}`;
+    const interpretation = Math.abs(currentChange - previousChange) < .02
+      ? "La situación se mantiene en un nivel similar al de la revisión anterior."
+      : previousChange < 0 && currentChange < 0 && Math.abs(currentChange) < Math.abs(previousChange)
+        ? "Esto muestra una recuperación, aunque todavía están por debajo del nivel anterior."
+        : "Los datos nuevos muestran que la situación cambió frente a la revisión anterior.";
+    messages.push({ nivel: "RESPALDADO_POR_DATOS", origen: "historia", texto: `En la revisión anterior las ventas ${previousText}. En los datos nuevos ${currentText}. ${interpretation}` });
+  }
+  const currentTypes = new Set((analysis.priorities || []).map(item => item.type));
+  const repeated = (previous.prioridades || []).find(item => currentTypes.has(item.tipo));
+  if (repeated) messages.push({ nivel: "RESPALDADO_POR_DATOS", origen: "historia", texto: `Esta es otra revisión en la que aparece ${String(repeated.nombre || "una oportunidad anterior").toLowerCase()}. Los datos nuevos siguen siendo la base para decidir su prioridad.` });
+  const relatedComment = [...(previous.retroalimentacion || [])].reverse().find(item => item.comentarioUsuario)?.comentarioUsuario;
+  if (relatedComment && repeated) messages.push({ nivel: "INFORMACION_DEL_USUARIO", origen: "historia", texto: `En la revisión anterior nos contaste: “${relatedComment.slice(0, 180)}${relatedComment.length > 180 ? "…" : ""}”. Lo conservamos como contexto, no como una causa confirmada.` });
+  const perceivedImprovement = [...(previous.retroalimentacion || [])].reverse().find(item => item.mejoraPercibida === "Sí");
+  if (perceivedImprovement && Number.isFinite(currentChange) && currentChange < -.10) messages.unshift({ nivel: "CONTRASTE", origen: "historia", texto: `En la revisión anterior nos contaste que percibiste una mejora. Sin embargo, los datos nuevos todavía muestran una reducción de ${readablePercent(Math.abs(currentChange))} frente al periodo comparable. Conservamos ambas perspectivas.` });
+  return messages.slice(0, 2);
+}
+
+function applyHistoricalPriorityContext(analysis) {
+  const previous = app.analysisCycles.at(-1);
+  if (!previous || !analysis?.priorities?.length) return;
+  const unresolved = new Set((previous.prioridades || []).filter(item => item.estado !== "atendida suficientemente").map(item => item.tipo));
+  analysis.priorities = analysis.priorities.map(item => ({ ...item, recurrente: unresolved.has(item.type) })).sort((a, b) => ((Number(b.priorityScore) || 0) + (b.recurrente ? 5 : 0)) - ((Number(a.priorityScore) || 0) + (a.recurrente ? 5 : 0)));
+  analysis.diagnostico = buildDiagnosticHandoff(analysis.priorities[0], analysis.metrics, analysis.resultQuality, app.dataset || { sales: [], inventory: [] });
+  analysis.diagnosticHandoff = analysis.diagnostico;
+}
+
+function beginAnalysisCycle() {
+  if (!app.analysis || (app.currentAnalysisCycleId && !app.newCyclePending)) return currentAnalysisCycle();
+  applyHistoricalPriorityContext(app.analysis);
+  const historicalContext = analysisCycleComparison(app.analysis);
+  if (historicalContext.length && app.analysis.diagnostico) {
+    app.analysis.diagnostico.coincidenciasContextoDatos = [...historicalContext, ...(app.analysis.diagnostico.coincidenciasContextoDatos || [])].slice(0, 2);
+    app.analysis.diagnosticHandoff = app.analysis.diagnostico;
+  }
+  const cycle = {
+    cycleId: `ciclo-${app.analysisCycles.length + 1}`,
+    fecha: new Date().toISOString(),
+    contextoInicial: { ...app.context },
+    datosAnalizados: {
+      fuente: app.datasetName,
+      ventas: app.dataset?.sales?.length || 0,
+      inventario: app.dataset?.inventory?.length || 0,
+      calidad: app.analysis.resultQuality?.score ?? null,
+      cambioVentas: app.analysis.metrics?.panorama?.reliable ? app.analysis.metrics.panorama.change : null
+    },
+    prioridades: (app.analysis.priorities || []).slice(0, 3).map((item, index) => ({ indice: index, tipo: item.type, nombre: item.problemaGeneral || item.title, evidencia: item.evidence || item.reason, estado: "pendiente" })),
+    causasObservadas: [...(app.analysis.diagnostico?.causasObservadas || [])],
+    hechos: (app.analysis.priorities || []).slice(0, 3).map(item => item.evidence || item.reason).filter(Boolean),
+    hipotesis: [...(app.analysis.diagnostico?.hipotesisPorValidar || [])],
+    planes: [],
+    actividadesRealizadas: [],
+    actividadesPendientes: [],
+    metas: [],
+    resultados: [],
+    retroalimentacion: [],
+    nuevosEventos: [],
+    contextoHistoricoUsado: historicalContext,
+    estadoFinal: "en trabajo"
+  };
+  app.analysisCycles.push(cycle);
+  app.currentAnalysisCycleId = cycle.cycleId;
+  app.newCyclePending = false;
+  app.activeOpportunityIndex = 0;
+  app.activePriority = 0;
+  app.opportunityAttempt = 1;
+  app.currentOpportunityKey = null;
+  app.actionPlan = null;
+  app.tasks = [];
+  app.feedback = {};
+  app.lastOpportunityDecision = null;
+  app.cycleSummaryOpen = false;
+  app.completed.priority = false;
+  app.completed.plan = false;
+  app.completed.feedback = false;
+  return cycle;
+}
+
+function refreshCurrentAnalysisCycle() {
+  const cycle = currentAnalysisCycle();
+  if (!cycle || !app.analysis) return;
+  cycle.prioridades = (app.analysis.priorities || []).slice(0, 3).map((item, index) => ({ indice: index, tipo: item.type, nombre: item.problemaGeneral || item.title, evidencia: item.evidence || item.reason, estado: cycle.prioridades?.[index]?.estado || "pendiente" }));
+  cycle.causasObservadas = [...(app.analysis.diagnostico?.causasObservadas || [])];
+  cycle.hechos = (app.analysis.priorities || []).slice(0, 3).map(item => item.evidence || item.reason).filter(Boolean);
+  cycle.hipotesis = [...(app.analysis.diagnostico?.hipotesisPorValidar || [])];
+}
+
+function prepareNewDataCycle() {
+  app.newCyclePending = true;
+  app.files = [];
+  app.tables = [];
+  app.classified = [];
+  app.semanticPending = false;
+  app.clarifications = {};
+  app.additionalSections = {};
+  app.dataset = null;
+  app.analysis = null;
+  app.source = "";
+  app.planDetailOpen = false;
+  go(3);
 }
 
 function render() {
@@ -838,7 +959,8 @@ function diagnosticReviewItems(finding) {
 function contextualDiagnosisHtml() {
   const coincidences = app.analysis?.diagnostico?.coincidenciasContextoDatos || [];
   if (!coincidences.length) return "";
-  return `<aside class="contextual-diagnosis" aria-labelledby="contextual-diagnosis-title"><span id="contextual-diagnosis-title">Tuvimos en cuenta lo que nos contaste</span>${coincidences.slice(0, 2).map(item => `<p>${safe(item.texto || item)}</p>`).join("")}</aside>`;
+  const historical = coincidences.some(item => item.origen === "historia");
+  return `<aside class="contextual-diagnosis" aria-labelledby="contextual-diagnosis-title"><span id="contextual-diagnosis-title">${historical ? "Tuvimos en cuenta revisiones anteriores" : "Tuvimos en cuenta lo que nos contaste"}</span>${coincidences.slice(0, 2).map(item => `<p>${safe(item.texto || item)}</p>`).join("")}</aside>`;
 }
 
 function resultEvidenceHtml(presentation, finding) {
@@ -954,7 +1076,7 @@ function resultsScreen() {
 function evidenceScreen() {
   const finding = app.analysis?.priorities[app.activePriority];
   if (!finding) return missingState();
-  return `<p class="eyebrow">Evidencia del hallazgo</p>
+  return `<p class="eyebrow">Evidencia de la oportunidad</p>
     <h1 class="screen-title">${safe(finding.title)}</h1>
     <article class="focus-card"><span>Lo que muestran tus datos</span><h2>${safe(finding.evidence)}</h2></article>
     <div class="consulting-detail">
@@ -983,12 +1105,17 @@ function planScreen() {
 function opportunitiesSummaryScreen() {
   const opportunities = (app.analysis?.priorities || []).slice(0, 3);
   const count = opportunities.length;
+  const cycle = currentAnalysisCycle();
   const cards = opportunities.map((finding, index) => {
     const presentation = priorityPresentation(finding);
     const title = finding.problemaGeneral || finding.title || presentation.title;
     const explanation = finding.evidence || finding.reason || presentation.found;
-    const labels = ["Atender primero", "Atender después", "Mantener en observación"];
-    return `<article class="opportunity-card ${index === 0 ? "primary" : "pending"}"><header><span>Oportunidad ${index + 1}</span><b>${labels[index]}</b></header><h2>${safe(title)}</h2><p>${safe(explanation)}</p>${presentation.metrics?.length ? `<ul>${presentation.metrics.slice(0, 2).map(metric => `<li>${safe(metric)}</li>`).join("")}</ul>` : ""}${index === 0 ? `<button id="open-plan-detail" class="button gold" type="button">Trabajar esta oportunidad →</button>` : `<span class="opportunity-later">La veremos después</span>`}</article>`;
+    const defaultLabels = ["Atender primero", "Atender después", "Mantener en observación"];
+    const savedState = cycle?.prioridades?.[index]?.estado;
+    const rawLabel = savedState && savedState !== "pendiente" ? savedState : defaultLabels[index];
+    const label = rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1);
+    const isCurrent = index === app.activeOpportunityIndex;
+    return `<article class="opportunity-card ${isCurrent ? "primary" : "pending"}"><header><span>Oportunidad ${index + 1}</span><b>${safe(label)}</b></header><h2>${safe(title)}</h2><p>${safe(explanation)}</p>${presentation.metrics?.length ? `<ul>${presentation.metrics.slice(0, 2).map(metric => `<li>${safe(metric)}</li>`).join("")}</ul>` : ""}${isCurrent ? `<button id="open-plan-detail" class="button gold" type="button">${index ? "Continuar esta oportunidad" : "Trabajar esta oportunidad"} →</button>` : `<span class="opportunity-later">${index < app.activeOpportunityIndex ? "Ya la trabajamos" : "La veremos después"}</span>`}</article>`;
   }).join("");
   const missing = Math.max(0, 3 - count);
   return `<section class="opportunities-summary"><p class="eyebrow">Primero mira el panorama</p><h1 class="screen-title">${count ? `Tus ${count} oportunidades de mejora` : "Oportunidades de mejora"}</h1><p class="screen-intro">${count ? `San José encontró ${count === 1 ? "un tema" : `${count} temas`} que conviene trabajar. Vamos a avanzar uno por uno, empezando por el más importante.` : "Todavía no encontramos una oportunidad con información suficiente para sustentarla."}</p>${count ? `<p class="opportunities-order">Primero verás ${count === 1 ? "la oportunidad disponible" : `las ${count} oportunidades`}. Luego entraremos a la primera para trabajarla en 3 fases.</p>` : ""}<div class="opportunity-grid">${cards}</div>${missing ? `<aside class="opportunity-missing">${missing === 1 ? "No pudimos construir una tercera oportunidad" : "No pudimos construir las otras oportunidades"} porque falta información suficiente para sustentarlas.</aside>` : ""}${count ? `<aside class="opportunity-method"><h2>¿Cómo vamos a trabajar esto?</h2><p>San José te mostrará primero la oportunidad más importante.</p><ol><li>Entender qué cambió</li><li>Actuar</li><li>Comprobar si mejoró</li></ol></aside>` : ""}${nav(6, null)}</section>`;
@@ -1026,15 +1153,32 @@ function stageFourPlanChecklist() {
     <p class="plan-responsibility">San José te ayuda a identificar prioridades y posibles acciones a partir de tus datos. La decisión final y su ejecución corresponden al empresario.</p>`;
 }
 
+function currentOpportunityFinding() {
+  return app.analysis?.priorities?.[app.activeOpportunityIndex] || null;
+}
+
+function currentOpportunityDiagnosis() {
+  const finding = currentOpportunityFinding();
+  if (!finding || !app.analysis) return null;
+  const diagnosis = buildDiagnosticHandoff(finding, app.analysis.metrics, app.analysis.resultQuality, app.dataset || { sales: [], inventory: [] });
+  const historical = currentAnalysisCycle()?.contextoHistoricoUsado || [];
+  if (historical.length) diagnosis.coincidenciasContextoDatos = [...historical, ...(diagnosis.coincidenciasContextoDatos || [])].slice(0, 2);
+  return diagnosis;
+}
+
 function syncOpportunityCycle(actionPlan) {
-  const key = normalize(`${actionPlan.problemGeneral}|${actionPlan.causeWorked}`);
+  const key = normalize(`${app.currentAnalysisCycleId}|${app.activeOpportunityIndex}|${app.opportunityAttempt}|${actionPlan.problemGeneral}|${actionPlan.causeWorked}`);
   const changed = Boolean(app.currentOpportunityKey && app.currentOpportunityKey !== key);
   if (!app.currentOpportunityKey || changed) {
     const previous = app.opportunityHistory.at(-1);
     if (changed && previous?.estadoFinal === "En curso") previous.estadoFinal = "Pendiente de revisión";
     app.opportunityHistory.push({
+      cicloAnalisisId: app.currentAnalysisCycleId,
+      oportunidadIndice: app.activeOpportunityIndex,
+      intento: app.opportunityAttempt,
       oportunidadAtendida: actionPlan.problemGeneral,
       problemaOriginal: actionPlan.problemGeneral,
+      evidencia: [...(actionPlan.problemEvidence || [])],
       causas: [actionPlan.causeWorked, ...(actionPlan.causeEvidence || [])].filter(Boolean),
       fechaInicio: actionPlan.handoff?.fechaInicio || isoDateAfter(0),
       plan: actionPlan.phases.map(phase => ({ momento: phase.when, accion: phase.action, actividades: [...phase.activities] })),
@@ -1044,17 +1188,28 @@ function syncOpportunityCycle(actionPlan) {
       retroalimentacion: null,
       estadoFinal: "En curso"
     });
+    const analysisCycle = currentAnalysisCycle();
+    const priority = analysisCycle?.prioridades?.[app.activeOpportunityIndex];
+    if (priority) priority.estado = "en trabajo";
+    analysisCycle?.planes?.push({ oportunidadIndice: app.activeOpportunityIndex, intento: app.opportunityAttempt, problema: actionPlan.problemGeneral, causa: actionPlan.causeWorked, actividades: actionPlan.phases.flatMap(phase => [...phase.activities]), metas: (actionPlan.signals || []).map(signal => ({ nombre: signal.name, hoy: signal.today, meta: signal.target })), fechaInicio: actionPlan.handoff?.fechaInicio });
     app.currentOpportunityKey = key;
   }
   return { changed, cycle: app.opportunityHistory.at(-1) };
 }
 
 function decideOpportunityAfterReview(review = {}) {
-  if (!review.hasNewData) return { next: false, state: "Información insuficiente" };
-  if (review.outcome === "worse") return { next: false, state: "Empeoró" };
-  if (review.outcome !== "improved" || !review.improvedEnough) return { next: false, state: "Sigue igual" };
-  if (review.remainsHighestPriority) return { next: false, state: "Sigue siendo prioritaria" };
-  return { next: true, state: "Mejoró suficientemente" };
+  if (review.hasNewData) {
+    if (review.outcome === "worse") return { next: false, state: "Empeoró", key: "worse" };
+    if (review.outcome !== "improved" || !review.improvedEnough) return { next: false, state: "Sigue igual", key: "same" };
+    if (review.remainsHighestPriority) return { next: false, state: "Todavía necesita atención", key: "attention" };
+    return { next: true, state: "Mejoró suficientemente", key: "improved" };
+  }
+  const comment = normalize(review.comment || "");
+  if (/(empeor|peor|bajo mas|cayo mas)/.test(comment)) return { next: false, state: "Empeoró", key: "worse" };
+  if (review.perceivedImprovement === "Sí" && review.planCompleted === "Sí") return { next: true, state: "Mejoró suficientemente", key: "improved" };
+  if (review.perceivedImprovement === "Sí") return { next: false, state: "Mejoró parcialmente", key: "partial" };
+  if (review.perceivedImprovement === "Todavía no") return { next: false, state: "Sigue igual", key: "same" };
+  return { next: false, state: "No hay información suficiente", key: "insufficient" };
 }
 
 function feedbackScreen() {
@@ -1080,27 +1235,69 @@ function feedbackScreen() {
     </form>`;
 }
 
+function startOpportunity(index, retry = false) {
+  const opportunities = app.analysis?.priorities || [];
+  if (!opportunities[index]) return;
+  app.activeOpportunityIndex = index;
+  app.activePriority = index;
+  app.opportunityAttempt = retry ? app.opportunityAttempt + 1 : 1;
+  app.currentOpportunityKey = null;
+  app.actionPlan = null;
+  app.tasks = [];
+  app.feedback = {};
+  app.lastOpportunityDecision = null;
+  app.planDetailOpen = true;
+  app.cycleSummaryOpen = false;
+  go(7);
+}
+
+function reviewedOpportunities() {
+  const cycleEntries = app.opportunityHistory.filter(item => item.cicloAnalisisId === app.currentAnalysisCycleId && item.retroalimentacion);
+  const latestByOpportunity = new Map();
+  cycleEntries.forEach(item => latestByOpportunity.set(item.oportunidadIndice, item));
+  return [...latestByOpportunity.values()].sort((a, b) => a.oportunidadIndice - b.oportunidadIndice);
+}
+
+function cycleSummaryScreen() {
+  const cycle = currentAnalysisCycle();
+  const reviewed = reviewedOpportunities();
+  const userComments = reviewed.map(item => item.retroalimentacion?.comentarioUsuario).filter(Boolean);
+  const dataFacts = reviewed.map(item => item.evidencia?.[0] || item.problemaOriginal).filter(Boolean);
+  const easy = userComments.find(comment => /(facil|sencill|logr|pudimos|funcion)/.test(normalize(comment)));
+  const difficult = userComments.find(comment => /(dificil|cost|no pud|problema|bloque|falta)/.test(normalize(comment)));
+  if (cycle) cycle.estadoFinal = "revisión terminada";
+  return `<section class="cycle-summary"><p class="eyebrow">Cierre de esta revisión</p><h1 class="screen-title">Terminamos esta revisión</h1><p class="screen-intro">Trabajamos las principales oportunidades que encontramos con la información que compartiste.</p>
+    <div class="cycle-opportunities">${reviewed.map((item, index) => `<article><span>Oportunidad ${index + 1}</span><h2>${safe(item.oportunidadAtendida)}</h2><p><strong>Resultado:</strong> ${safe(item.estadoFinal)}.</p></article>`).join("")}</div>
+    <section class="cycle-learning"><h2>Lo que aprendimos en esta revisión</h2>${dataFacts.slice(0, 2).map(fact => `<p><strong>Los datos muestran:</strong> ${safe(fact)}</p>`).join("")}${userComments.slice(0, 2).map(comment => `<p><strong>Nos contaste que:</strong> ${safe(comment)}</p>`).join("")}${!dataFacts.length && !userComments.length ? "<p>Todavía no tenemos información adicional para resumir.</p>" : ""}</section>
+    ${easy || difficult ? `<div class="cycle-experience">${easy ? `<article><span>Lo que resultó más fácil</span><p>${safe(easy)}</p></article>` : ""}${difficult ? `<article><span>Lo que resultó más difícil</span><p>${safe(difficult)}</p></article>` : ""}</div>` : ""}
+    <section class="cycle-new-data"><h2>Revisa cómo está tu negocio ahora</h2><p>Para revisar cómo está tu negocio ahora, carga información actualizada.</p><button id="load-new-cycle" class="button gold" type="button">Cargar nuevos datos →</button></section>
+    <p class="plan-responsibility">San José te ayuda a identificar prioridades y posibles acciones a partir de tus datos. La decisión final y su ejecución corresponden al empresario.</p></section>`;
+}
+
 function radioQuestion(name, label, options) {
   return `<fieldset><legend>${label} *</legend><div class="radio-group">${options.map(option => `<label class="radio-pill"><input type="radio" name="${name}" value="${option}" required><span>${option}</span></label>`).join("")}</div></fieldset>`;
 }
 
 function nextScreen() {
-  const [main, second] = app.analysis?.priorities || [];
-  const actionPlan = getActionPlan();
-  const totalActivities = actionPlan.phases.flatMap(phase => phase.activities).length;
-  return `<p class="eyebrow">Qué sigue</p>
-    <h1 class="screen-title">Con esta nueva información podemos revisar qué sigue.</h1>
-    <div class="continuity-grid">
-      <article class="completion"><span>Hallazgo trabajado</span><h2>${safe(main?.title || "Completar la información")}</h2><p>${safe(main?.evidence || "")}</p></article>
-      <article class="panel"><span>Progreso del plan</span><h3>${app.tasks.filter(Boolean).length} de ${totalActivities} actividades</h3><p><strong>Qué revisar:</strong> ${safe(actionPlan.indicators.map(item => item.name).join(", ") || main?.indicator || "Por definir")}</p></article>
-      <article class="panel"><span>Siguiente hallazgo</span><h3>${safe(second?.title || "Mantener tus datos actualizados")}</h3><p>${safe(second?.evidence || "")}</p></article>
-    </div>
-    <div class="final-actions">
-      <button class="button secondary" type="button" data-go="7">Revisar plan</button>
-      <button class="button gold" type="button" data-priority="1" data-go="6">Ver siguiente hallazgo</button>
-      <button id="download-summary" class="button secondary" type="button">Descargar resumen ejecutivo</button>
-      <button class="text-button" type="button" id="restart-demo">Reiniciar demostración</button>
-    </div>`;
+  if (app.cycleSummaryOpen) return cycleSummaryScreen();
+  const opportunities = app.analysis?.priorities || [];
+  const current = opportunities[app.activeOpportunityIndex];
+  const next = opportunities[app.activeOpportunityIndex + 1];
+  const decision = app.lastOpportunityDecision || { next: false, state: "No hay información suficiente", key: "insufficient" };
+  const improved = decision.key === "improved";
+  const finalOpportunity = !next;
+  const transitionCopy = improved
+    ? `<h1 class="screen-title">Esta oportunidad muestra una mejora.</h1><p class="screen-intro">Según lo que nos contaste, el plan produjo una mejora. ${finalOpportunity ? "Ya trabajaste la última oportunidad disponible en esta revisión." : "Ahora podemos trabajar la siguiente oportunidad que encontramos."}</p>`
+    : `<h1 class="screen-title">Esta oportunidad todavía necesita atención.</h1><p class="screen-intro">Puedes probar un camino diferente con lo que aprendimos o revisar la siguiente oportunidad disponible.</p>`;
+  const actionButtons = improved
+    ? next
+      ? `<button id="start-next-opportunity" class="button gold" type="button">Trabajar siguiente oportunidad →</button>`
+      : `<button id="show-cycle-summary" class="button gold" type="button">Ver resumen de esta revisión →</button>`
+    : `<button id="retry-opportunity" class="button gold" type="button">Probar otro plan para esta oportunidad</button>${next ? `<button id="start-next-opportunity" class="button secondary" type="button">Revisar la siguiente oportunidad</button>` : `<button id="show-cycle-summary" class="button secondary" type="button">Ver resumen de esta revisión →</button>`}`;
+  return `<section class="opportunity-transition"><p class="eyebrow">Decidir qué sigue</p>${transitionCopy}
+    <div class="continuity-grid"><article class="completion"><span>Oportunidad trabajada</span><h2>${safe(current?.problemaGeneral || current?.title || "Oportunidad actual")}</h2><p><strong>Resultado:</strong> ${safe(decision.state)}.</p></article>${next ? `<article class="panel"><span>Siguiente oportunidad</span><h3>${safe(next.problemaGeneral || next.title)}</h3><p>${safe(next.evidence || next.reason || "")}</p></article>` : ""}</div>
+    <div class="final-actions">${actionButtons}</div>
+    <p class="plan-responsibility">San José te ayuda a identificar prioridades y posibles acciones a partir de tus datos. La decisión final y su ejecución corresponden al empresario.</p></section>`;
 }
 
 function missingState() {
@@ -1125,6 +1322,10 @@ function bindScreen() {
   });
   $("#return-to-plan")?.addEventListener("click", () => $("#plan-pending-dialog")?.close());
   $("#continue-to-feedback")?.addEventListener("click", () => { $("#plan-pending-dialog")?.close(); go(9); });
+  $("#start-next-opportunity")?.addEventListener("click", () => startOpportunity(app.activeOpportunityIndex + 1));
+  $("#retry-opportunity")?.addEventListener("click", () => startOpportunity(app.activeOpportunityIndex, true));
+  $("#show-cycle-summary")?.addEventListener("click", () => { app.cycleSummaryOpen = true; render(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+  $("#load-new-cycle")?.addEventListener("click", prepareNewDataCycle);
 
   if (app.step === 2) {
     const contextForm = $("#context-form");
@@ -1235,6 +1436,7 @@ function saveAdaptiveContext(event) {
   event.preventDefault();
   app.context.eventoReciente = new FormData(event.currentTarget).get("eventoReciente");
   app.analysis = analyze(app.dataset);
+  refreshCurrentAnalysisCycle();
   render();
 }
 
@@ -1344,6 +1546,7 @@ function selectDataset(key) {
   app.datasetName = dataset.name;
   app.expected = dataset.expected;
   app.analysis = analyze(app.dataset);
+  beginAnalysisCycle();
   app.semanticPending = false;
   app.files = [];
   app.classified = [];
@@ -1780,6 +1983,7 @@ function confirmInterpretation() {
   const dataset = buildCanonicalDataset();
   app.dataset = dataset;
   app.analysis = analyze(dataset);
+  beginAnalysisCycle();
   app.semanticPending = false;
   app.completed.data = true;
   go(4);
@@ -2916,6 +3120,7 @@ function planProductNames(finding) {
   const metrics = app.analysis?.metrics;
   const fromItems = (finding.items || []).map(item => item.producto).filter(Boolean);
   const fromDriver = finding.driver?.dimension === "producto" && finding.driver.product ? [finding.driver.product] : [];
+  if (fromDriver.length) return fromDriver;
   const fromDecline = (finding.type === "profit-decline" ? metrics.utilityDrivers : metrics.productDrivers || []).filter(item => item.delta < 0).slice(0, 2).map(item => item.product);
   const fromFocus = (finding.focosPrioritarios || []).map(item => item.evidencia?.split(/ explica| representa| tiene/)[0]).filter(Boolean);
   return [...new Set([...fromItems, ...fromDriver, ...fromDecline, ...fromFocus])].slice(0, 2);
@@ -3076,17 +3281,72 @@ function inventoryActionPlan(finding, diagnosis, timing, products) {
   return { phases, indicators: indicators.slice(0, 3), causeEvidence };
 }
 
+function previousOpportunityAttempt() {
+  return [...app.opportunityHistory].reverse().find(item => item.cicloAnalisisId === app.currentAnalysisCycleId && item.oportunidadIndice === app.activeOpportunityIndex && item.retroalimentacion) || null;
+}
+
+function retryPlanAlternatives(previous, diagnosis) {
+  const comment = String(previous?.retroalimentacion?.comentarioUsuario || "");
+  const normalized = normalize(comment);
+  const available = diagnosis.datosDisponibles || {};
+  if (/(precio|tarifa)/.test(normalized)) return [
+    "Compara el precio aplicado antes y después del cambio mencionado.",
+    available.utilidad ? "Revisa si el cambio de precio también modificó la utilidad." : "Anota qué clientes o productos reaccionaron de forma diferente al precio.",
+    "Prueba un ajuste acotado y registra desde qué fecha lo aplicaste."
+  ];
+  if (/(proveedor|abastec|falta de producto|agotado|sin existencias)/.test(normalized)) return [
+    "Registra qué productos y fechas estuvieron afectados por la disponibilidad.",
+    "Compara las ventas de esos productos durante y después del problema informado.",
+    "Define una alternativa de abastecimiento solo para los productos confirmados."
+  ];
+  if (/(cliente|comprador)/.test(normalized)) return [
+    "Separa los clientes que respondieron de los que todavía no volvieron a comprar.",
+    "Trabaja una acción distinta con el grupo que sigue sin comprar.",
+    "Compara cuántos clientes compraron antes y después de la nueva acción."
+  ];
+  return [
+    "Revisa la nueva información que apareció durante el primer plan.",
+    "Prueba una acción distinta sobre la causa que todavía no está resuelta.",
+    "Compara el resultado con el mismo punto de partida del plan anterior."
+  ];
+}
+
+function adaptPlanForRetry(detail, diagnosis) {
+  if (app.opportunityAttempt <= 1) return detail;
+  const previous = previousOpportunityAttempt();
+  if (!previous) return detail;
+  const completed = new Set((previous.actividades || []).filter(item => item.completada).map(item => normalize(item.actividad)));
+  const alternatives = retryPlanAlternatives(previous, diagnosis);
+  const phases = detail.phases.map((phase, phaseIndex) => {
+    let replacementUsed = false;
+    const activities = phase.activities.map(activity => {
+      if (!completed.has(normalize(activity))) return activity;
+      replacementUsed = true;
+      return alternatives[phaseIndex];
+    });
+    if (!replacementUsed && completed.size) activities[0] = alternatives[phaseIndex];
+    return { ...phase, action: phaseIndex === 0 ? "Revisa lo nuevo que aprendimos antes de actuar otra vez." : phase.action, activities: [...new Set(activities)] };
+  });
+  const comment = String(previous.retroalimentacion?.comentarioUsuario || "").trim();
+  return {
+    ...detail,
+    phases,
+    causeEvidence: comment ? `Nos contaste: “${comment.slice(0, 180)}${comment.length > 180 ? "…" : ""}”. Lo usamos como contexto para probar un camino diferente.` : "El plan anterior no produjo evidencia suficiente de mejora; probaremos un camino diferente."
+  };
+}
+
 function getActionPlan() {
-  const finding = app.analysis?.priorities[0];
-  const diagnosis = app.analysis?.diagnostico;
+  const finding = currentOpportunityFinding();
+  const diagnosis = currentOpportunityDiagnosis();
   if (!finding || !diagnosis) return { problemGeneral: "Información insuficiente", causeWorked: "Completar la información", problemEvidence: [], causeEvidence: [], context: [], phases: [], signals: [], indicators: [] };
   const timing = actionPlanTiming(diagnosis.nivelUrgencia);
   const products = planProductNames(finding);
   const inventoryTypes = ["inventory-accumulation", "inventory-excess", "inventory-no-movement", "stock-risk-general", "stockout", "inventory-only", "slow"];
   const inventoryPlan = finding.dominio === "inventario" || inventoryTypes.includes(finding.type);
-  const detail = inventoryPlan
+  const baseDetail = inventoryPlan
     ? inventoryActionPlan(finding, diagnosis, timing, products)
     : salesActionPlan(finding, diagnosis, timing, products);
+  const detail = adaptPlanForRetry(baseDetail, diagnosis);
   const signals = inventoryPlan
     ? inventoryPlanSignals(finding, diagnosis, timing, products)
     : salesPlanSignals(finding, diagnosis, timing, products);
@@ -3201,9 +3461,29 @@ function recordOpportunityReview(feedbackRecord) {
     hasNewData: Boolean(dataResult.hayDatosNuevos),
     outcome: dataResult.estado || "unknown",
     improvedEnough: Boolean(dataResult.mejoraSuficiente),
-    remainsHighestPriority: dataResult.sigueSiendoPrioritaria !== false
+    remainsHighestPriority: dataResult.sigueSiendoPrioritaria !== false,
+    planCompleted: feedbackRecord.planCompletado,
+    perceivedImprovement: feedbackRecord.mejoraPercibida,
+    comment: feedbackRecord.comentarioUsuario
   });
   cycle.estadoFinal = decision.state;
+  cycle.resultadoClasificado = decision.key;
+  cycle.actividadesRealizadas = feedbackRecord.accionesRealizadas;
+  cycle.actividadesPendientes = feedbackRecord.accionesPendientes;
+  cycle.metas = feedbackRecord.metasPrevias;
+  cycle.nuevosEventos = feedbackRecord.nuevosCambiosMencionados;
+  const analysisCycle = currentAnalysisCycle();
+  if (analysisCycle) {
+    analysisCycle.retroalimentacion.push({ oportunidadIndice: app.activeOpportunityIndex, intento: app.opportunityAttempt, ...cycle.retroalimentacion, resultado: decision.state, actividadesRealizadas: feedbackRecord.accionesRealizadas, actividadesPendientes: feedbackRecord.accionesPendientes, metas: feedbackRecord.metasPrevias, nuevosEventos: feedbackRecord.nuevosCambiosMencionados });
+    analysisCycle.nuevosEventos = [...new Set([...analysisCycle.nuevosEventos, ...feedbackRecord.nuevosCambiosMencionados])];
+    analysisCycle.actividadesRealizadas.push(...feedbackRecord.accionesRealizadas.map(item => ({ oportunidadIndice: app.activeOpportunityIndex, intento: app.opportunityAttempt, ...item })));
+    analysisCycle.actividadesPendientes.push(...feedbackRecord.accionesPendientes.map(item => ({ oportunidadIndice: app.activeOpportunityIndex, intento: app.opportunityAttempt, ...item })));
+    analysisCycle.metas.push(...feedbackRecord.metasPrevias.map(item => ({ oportunidadIndice: app.activeOpportunityIndex, intento: app.opportunityAttempt, ...item })));
+    analysisCycle.resultados.push({ oportunidadIndice: app.activeOpportunityIndex, intento: app.opportunityAttempt, clasificacion: decision.state, datos: feedbackRecord.loQueMuestranLosDatos, percepcion: feedbackRecord.loQueDiceElUsuario, fecha: feedbackRecord.fechaRevision });
+    const priority = analysisCycle.prioridades[app.activeOpportunityIndex];
+    if (priority) priority.estado = decision.next ? "atendida suficientemente" : decision.key === "partial" ? "mejorando" : "todavía necesita atención";
+  }
+  app.lastOpportunityDecision = decision;
   return decision;
 }
 
@@ -3226,7 +3506,7 @@ function showTestSummary() {
     ["Contexto completado", app.completed.form],
     ["Información interpretada", app.completed.data],
     ["Calidad evaluada", app.completed.quality],
-    ["Hallazgo principal generado", app.completed.priority],
+    ["Oportunidad principal generada", app.completed.priority],
     ["Plan de 3 acciones generado", app.completed.plan],
     ["Avance registrado", app.completed.feedback]
   ];

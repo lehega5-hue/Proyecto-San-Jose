@@ -51,8 +51,9 @@ const source = fs.readFileSync(appPath, "utf8") + `
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
   roleDisplayLabel, primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen,
+  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen, nextScreen, cycleSummaryScreen,
   syncOpportunityCycle, decideOpportunityAfterReview,
+  beginAnalysisCycle, currentAnalysisCycle, analysisCycleComparison, startOpportunity,
   buildFeedbackRecord, recordOpportunityReview, detectFollowupEvents,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 };
@@ -68,8 +69,9 @@ const {
   columnDataQuality, columnIdentification, roleDisplayLabel,
   primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen,
+  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen, nextScreen, cycleSummaryScreen,
   syncOpportunityCycle, decideOpportunityAfterReview,
+  beginAnalysisCycle, currentAnalysisCycle, analysisCycleComparison, startOpportunity,
   buildFeedbackRecord, recordOpportunityReview, detectFollowupEvents,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 } = sandbox.__test;
@@ -720,6 +722,16 @@ function setStageThree(data, referenceDate = new Date("2026-08-08T12:00:00Z"), c
   app.tasks = [];
   app.actionPlan = null;
   app.planDetailOpen = false;
+  app.opportunityHistory = [];
+  app.analysisCycles = [];
+  app.currentAnalysisCycleId = null;
+  app.newCyclePending = false;
+  app.currentOpportunityKey = null;
+  app.activeOpportunityIndex = 0;
+  app.activePriority = 0;
+  app.opportunityAttempt = 1;
+  app.lastOpportunityDecision = null;
+  app.cycleSummaryOpen = false;
   return app.analysis;
 }
 
@@ -1500,9 +1512,9 @@ test("NAVEGACIÓN DEL PLAN E: completar actividades no decide por sí solo pasar
   const stillPriority = decideOpportunityAfterReview({ hasNewData: true, outcome: "improved", improvedEnough: true, remainsHighestPriority: true, activitiesCompleted: true });
   const nextOpportunity = decideOpportunityAfterReview({ hasNewData: true, outcome: "improved", improvedEnough: true, remainsHighestPriority: false });
   assert.equal(insufficient.next, false);
-  assert.equal(insufficient.state, "Información insuficiente");
+  assert.equal(insufficient.state, "No hay información suficiente");
   assert.equal(stillPriority.next, false);
-  assert.equal(stillPriority.state, "Sigue siendo prioritaria");
+  assert.equal(stillPriority.state, "Todavía necesita atención");
   assert.equal(nextOpportunity.next, true);
   assert.equal(nextOpportunity.state, "Mejoró suficientemente");
 });
@@ -1562,7 +1574,7 @@ test("DESPUÉS DEL PLAN C: guarda percepción, avance, metas y datos por separad
   assert.equal(record.fechaRevision, "2026-08-08T12:00:00.000Z");
   const decision = recordOpportunityReview(record);
   assert.equal(decision.next, false);
-  assert.equal(app.opportunityHistory[0].estadoFinal, "Información insuficiente");
+  assert.equal(app.opportunityHistory[0].estadoFinal, "Mejoró parcialmente");
   assert.equal(app.opportunityHistory[0].retroalimentacion.mejoraPercibida, "Sí");
   assert.equal(app.opportunityHistory[0].resultado.hayDatosNuevos, false);
 });
@@ -1570,6 +1582,107 @@ test("DESPUÉS DEL PLAN C: guarda percepción, avance, metas y datos por separad
 test("DESPUÉS DEL PLAN D: evita lenguaje técnico frente al usuario", () => {
   const html = feedbackScreen().toLowerCase();
   ["retroalimentación", "iteración", "evaluación de desempeño", "kpi", "aprendizaje del sistema", "mejora continua", "ciclo de optimización", "feedback loop", "pdca"].forEach(term => assert.ok(!html.includes(term), `aparece ${term}`));
+});
+
+test("CICLO 1: cada oportunidad construye su propio diagnóstico y plan", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20], B: [60, 60, 60, 30, 30, 30] }), inventory: [] });
+  app.datasetName = "Ciclo de prueba";
+  beginAnalysisCycle();
+  const first = getActionPlan();
+  app.activeOpportunityIndex = 1;
+  app.activePriority = 1;
+  app.currentOpportunityKey = null;
+  app.actionPlan = null;
+  const second = getActionPlan();
+  assert.notEqual(first.problemGeneral, second.problemGeneral);
+  assert.notEqual(first.phases[0].action, second.phases[0].action);
+  assert.equal(app.analysisCycles.length, 1);
+  assert.equal(currentAnalysisCycle().prioridades.length, Math.min(3, app.analysis.priorities.length));
+});
+
+test("CICLO 2: clasifica percepción suficiente, parcial, sin mejora y sin información", () => {
+  assert.equal(decideOpportunityAfterReview({ perceivedImprovement: "Sí", planCompleted: "Sí" }).state, "Mejoró suficientemente");
+  assert.equal(decideOpportunityAfterReview({ perceivedImprovement: "Sí", planCompleted: "En parte" }).state, "Mejoró parcialmente");
+  assert.equal(decideOpportunityAfterReview({ perceivedImprovement: "Todavía no", planCompleted: "Sí" }).state, "Sigue igual");
+  assert.equal(decideOpportunityAfterReview({ perceivedImprovement: "No estoy seguro", planCompleted: "Sí" }).state, "No hay información suficiente");
+  assert.equal(decideOpportunityAfterReview({ perceivedImprovement: "Sí", planCompleted: "Sí", comment: "La situación empeoró" }).state, "Empeoró");
+});
+
+test("CICLO 3: la transición avanza, repite o cierra según el resultado y las oportunidades disponibles", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20], B: [60, 60, 60, 30, 30, 30] }), inventory: [] });
+  app.lastOpportunityDecision = { next: true, state: "Mejoró suficientemente", key: "improved" };
+  let html = nextScreen();
+  assert.ok(html.includes("Esta oportunidad muestra una mejora."));
+  assert.ok(html.includes("Trabajar siguiente oportunidad →"));
+  assert.ok(html.includes("Siguiente oportunidad"));
+  app.lastOpportunityDecision = { next: false, state: "Sigue igual", key: "same" };
+  html = nextScreen();
+  assert.ok(html.includes("Esta oportunidad todavía necesita atención."));
+  assert.ok(html.includes("Probar otro plan para esta oportunidad"));
+  assert.ok(html.includes("Revisar la siguiente oportunidad"));
+  app.activeOpportunityIndex = app.analysis.priorities.length - 1;
+  app.lastOpportunityDecision = { next: true, state: "Mejoró suficientemente", key: "improved" };
+  html = nextScreen();
+  assert.ok(html.includes("Ver resumen de esta revisión →"));
+  assert.ok(!html.includes("Trabajar siguiente oportunidad →"));
+});
+
+test("CICLO 4: un segundo plan usa la retroalimentación y no repite actividades completadas", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  app.datasetName = "Primer ciclo";
+  beginAnalysisCycle();
+  app.planDetailOpen = true;
+  planScreen();
+  const firstAttempt = app.opportunityHistory.at(-1);
+  firstAttempt.actividades.forEach(item => { item.completada = true; });
+  app.tasks = firstAttempt.actividades.map(() => true);
+  const feedback = buildFeedbackRecord({ planCompletado: "Sí", mejoraPercibida: "Todavía no", comentarioUsuario: "Los clientes dijeron que el precio está alto." }, new Date("2026-08-08T12:00:00Z"));
+  recordOpportunityReview(feedback);
+  const completedActivities = new Set(firstAttempt.actividades.map(item => item.actividad));
+  app.opportunityAttempt = 2;
+  app.currentOpportunityKey = null;
+  app.tasks = [];
+  const retry = getActionPlan();
+  const retryActivities = retry.phases.flatMap(phase => phase.activities);
+  assert.ok(retryActivities.some(activity => activity.includes("precio")));
+  assert.ok(retryActivities.every(activity => !completedActivities.has(activity)));
+  assert.ok(retry.causeWorked.includes("Lo usamos como contexto"));
+});
+
+test("CICLO 5: conserva la historia y contrasta un nuevo análisis sin convertir comentarios en hechos", () => {
+  const firstData = { sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] };
+  setStageThree(firstData);
+  app.datasetName = "Datos ciclo 1";
+  beginAnalysisCycle();
+  const firstCycle = currentAnalysisCycle();
+  firstCycle.retroalimentacion.push({ mejoraPercibida: "Sí", comentarioUsuario: "Creo que las ventas mejoraron por el precio." });
+  firstCycle.prioridades[0].estado = "todavía necesita atención";
+  const secondData = { sales: businessRows({ A: [100, 100, 100, 60, 60, 60] }), inventory: [] };
+  app.dataset = secondData;
+  app.datasetName = "Datos ciclo 2";
+  app.analysis = analyze(secondData, new Date("2026-08-08T12:00:00Z"));
+  app.newCyclePending = true;
+  beginAnalysisCycle();
+  assert.equal(app.analysisCycles.length, 2);
+  assert.deepEqual({ ...currentAnalysisCycle().contextoInicial }, { ...app.context });
+  assert.ok(currentAnalysisCycle().contextoHistoricoUsado.length >= 1);
+  assert.ok(currentAnalysisCycle().contextoHistoricoUsado.some(item => item.texto.includes("datos nuevos")));
+  assert.ok(currentAnalysisCycle().hipotesis.every(item => typeof item === "string"));
+});
+
+test("CICLO 6: el cierre resume oportunidades, datos y voz del usuario y ofrece nuevos datos", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  app.datasetName = "Cierre";
+  beginAnalysisCycle();
+  app.opportunityHistory.push({ cicloAnalisisId: app.currentAnalysisCycleId, oportunidadIndice: 0, oportunidadAtendida: "Caída general de ventas", evidencia: ["Las ventas bajaron 30 %."], estadoFinal: "Mejoró parcialmente", retroalimentacion: { comentarioUsuario: "Fue fácil contactar clientes, pero fue difícil conseguir producto." } });
+  const html = cycleSummaryScreen();
+  assert.ok(html.includes("Terminamos esta revisión"));
+  assert.ok(html.includes("Oportunidad 1"));
+  assert.ok(html.includes("Los datos muestran:"));
+  assert.ok(html.includes("Nos contaste que:"));
+  assert.ok(html.includes("Lo que resultó más fácil"));
+  assert.ok(html.includes("Lo que resultó más difícil"));
+  assert.ok(html.includes("Cargar nuevos datos →"));
 });
 
 (async () => {
