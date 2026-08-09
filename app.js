@@ -190,9 +190,9 @@ function welcome() {
 }
 
 function contextScreen() {
-  return `<p class="eyebrow">Contexto empresarial</p>
+  return `<p class="eyebrow">Conozcamos tu negocio</p>
     <h1 class="screen-title">Cuéntanos un poco de tu negocio</h1>
-    <p class="screen-intro">Tres respuestas breves nos ayudan a interpretar mejor la información. San José determinará qué atender a partir de tus datos.</p>
+    <p class="screen-intro">Responde tres preguntas cortas. Esto nos ayuda a entender mejor tus datos.</p>
     <form id="context-form" class="panel compact-form">
       <div class="form-grid">
         <label>¿A qué se dedica tu negocio? *
@@ -238,20 +238,19 @@ function contextScreen() {
         <label>¿A qué se dedica?<input name="actividadOtro" maxlength="120" placeholder="Descríbelo brevemente"></label>
       </div>
       <section class="free-context">
-        <div>
-          <p class="eyebrow">Opcional</p>
-          <h2>Cuéntanos tu negocio con tus palabras</h2>
-          <p>Puedes escribir o hablar. Cuéntanos brevemente qué hace tu negocio y cualquier situación reciente que creas importante.</p>
+        <div class="context-intro">
+          <p class="eyebrow">Si quieres, cuéntanos algo más</p>
+          <h2>Ayúdanos a entender mejor lo que está pasando</h2>
+          <p>Entre más contexto nos des, mejor podremos interpretar lo que está pasando en tu negocio.</p>
         </div>
-        <div class="context-guide"><strong>Si quieres, puedes contarnos:</strong><ul><li>qué vende o hace tu negocio;</li><li>quiénes son tus principales clientes;</li><li>si pasó algo importante recientemente.</li></ul></div>
-        <label for="business-story">Escribir o dictar<textarea id="business-story" name="contextoLibre" rows="5" placeholder="Escribe aquí. Podrás revisar y corregir el texto antes de continuar."></textarea></label>
-        <button id="voice-button" class="button secondary hidden" type="button" aria-pressed="false">🎙️ Empezar a hablar</button>
-        <p id="voice-status" class="message" role="status"></p>
-        <small>Solo conservamos la transcripción textual en este formulario durante la sesión.</small>
+        <div class="context-guide"><strong>Puedes contarnos, por ejemplo:</strong><ul><li>qué vende o hace tu negocio;</li><li>quiénes son tus principales clientes;</li><li>si pasó algo fuera de lo normal recientemente;</li><li>si cambiaste precios, productos, proveedores o personal;</li><li>si ganaste o perdiste un cliente importante;</li><li>si tuviste cierres, problemas de abastecimiento o temporadas especiales;</li><li>cualquier situación que creas que deberíamos tener en cuenta.</li></ul><p class="context-example">Ejemplo: En junio perdimos un cliente importante y tuvimos problemas para conseguir dos productos.</p></div>
+        <label for="business-story">Escribe o cuéntanos con tu voz<textarea id="business-story" name="contextoLibre" rows="4" placeholder="Cuéntanos cualquier situación que creas importante. Podrás revisar y corregir el texto antes de continuar."></textarea></label>
+        <div class="context-voice"><button id="voice-button" class="button secondary hidden" type="button" aria-pressed="false">🎙️ Empezar a hablar</button><p id="voice-status" class="message" role="status"></p></div>
+        <div class="context-notes"><small>Usaremos este contexto para entender mejor tus datos. Las conclusiones seguirán basándose en la información que compartas.</small><small>Solo conservamos la transcripción textual en este formulario durante la sesión.</small></div>
       </section>
-      <div class="actions">
+      <div class="actions context-actions">
         <button class="button secondary" id="back-to-welcome" type="button">← Volver</button>
-        <button class="button gold" type="submit">Continuar →</button>
+        <div class="context-next"><p id="context-progress" role="status" aria-live="polite">Te faltan 3 respuestas para continuar.</p><button id="context-submit" class="button gold" type="submit" disabled>Continuar →</button></div>
       </div>
     </form>`;
 }
@@ -1033,9 +1032,13 @@ function bindScreen() {
   $("#back-to-welcome")?.addEventListener("click", () => location.reload());
 
   if (app.step === 2) {
-    $("#context-form").addEventListener("submit", saveContext);
+    const contextForm = $("#context-form");
+    contextForm.addEventListener("submit", saveContext);
+    contextForm.querySelectorAll("select[required]").forEach(select => select.addEventListener("change", updateContextProgress));
     $("#context-form select[name='actividad']").addEventListener("change", toggleOtherBusiness);
     toggleOtherBusiness();
+    updateContextProgress();
+    setupStoryTextarea();
     setupSpeechRecognition();
   }
   if (app.step === 3) {
@@ -1062,6 +1065,46 @@ function bindScreen() {
   if ([7, 8].includes(app.step)) document.querySelectorAll(".task-check").forEach(input => input.addEventListener("change", updateTask));
   if (app.step === 4) $("#adaptive-form")?.addEventListener("submit", saveAdaptiveContext);
   if (app.step === 9) $("#feedback-form").addEventListener("submit", saveFeedback);
+}
+
+function contextProgress(values) {
+  const answered = [values.actividad, values.registro, values.antiguedad].filter(value => String(value || "").trim()).length;
+  const missing = 3 - answered;
+  return {
+    answered,
+    missing,
+    complete: missing === 0,
+    text: missing === 0 ? "Listo. Ya puedes continuar." : missing === 1 ? "Te falta 1 respuesta para continuar." : `Te faltan ${missing} respuestas para continuar.`
+  };
+}
+
+function updateContextProgress() {
+  const form = $("#context-form");
+  const progressElement = $("#context-progress");
+  const submit = $("#context-submit");
+  if (!form || !progressElement || !submit) return;
+  const result = contextProgress({
+    actividad: $("#context-form select[name='actividad']")?.value,
+    registro: $("#context-form select[name='registro']")?.value,
+    antiguedad: $("#context-form select[name='antiguedad']")?.value
+  });
+  progressElement.textContent = result.text;
+  progressElement.classList.toggle("ready", result.complete);
+  submit.disabled = !result.complete;
+}
+
+function resizeStoryTextarea(textarea = $("#business-story")) {
+  if (!textarea?.style || !textarea.scrollHeight) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.min(260, Math.max(104, textarea.scrollHeight))}px`;
+  textarea.style.overflowY = textarea.scrollHeight > 260 ? "auto" : "hidden";
+}
+
+function setupStoryTextarea() {
+  const textarea = $("#business-story");
+  if (!textarea) return;
+  textarea.addEventListener("input", () => resizeStoryTextarea(textarea));
+  resizeStoryTextarea(textarea);
 }
 
 function toggleOtherBusiness() {
@@ -1109,6 +1152,7 @@ function setupSpeechRecognition() {
   const updateTranscript = () => {
     const dictated = [finalTranscript.trim(), interimTranscript.trim()].filter(Boolean).join(" ");
     textarea.value = [baseText.trim(), dictated].filter(Boolean).join(" ");
+    resizeStoryTextarea(textarea);
   };
   const showIdleButton = () => {
     button.textContent = "🎙️ Empezar a hablar";

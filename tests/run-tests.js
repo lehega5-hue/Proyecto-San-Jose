@@ -43,7 +43,7 @@ const appPath = path.join(__dirname, "..", "app.js");
 const source = fs.readFileSync(appPath, "utf8") + `
 ;globalThis.__test = {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
-  setupSpeechRecognition, voiceState: () => ({ isListening }), semanticRoles,
+  setupSpeechRecognition, voiceState: () => ({ isListening }), contextScreen, contextProgress, semanticRoles,
   inferInterpretation, buildCanonicalDataset, interpretedScope,
   handleInterpretationAction, selectRoleColumn, interpretationRow,
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
@@ -58,7 +58,7 @@ vm.runInContext(source, sandbox, { filename: appPath });
 
 const {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
-  setupSpeechRecognition, voiceState, semanticRoles, inferInterpretation,
+  setupSpeechRecognition, voiceState, contextScreen, contextProgress, semanticRoles, inferInterpretation,
   buildCanonicalDataset, interpretedScope, handleInterpretationAction,
   selectRoleColumn, interpretationRow, columnChooser, columnOptionValue,
   columnDataQuality, columnIdentification, roleDisplayLabel,
@@ -193,6 +193,46 @@ test("VOZ 4: un segundo dictado agrega texto al contenido existente", () => {
   voice.recognition.onresult(speechResult("y abrimos una nueva zona"));
   voice.button.listeners.click();
   assert.equal(voice.textarea.value, "Vendemos café a restaurantes y abrimos una nueva zona");
+});
+
+test("ETAPA 1 A: mantiene las tres preguntas y simplifica la introducción", () => {
+  const html = contextScreen();
+  assert.ok(html.includes("Cuéntanos un poco de tu negocio"));
+  assert.ok(html.includes("Responde tres preguntas cortas. Esto nos ayuda a entender mejor tus datos."));
+  ["actividad", "registro", "antiguedad"].forEach(name => assert.ok(html.includes(`name="${name}"`)));
+  assert.ok(!html.includes("Contexto empresarial"));
+  assert.ok(html.includes('id="context-submit"'));
+  assert.ok(html.includes('type="submit" disabled'));
+});
+
+test("ETAPA 1 B: el bloque opcional explica cómo ayuda el contexto", () => {
+  const html = contextScreen();
+  assert.ok(html.includes("Si quieres, cuéntanos algo más"));
+  assert.ok(html.includes("Entre más contexto nos des, mejor podremos interpretar lo que está pasando en tu negocio."));
+  ["qué vende o hace tu negocio", "quiénes son tus principales clientes", "fuera de lo normal", "precios, productos, proveedores o personal", "ganaste o perdiste un cliente", "problemas de abastecimiento", "deberíamos tener en cuenta"].forEach(text => assert.ok(html.includes(text), `falta la ayuda: ${text}`));
+  assert.ok(html.includes("Ejemplo: En junio perdimos un cliente importante"));
+  assert.ok(html.includes("Las conclusiones seguirán basándose en la información que compartas."));
+});
+
+test("ETAPA 1 C: el campo libre conserva dictado y empieza con cuatro líneas", () => {
+  const html = contextScreen();
+  assert.ok(html.includes("Escribe o cuéntanos con tu voz"));
+  assert.ok(html.includes('rows="4"'));
+  assert.ok(html.includes("Cuéntanos cualquier situación que creas importante. Podrás revisar y corregir el texto antes de continuar."));
+  assert.ok(html.includes('id="voice-button"'));
+});
+
+test("ETAPA 1 D: el progreso usa mensajes simples y solo habilita al completar", () => {
+  const empty = contextProgress({});
+  assert.equal(empty.answered, 0);
+  assert.equal(empty.missing, 3);
+  assert.equal(empty.complete, false);
+  assert.equal(empty.text, "Te faltan 3 respuestas para continuar.");
+  assert.equal(contextProgress({ actividad: "Comercio" }).text, "Te faltan 2 respuestas para continuar.");
+  assert.equal(contextProgress({ actividad: "Comercio", registro: "Excel" }).text, "Te falta 1 respuesta para continuar.");
+  const complete = contextProgress({ actividad: "Comercio", registro: "Excel", antiguedad: "3 a 5 años" });
+  assert.equal(complete.complete, true);
+  assert.equal(complete.text, "Listo. Ya puedes continuar.");
 });
 
 test("DEMO 1: existe un único ejemplo y contiene solo ventas", () => {
