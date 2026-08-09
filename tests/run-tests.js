@@ -43,7 +43,7 @@ const appPath = path.join(__dirname, "..", "app.js");
 const source = fs.readFileSync(appPath, "utf8") + `
 ;globalThis.__test = {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
-  setupSpeechRecognition, voiceState: () => ({ isListening }), contextScreen, contextProgress, semanticRoles,
+  setupSpeechRecognition, voiceState: () => ({ isListening }), contextScreen, contextProgress, dataScreen, semanticRoles,
   inferInterpretation, buildCanonicalDataset, interpretedScope,
   handleInterpretationAction, selectRoleColumn, interpretationRow,
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
@@ -58,7 +58,7 @@ vm.runInContext(source, sandbox, { filename: appPath });
 
 const {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
-  setupSpeechRecognition, voiceState, contextScreen, contextProgress, semanticRoles, inferInterpretation,
+  setupSpeechRecognition, voiceState, contextScreen, contextProgress, dataScreen, semanticRoles, inferInterpretation,
   buildCanonicalDataset, interpretedScope, handleInterpretationAction,
   selectRoleColumn, interpretationRow, columnChooser, columnOptionValue,
   columnDataQuality, columnIdentification, roleDisplayLabel,
@@ -233,6 +233,25 @@ test("ETAPA 1 D: el progreso usa mensajes simples y solo habilita al completar",
   const complete = contextProgress({ actividad: "Comercio", registro: "Excel", antiguedad: "3 a 5 años" });
   assert.equal(complete.complete, true);
   assert.equal(complete.text, "Listo. Ya puedes continuar.");
+});
+
+test("ETAPA 2 TEXTO: explica las formas de cargar ventas e inventario sin cambiar la función", () => {
+  app.files = [];
+  app.dataset = null;
+  app.semanticPending = false;
+  const html = dataScreen();
+  assert.ok(html.includes("Sube tus ventas y tu inventario"));
+  assert.ok(html.includes("en un solo archivo con ventas e inventario en hojas diferentes"));
+  assert.ok(html.includes("en dos archivos separados, uno de ventas y otro de inventario"));
+  assert.ok(html.includes("solo ventas o solo inventario si es lo único que tienes"));
+  assert.ok(html.includes("No pasa nada si solo tienes ventas o solo inventario. Podemos empezar con la información disponible."));
+  assert.ok(html.includes("No necesitas cambiar los nombres de las columnas ni preparar un archivo especial. San José revisará la información y te dirá qué encontró."));
+  assert.ok(html.includes("Arrastra aquí tus archivos de ventas o inventario"));
+  assert.ok(html.includes("Puedes subir uno o varios archivos"));
+  assert.ok(html.includes('type="file" multiple'));
+  assert.ok(html.includes(".xlsx,.xls,.csv"));
+  assert.ok(html.includes("máximo 5 MB por archivo"));
+  assert.ok(!html.includes("Sube la información que ya usas"));
 });
 
 test("DEMO 1: existe un único ejemplo y contiene solo ventas", () => {
