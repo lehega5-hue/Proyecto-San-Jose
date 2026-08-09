@@ -112,11 +112,11 @@ const semanticRoles = {
     valorTotal: { label: "Valor total", group: "main", measure: true, description: "Permite analizar ingresos.", terms: ["valor total", "total venta", "vr total", "vr tot fac", "vr neto", "valor neto", "importe", "subtotal", "ingreso"] },
     precio: { label: "Precio unitario", group: "additional", description: "Con cantidad, permite calcular el valor total de la venta.", terms: ["precio", "precio venta", "valor unitario", "vr unitario"] },
     costo: { label: "Costo unitario", group: "additional", description: "Ayuda a estimar rentabilidad cuando también hay valor de venta.", terms: ["costo", "coste", "valor costo", "costo unitario"] },
-    cliente: { label: "Cliente", group: "additional", terms: ["cliente", "nombre cliente", "nit cliente"] },
+    cliente: { label: "Cliente", group: "additional", terms: ["cliente", "nombre cliente", "id cliente", "codigo cliente", "nit cliente", "razon social", "comprador"] },
     canal: { label: "Canal de venta", group: "additional", terms: ["canal", "canal venta", "tipo venta"] },
     categoria: { label: "Categoría de producto", group: "additional", terms: ["categoría", "familia", "línea producto"] },
     sede: { label: "Sede / punto de venta", group: "additional", terms: ["sede", "punto venta", "tienda", "local"] },
-    vendedor: { label: "Vendedor", group: "additional", terms: ["vendedor", "asesor", "comercial"] },
+    vendedor: { label: "Vendedor", group: "additional", terms: ["vendedor", "nombre vendedor", "comercial", "asesor", "ejecutivo", "representante"] },
     utilidad: { label: "Utilidad", group: "additional", terms: ["utilidad", "ganancia", "beneficio", "margen"] },
     descuento: { label: "Descuento", group: "additional", terms: ["descuento", "dto", "valor descuento"] },
     factura: { label: "Número de factura", group: "additional", terms: ["factura", "numero factura", "nro factura", "documento"] },
@@ -130,7 +130,7 @@ const semanticRoles = {
     costo: { label: "Costo unitario", group: "additional", terms: ["costo", "coste", "valor costo", "costo unitario"] },
     valorInventario: { label: "Valor del inventario", group: "additional", terms: ["valor inventario", "valor del inventario", "valor stock", "valor existencia", "costo total inventario"] },
     ultimoMovimiento: { label: "Fecha del último movimiento", group: "additional", terms: ["ultimo movimiento", "fecha movimiento", "última salida", "ultima entrada"] },
-    entradas: { label: "Entradas", group: "additional", terms: ["entradas", "unidades entrada", "cantidad entrada", "ingresos inventario"] },
+    entradas: { label: "Entradas / compras", group: "additional", terms: ["entradas", "unidades entrada", "cantidad entrada", "ingresos inventario", "compras", "unidades compradas", "cantidad comprada", "recepciones compra"] },
     compras: { label: "Compras", group: "additional", terms: ["compras", "unidades compradas", "cantidad comprada", "recepciones compra"] },
     salidas: { label: "Salidas", group: "additional", terms: ["salidas", "unidades salida", "cantidad salida", "egresos inventario"] },
     inventarioMinimo: { label: "Stock mínimo", group: "additional", terms: ["inventario minimo", "stock minimo", "existencia minima", "mínimo"] },
@@ -149,8 +149,8 @@ const semanticRoles = {
 };
 
 const optionalRolesByType = {
-  sales: ["cliente", "vendedor", "utilidad"],
-  inventory: ["costo", "valorInventario", "ultimoMovimiento", "entradas", "compras", "salidas", "inventarioMinimo", "inventarioMaximo", "bodega", "categoria"]
+  sales: ["cliente", "vendedor", "utilidad", "costo"],
+  inventory: ["costo", "ultimoMovimiento", "entradas", "inventarioMinimo"]
 };
 
 const normalize = value => String(value ?? "")
@@ -628,7 +628,7 @@ function mappingCard(table, tableIndex) {
     <section class="needed-data"><h4>Datos principales de ${table.type === "sales" ? "ventas" : "inventario"}</h4><p>${table.type === "sales" ? "Necesitamos fecha, producto y al menos una medida de la venta." : "Necesitamos producto y existencia actual."}</p></section>
     <div class="interpretation-rows">${mainRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}</div>
     ${table.type === "sales" ? `<section class="measure-section"><div><h4>Medida de la venta</h4><p>Debe existir al menos una: cantidad vendida o valor de la venta.</p></div><div class="interpretation-rows">${["cantidad", "valorTotal"].map(role => interpretationRow(table, tableIndex, role)).join("")}</div></section>` : ""}
-    ${optionalRoles.length ? `<details class="additional-data" data-additional-key="${additionalKey}" ${additionalOpen ? "open" : ""}><summary><span>Datos que pueden mejorar el análisis</span><b>Ver datos adicionales</b></summary><div class="optional-rows">${optionalRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}</div></details>` : table.type === "inventory" ? '<p class="optional-data-note">Con los datos principales podemos continuar con el análisis.</p>' : ""}
+    ${optionalRoles.length ? `<details class="additional-data" data-additional-key="${additionalKey}" ${additionalOpen ? "open" : ""}><summary><span>Datos que pueden mejorar el análisis</span><b>Ver datos adicionales</b></summary><div class="optional-rows">${optionalRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}</div></details>` : ["sales", "inventory"].includes(table.type) ? '<p class="optional-data-note">Con los datos principales podemos continuar con el análisis.</p>' : ""}
   </article>`;
 }
 
@@ -638,10 +638,22 @@ function primaryRolesFor(type) {
 
 function additionalRolesFor(type, table) {
   const configured = optionalRolesByType[type] || [];
-  if (type !== "inventory") return configured;
-  return configured.filter(role => {
+  const candidates = configured.filter(role => {
     const assignment = table?.interpretation?.assignments?.[role];
     return Boolean(assignment?.header && (assignment.confirmed || ["Alta", "Media"].includes(assignment.confidence)));
+  });
+  const bestRoleByColumn = new Map();
+  candidates.forEach(role => {
+    const assignment = table.interpretation.assignments[role];
+    const key = `${assignment.sourceTableIndex ?? "current"}::${normalize(assignment.header)}`;
+    const currentRole = bestRoleByColumn.get(key);
+    const current = currentRole ? table.interpretation.assignments[currentRole] : null;
+    if (!current || (assignment.score || 0) > (current.score || 0)) bestRoleByColumn.set(key, role);
+  });
+  return candidates.filter(role => {
+    const assignment = table.interpretation.assignments[role];
+    const key = `${assignment.sourceTableIndex ?? "current"}::${normalize(assignment.header)}`;
+    return bestRoleByColumn.get(key) === role;
   });
 }
 
@@ -1902,6 +1914,8 @@ function columnProfile(rows, header) {
 
 function semanticScore(header, role, config, profile) {
   const name = normalize(header);
+  if (role === "cliente" && /(vendedor|comercial|asesor|ejecutivo|representante)/.test(name)) return 0;
+  if (role === "vendedor" && /(cliente|comprador|razon social|nit cliente|codigo cliente|id cliente)/.test(name)) return 0;
   let score = 0;
   for (const term of config.terms) {
     const normalizedTerm = normalize(term);
@@ -1975,7 +1989,7 @@ function remoteRole(role) {
 }
 
 function localRole(role) {
-  return ({ date: "fecha", product: "producto", quantity: "cantidad", unit_price: "precio", sale_value: "valorTotal", stock: "stock", cost: "costo", inventory_value: "valorInventario", last_movement: "ultimoMovimiento", entries: "entradas", purchases: "compras", exits: "salidas", minimum_stock: "inventarioMinimo", maximum_stock: "inventarioMaximo", warehouse: "bodega", category: "categoria" })[role] || role;
+  return ({ date: "fecha", product: "producto", quantity: "cantidad", unit_price: "precio", sale_value: "valorTotal", stock: "stock", cost: "costo", inventory_value: "valorInventario", last_movement: "ultimoMovimiento", entries: "entradas", purchases: "entradas", exits: "salidas", minimum_stock: "inventarioMinimo", maximum_stock: "inventarioMaximo", warehouse: "bodega", category: "categoria" })[role] || role;
 }
 
 function buildClassifiedTable(table, local, interpreted) {

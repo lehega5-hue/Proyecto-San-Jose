@@ -638,7 +638,8 @@ test("UX: la pantalla separa principales, medida y datos adicionales", () => {
   assert.ok(salesHtml.includes("Datos principales de ventas"));
   assert.ok(salesHtml.includes("Medida de la venta"));
   assert.ok(inventoryHtml.includes("Datos principales de inventario"));
-  assert.ok(salesHtml.includes("Ver datos adicionales"));
+  assert.ok(!salesHtml.includes("Ver datos adicionales"));
+  assert.ok(salesHtml.includes("Con los datos principales podemos continuar con el análisis."));
   assert.ok(!inventoryHtml.includes("Ver datos adicionales"));
 });
 
@@ -663,18 +664,20 @@ test("UX: el contador incluye los cuatro datos principales de ventas", () => {
   assert.ok(interpretationPanel().includes("✓ Listo. Revisamos todos los datos principales."));
 });
 
-test("UX: Cliente, Comercial y Utilidad usan la misma plantilla y la sección conserva su estado", () => {
-  const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 2, Total: 20000, Cliente: "Ana", Asesor: "Luis", Utilidad: 4000, Canal: "Tienda" }], {
+test("UX: los cuatro opcionales detectados de ventas usan la misma plantilla y la sección conserva su estado", () => {
+  const table = makeTable("sales", [{ Fecha: "2026-01-01", Producto: "A", Cantidad: 2, Total: 20000, Cliente: "Ana", Asesor: "Luis", Utilidad: 4000, Costo: 8000, Canal: "Tienda" }], {
     fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad"), valorTotal: assignment("Total"),
     cliente: assignment("Cliente", "Alta", { confirmed: false }), vendedor: assignment("Asesor", "Alta", { confirmed: false }),
-    utilidad: assignment("Utilidad", "Alta", { confirmed: false }), canal: assignment("Canal", "Alta", { confirmed: false })
+    utilidad: assignment("Utilidad", "Alta", { confirmed: false }), costo: assignment("Costo", "Alta", { confirmed: false }),
+    canal: assignment("Canal", "Alta", { confirmed: false })
   });
   resetInterpretation([table]);
   const html = mappingCard(table, 0);
   assert.ok(html.includes("Datos que pueden mejorar el análisis"));
-  for (const label of ["Cliente", "Comercial / vendedor", "Utilidad"]) assert.ok(html.includes(label), label);
+  for (const label of ["Cliente", "Comercial / vendedor", "Utilidad", "Costo unitario"]) assert.ok(html.includes(label), label);
   assert.ok(!html.includes("Precio unitario"));
-  assert.equal((html.match(/role-column-select/g) || []).length, 7);
+  assert.ok(!html.includes('data-role="canal"'));
+  assert.equal((html.match(/role-column-select/g) || []).length, 8);
   app.additionalSections["0:sales"] = true;
   assert.ok(mappingCard(table, 0).includes('data-additional-key="0:sales" open'));
   const inventory = makeTable("inventory", [{ Producto: "A", Existencia: 2 }], { producto: assignment("Producto"), stock: assignment("Existencia") });
@@ -704,15 +707,83 @@ test("INVENTARIO OPCIONAL 2: costo y último movimiento aparecen sin opcionales 
   assert.equal((html.match(/optional-rows/g) || []).length, 1);
 });
 
-test("INVENTARIO OPCIONAL 3: stock mínimo y máximo se detectan y conservan separados", () => {
+test("INVENTARIO OPCIONAL 3: muestra stock mínimo y oculta stock máximo", () => {
   const rows = [{ Producto: "A", Existencia: 12, "Stock mínimo": 5, "Stock máximo": 20 }];
   const table = makeTable("inventory", rows, {});
   table.interpretation = inferInterpretation(table, "inventory");
   resetInterpretation([table]);
   const html = mappingCard(table, 0);
-  assert.ok(html.includes("Stock mínimo"));
-  assert.ok(html.includes("Stock máximo"));
+  assert.ok(html.includes('data-role="inventarioMinimo"'));
+  assert.ok(!html.includes('data-role="inventarioMaximo"'));
   assert.ok(!html.includes("Cliente"));
+});
+
+test("OPCIONALES REDUCIDOS 1: ventas muestra solo Cliente y Utilidad cuando son los únicos detectados", () => {
+  const rows = [{ Fecha: "2026-07-01", Producto: "A", Cantidad: 2, Cliente: "Ana", Utilidad: 3000 }];
+  const table = makeTable("sales", rows, {});
+  table.interpretation = inferInterpretation(table, "sales");
+  resetInterpretation([table]);
+  const html = mappingCard(table, 0);
+  assert.ok(html.includes('data-role="cliente"'));
+  assert.ok(html.includes('data-role="utilidad"'));
+  assert.ok(!html.includes('data-role="vendedor"'));
+  assert.ok(!html.includes('data-role="costo"'));
+});
+
+test("OPCIONALES REDUCIDOS 2: ventas oculta precio, categoría, canal, sede, descuento y forma de pago", () => {
+  const rows = [{ Fecha: "2026-07-01", Producto: "A", Cantidad: 2, Precio: 5000, Categoría: "Abarrotes", Canal: "Tienda", Sede: "Centro", Descuento: 100, "Forma de pago": "Efectivo" }];
+  const table = makeTable("sales", rows, {});
+  table.interpretation = inferInterpretation(table, "sales");
+  resetInterpretation([table]);
+  const html = mappingCard(table, 0);
+  for (const role of ["precio", "categoria", "canal", "sede", "descuento", "formaPago"]) assert.ok(!html.includes(`data-role="${role}"`), role);
+  assert.ok(!html.includes("Datos que pueden mejorar el análisis"));
+  assert.ok(html.includes("Con los datos principales podemos continuar con el análisis."));
+});
+
+test("OPCIONALES REDUCIDOS 3: Nombre_Vendedor se reserva para Comercial y no se propone como Cliente", () => {
+  const rows = [{ Fecha: "2026-07-01", Producto: "A", Cantidad: 2, Nombre_Vendedor: "Luis" }];
+  const table = makeTable("sales", rows, {});
+  table.interpretation = inferInterpretation(table, "sales");
+  assert.equal(table.interpretation.assignments.vendedor.header, "Nombre_Vendedor");
+  assert.equal(table.interpretation.assignments.vendedor.confidence, "Alta");
+  assert.ok(!table.interpretation.assignments.cliente || table.interpretation.assignments.cliente.header !== "Nombre_Vendedor");
+  resetInterpretation([table]);
+  const html = mappingCard(table, 0);
+  assert.ok(html.includes('data-role="vendedor"'));
+  assert.ok(!html.includes('data-role="cliente"'));
+});
+
+test("OPCIONALES REDUCIDOS 4: Cliente y Comercial se detectan con reglas independientes", () => {
+  const rows = [{ Fecha: "2026-07-01", Producto: "A", Cantidad: 2, Nombre_Cliente: "Ana", Nombre_Vendedor: "Luis" }];
+  const table = makeTable("sales", rows, {});
+  table.interpretation = inferInterpretation(table, "sales");
+  assert.equal(table.interpretation.assignments.cliente.header, "Nombre_Cliente");
+  assert.equal(table.interpretation.assignments.vendedor.header, "Nombre_Vendedor");
+  assert.notEqual(table.interpretation.assignments.cliente.header, table.interpretation.assignments.vendedor.header);
+});
+
+test("OPCIONALES REDUCIDOS 5: inventario unifica Entradas y Compras en una sola tarjeta", () => {
+  for (const header of ["Entradas", "Compras"]) {
+    const rows = [{ Producto: "A", Existencia: 12, [header]: 4 }];
+    const table = makeTable("inventory", rows, {});
+    table.interpretation = inferInterpretation(table, "inventory");
+    resetInterpretation([table]);
+    const html = mappingCard(table, 0);
+    assert.ok(html.includes("Entradas / compras"), header);
+    assert.equal((html.match(/data-role="entradas"/g) || []).length >= 1, true, header);
+    assert.ok(!html.includes('data-role="compras"'), header);
+  }
+});
+
+test("OPCIONALES REDUCIDOS 6: inventario oculta salidas, stock máximo, bodega y categoría", () => {
+  const rows = [{ Producto: "A", Existencia: 12, Salidas: 2, "Stock máximo": 30, Bodega: "Centro", Categoría: "Abarrotes" }];
+  const table = makeTable("inventory", rows, {});
+  table.interpretation = inferInterpretation(table, "inventory");
+  resetInterpretation([table]);
+  const html = mappingCard(table, 0);
+  for (const role of ["salidas", "inventarioMaximo", "bodega", "categoria"]) assert.ok(!html.includes(`data-role="${role}"`), role);
+  assert.ok(!html.includes("Datos que pueden mejorar el análisis"));
 });
 
 test("INVENTARIO OPCIONAL 4: un archivo combinado no mezcla campos de ventas e inventario", () => {
