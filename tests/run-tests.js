@@ -57,8 +57,8 @@ const source = fs.readFileSync(appPath, "utf8") + `
 ;globalThis.__test = {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
   demoCredentialsValid, demoStateSnapshot, persistDemoProgress, restoreDemoProgress,
-  setupSpeechRecognition, voiceState: () => ({ isListening }), contextScreen, contextProgress, dataScreen, semanticRoles,
-  inferInterpretation, buildCanonicalDataset, interpretedScope,
+  setupSpeechRecognition, voiceState: () => ({ isListening }), contextScreen, contextProgress, dataScreen, semanticRoles, FIELD_CONFIG,
+  inferInterpretation, localClassifyTable, buildClassifiedTable, repairStoredClassifiedDomains, buildCanonicalDataset, interpretedScope,
   handleInterpretationAction, selectRoleColumn, interpretationRow,
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
   roleDisplayLabel, primaryReviewProgress, interpretationPanel, mappingCard,
@@ -77,7 +77,7 @@ vm.runInContext(source, sandbox, { filename: appPath });
 const {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
   demoCredentialsValid, demoStateSnapshot, persistDemoProgress, restoreDemoProgress,
-  setupSpeechRecognition, voiceState, contextScreen, contextProgress, dataScreen, semanticRoles, inferInterpretation,
+  setupSpeechRecognition, voiceState, contextScreen, contextProgress, dataScreen, semanticRoles, FIELD_CONFIG, inferInterpretation, localClassifyTable, buildClassifiedTable, repairStoredClassifiedDomains,
   buildCanonicalDataset, interpretedScope, handleInterpretationAction,
   selectRoleColumn, interpretationRow, columnChooser, columnOptionValue,
   columnDataQuality, columnIdentification, roleDisplayLabel,
@@ -162,6 +162,22 @@ function makeTable(type, rows, assignments) {
     profiles: Object.fromEntries(headers.map(header => [header, { numeric: 0, dates: 0, text: 0, sample: rows.slice(0, 3).map(row => row[header]).join(", ") }])),
     interpretation: { assignments: { ...Object.fromEntries(Object.keys(semanticRoles[type]).map(role => [role, null])), ...assignments } }
   };
+}
+
+function makeClassifiableTable(rows, fileName, sheetName) {
+  const table = makeTable("inventory", rows, {});
+  table.fileName = fileName;
+  table.sheetName = sheetName;
+  table.profiles = Object.fromEntries(table.headers.map(header => {
+    const values = rows.map(row => row[header]).filter(value => String(value ?? "").trim() !== "");
+    const total = values.length || 1;
+    const numeric = values.filter(value => String(value).trim() !== "" && Number.isFinite(Number(value))).length / total;
+    const isDate = value => /^\d{4}-\d{1,2}-\d{1,2}/.test(String(value)) || /^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(String(value));
+    const dates = values.filter(isDate).length / total;
+    const text = values.filter(value => !Number.isFinite(Number(value)) && !isDate(value)).length / total;
+    return [header, { numeric, dates, text, sample: values.slice(0, 3).join(", ") }];
+  }));
+  return table;
 }
 
 function resetInterpretation(tables) {
@@ -558,7 +574,7 @@ test("LENGUAJE 5: los seis datos principales usan los nombres y estados acordado
   assert.equal(roleDisplayLabel("sales", "cantidad"), "Cantidad vendida");
   assert.equal(roleDisplayLabel("sales", "valorTotal"), "Valor de la venta");
   assert.equal(roleDisplayLabel("inventory", "producto"), "Producto / referencia");
-  assert.equal(roleDisplayLabel("inventory", "stock"), "Existencia actual");
+  assert.equal(roleDisplayLabel("inventory", "stock"), "Existencia / unidades disponibles");
   assert.equal(columnIdentification(assignment("Fecha")).label, "✓ Confirmado por ti");
   assert.equal(columnIdentification(assignment("Fecha", "Alta", { confirmed: false })).label, "🟢 Parece correcto");
   assert.equal(columnIdentification(assignment("Fecha", "Media", { confirmed: false })).label, "🟠 Revisa este dato");
@@ -684,6 +700,102 @@ test("UX: los cuatro opcionales detectados de ventas usan la misma plantilla y l
   resetInterpretation([inventory]);
   const inventoryHtml = mappingCard(inventory, 0);
   assert.ok(!inventoryHtml.includes("Datos que pueden mejorar el análisis"));
+});
+
+test("DOMINIOS ETAPA 2 CASO 1: inventario puro usa únicamente sus dos campos principales", () => {
+  const raw = makeClassifiableTable([{ Referencia: "A", Existencia: 12 }], "inventario.xlsx", "Inventario");
+  const local = localClassifyTable(raw);
+  assert.equal(local.type, "inventory");
+  const table = { ...raw, type: local.type, typeConfidence: local.typeConfidence, interpretation: local.interpretations.inventory };
+  resetInterpretation([table]);
+  const html = mappingCard(table, 0);
+  assert.ok(html.includes("<span>INVENTARIO</span>"));
+  assert.ok(html.includes("Hoja: Inventario"));
+  assert.ok(html.includes("Producto / referencia"));
+  assert.ok(html.includes("Existencia / unidades disponibles"));
+  for (const role of ["fecha", "cantidad", "valorTotal"]) assert.ok(!html.includes(`data-role="${role}"`), role);
+});
+
+test("DOMINIOS ETAPA 2 CASO 2: ventas puras conserva sus cuatro campos principales", () => {
+  const raw = makeClassifiableTable([{ Fecha: "2026-07-01", Referencia: "A", Cantidad: 2, Valor: 10000 }], "ventas.xlsx", "Ventas");
+  const local = localClassifyTable(raw);
+  assert.equal(local.type, "sales");
+  const table = { ...raw, type: local.type, typeConfidence: local.typeConfidence, interpretation: local.interpretations.sales };
+  resetInterpretation([table]);
+  const html = mappingCard(table, 0);
+  assert.ok(html.includes("<span>VENTAS</span>"));
+  for (const role of ["fecha", "producto", "cantidad", "valorTotal"]) assert.ok(html.includes(`data-role="${role}"`), role);
+  assert.ok(!html.includes('data-role="stock"'));
+});
+
+test("DOMINIOS ETAPA 2 CASO 3: inventario con opcionales no hereda campos de ventas", () => {
+  const raw = makeClassifiableTable([{ Referencia: "A", Stock: 12, Costo: 4500, UltimoMovimiento: "2026-07-15", StockMinimo: 5 }], "datos.xlsx", "Inventario");
+  const local = localClassifyTable(raw);
+  assert.equal(local.type, "inventory");
+  const table = { ...raw, type: local.type, typeConfidence: local.typeConfidence, interpretation: local.interpretations.inventory };
+  resetInterpretation([table]);
+  const html = mappingCard(table, 0);
+  for (const role of ["producto", "stock", "costo", "ultimoMovimiento", "inventarioMinimo"]) assert.ok(html.includes(`data-role="${role}"`), role);
+  for (const role of ["fecha", "cantidad", "valorTotal", "cliente", "vendedor", "utilidad"]) assert.ok(!html.includes(`data-role="${role}"`), role);
+});
+
+test("DOMINIOS ETAPA 2 CASO 4: dos hojas del mismo archivo conservan esquemas independientes", () => {
+  const salesRaw = makeClassifiableTable([{ Fecha: "2026-07-01", Referencia: "A", Cantidad: 2, Valor: 10000 }], "negocio.xlsx", "Ventas");
+  const inventoryRaw = makeClassifiableTable([{ Referencia: "A", Existencia: 12, Costo: 4500 }], "negocio.xlsx", "Inventario");
+  const salesLocal = localClassifyTable(salesRaw);
+  const inventoryLocal = localClassifyTable(inventoryRaw);
+  assert.equal(salesLocal.type, "sales");
+  assert.equal(inventoryLocal.type, "inventory");
+  const sales = { ...salesRaw, type: "sales", interpretation: salesLocal.interpretations.sales };
+  const inventory = { ...inventoryRaw, type: "inventory", interpretation: inventoryLocal.interpretations.inventory };
+  resetInterpretation([sales, inventory]);
+  const salesHtml = mappingCard(sales, 0);
+  const inventoryHtml = mappingCard(inventory, 1);
+  assert.ok(salesHtml.includes("<span>VENTAS</span>"));
+  assert.ok(inventoryHtml.includes("<span>INVENTARIO</span>"));
+  assert.ok(!salesHtml.includes('data-role="stock"'));
+  assert.ok(!inventoryHtml.includes('data-role="fecha"'));
+});
+
+test("DOMINIOS ETAPA 2: último movimiento y unidades disponibles no convierten inventario en ventas", () => {
+  const raw = makeClassifiableTable([{ Referencia: "A", UnidadesDisponibles: 12, UltimoMovimiento: "2026-07-15" }], "ventas-inventario.xlsx", "Inventario");
+  const local = localClassifyTable(raw);
+  assert.equal(local.type, "inventory");
+  assert.ok(!local.interpretations.sales.assignments.fecha || local.interpretations.sales.assignments.fecha.header !== "UltimoMovimiento");
+  assert.ok(!local.interpretations.sales.assignments.cantidad || local.interpretations.sales.assignments.cantidad.header !== "UnidadesDisponibles");
+});
+
+test("DOMINIOS ETAPA 2: cantidad vendida no se propone como existencia", () => {
+  const raw = makeClassifiableTable([{ Fecha: "2026-07-01", Referencia: "A", CantidadVendida: 2, Valor: 10000 }], "ventas.xlsx", "Ventas");
+  const local = localClassifyTable(raw);
+  assert.equal(local.type, "sales");
+  assert.ok(!local.interpretations.inventory.assignments.stock || local.interpretations.inventory.assignments.stock.header !== "CantidadVendida");
+});
+
+test("DOMINIOS ETAPA 2: una interpretación remota incoherente vuelve al dominio sustentado", () => {
+  const raw = makeClassifiableTable([{ Referencia: "A", UnidadesDisponibles: 12, UltimoMovimiento: "2026-07-15" }], "negocio.xlsx", "Inventario");
+  const local = localClassifyTable(raw);
+  const classified = buildClassifiedTable(raw, local, { mode: "remote-ai", result: {
+    sheet_type: "sales", confidence: "high", columns: {
+      date: { source: "UltimoMovimiento", confidence: "high" },
+      product: { source: "Referencia", confidence: "high" },
+      quantity: { source: "UnidadesDisponibles", confidence: "high" }
+    }
+  } });
+  assert.equal(classified.type, "inventory");
+  assert.deepEqual(Array.from(FIELD_CONFIG.inventory.required), ["producto", "stock"]);
+});
+
+test("DOMINIOS ETAPA 2: repara una clasificación antigua incompatible al recuperar progreso", () => {
+  const raw = makeClassifiableTable([{ Referencia: "A", UnidadesDisponibles: 12, UltimoMovimiento: "2026-07-15" }], "negocio.xlsx", "Inventario");
+  const oldSales = inferInterpretation(raw, "sales");
+  oldSales.assignments.fecha = assignment("UltimoMovimiento", "Alta", { confirmed: false });
+  oldSales.assignments.producto = assignment("Referencia", "Alta", { confirmed: false });
+  oldSales.assignments.cantidad = assignment("UnidadesDisponibles", "Alta", { confirmed: false });
+  app.classified = [{ ...raw, type: "sales", interpretation: oldSales }];
+  repairStoredClassifiedDomains();
+  assert.equal(app.classified[0].type, "inventory");
+  assert.ok(app.classified[0].interpretation.assignments.stock);
 });
 
 test("INVENTARIO OPCIONAL 1: producto y existencia continúan sin tarjetas opcionales", () => {

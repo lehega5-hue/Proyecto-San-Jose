@@ -148,12 +148,23 @@ const semanticRoles = {
   }
 };
 
-const optionalRolesByType = {
-  sales: ["cliente", "vendedor", "utilidad", "costo"],
-  inventory: ["costo", "ultimoMovimiento", "entradas", "inventarioMinimo"]
-};
+const FIELD_CONFIG = Object.freeze({
+  sales: Object.freeze({
+    label: "VENTAS",
+    required: Object.freeze(["fecha", "producto"]),
+    measures: Object.freeze(["cantidad", "valorTotal"]),
+    optional: Object.freeze(["cliente", "vendedor", "utilidad", "costo"])
+  }),
+  inventory: Object.freeze({
+    label: "INVENTARIO",
+    required: Object.freeze(["producto", "stock"]),
+    measures: Object.freeze([]),
+    optional: Object.freeze(["costo", "ultimoMovimiento", "entradas", "inventarioMinimo"])
+  })
+});
 
 const normalize = value => String(value ?? "")
+  .replace(/([a-záéíóúñ])([A-ZÁÉÍÓÚÑ])/g, "$1 $2")
   .normalize("NFD")
   .replace(/[\u0300-\u036f]/g, "")
   .toLowerCase()
@@ -233,6 +244,7 @@ function restoreDemoProgress() {
     PERSISTED_APP_FIELDS.forEach(field => {
       if (Object.hasOwn(stored.appState, field)) app[field] = stored.appState[field];
     });
+    repairStoredClassifiedDomains();
     app.userId = DEMO_USER.id;
     app.files = [];
     return true;
@@ -619,12 +631,14 @@ function interpretationPanel() {
 }
 
 function mappingCard(table, tableIndex) {
-  const mainRoles = primaryRolesFor(table.type);
+  const config = FIELD_CONFIG[table.type];
+  if (!config) return "";
+  const mainRoles = config.required;
   const optionalRoles = additionalRolesFor(table.type, table);
   const additionalKey = `${tableIndex}:${table.type}`;
   const additionalOpen = Boolean(app.additionalSections[additionalKey]);
   return `<article class="mapping-card">
-    <header><div><span>${table.type === "sales" ? "Ventas" : "Inventario"}</span><h3>${safe(table.sheetName)}</h3></div><small>${safe(table.fileName)}</small></header>
+    <header><div><span>${config.label}</span><h3>Hoja: ${safe(table.sheetName)}</h3></div><small>${safe(table.fileName)}</small></header>
     <section class="needed-data"><h4>Datos principales de ${table.type === "sales" ? "ventas" : "inventario"}</h4><p>${table.type === "sales" ? "Necesitamos fecha, producto y al menos una medida de la venta." : "Necesitamos producto y existencia actual."}</p></section>
     <div class="interpretation-rows">${mainRoles.map(role => interpretationRow(table, tableIndex, role)).join("")}</div>
     ${table.type === "sales" ? `<section class="measure-section"><div><h4>Medida de la venta</h4><p>Debe existir al menos una: cantidad vendida o valor de la venta.</p></div><div class="interpretation-rows">${["cantidad", "valorTotal"].map(role => interpretationRow(table, tableIndex, role)).join("")}</div></section>` : ""}
@@ -633,11 +647,11 @@ function mappingCard(table, tableIndex) {
 }
 
 function primaryRolesFor(type) {
-  return type === "sales" ? ["fecha", "producto"] : type === "inventory" ? ["producto", "stock"] : [];
+  return FIELD_CONFIG[type]?.required || [];
 }
 
 function additionalRolesFor(type, table) {
-  const configured = optionalRolesByType[type] || [];
+  const configured = FIELD_CONFIG[type]?.optional || [];
   const candidates = configured.filter(role => {
     const assignment = table?.interpretation?.assignments?.[role];
     return Boolean(assignment?.header && (assignment.confirmed || ["Alta", "Media"].includes(assignment.confidence)));
@@ -659,7 +673,8 @@ function additionalRolesFor(type, table) {
 
 function primaryReviewProgress() {
   const items = app.classified.flatMap((table, tableIndex) => {
-    const roles = table.type === "sales" ? ["fecha", "producto", "cantidad", "valorTotal"] : table.type === "inventory" ? ["producto", "stock"] : [];
+    const config = FIELD_CONFIG[table.type];
+    const roles = config ? [...config.required, ...config.measures] : [];
     return roles.map(role => ({ table, tableIndex, role }));
   });
   const resolved = items.filter(({ table, tableIndex, role }) => {
@@ -708,6 +723,7 @@ function interpretationRow(table, tableIndex, role) {
 
 function roleDisplayLabel(type, role) {
   if (type === "inventory" && role === "producto") return "Producto / referencia";
+  if (type === "inventory" && role === "stock") return "Existencia / unidades disponibles";
   if (type === "sales" && role === "valorTotal") return "Valor de la venta";
   if (type === "sales" && role === "vendedor") return "Comercial / vendedor";
   return semanticRoles[type][role].label;
@@ -768,7 +784,7 @@ function isValidDateValue(value) {
 }
 
 function ambiguousMeaningChooser(table, tableIndex, role, assignment) {
-  const preferred = table.type === "sales" ? ["valorTotal", "precio", "costo", "cantidad", "producto", "fecha"] : ["stock", "producto", "fechaCorte", ...optionalRolesByType.inventory];
+  const preferred = table.type === "sales" ? ["valorTotal", "precio", "costo", "cantidad", "producto", "fecha"] : ["stock", "producto", "fechaCorte", ...FIELD_CONFIG.inventory.optional];
   return `<div class="ambiguous-meaning"><label>¿Qué representa “${safe(assignment.header)}”?
     <select class="ambiguous-role-select" data-table="${tableIndex}" data-role="${role}" data-header="${safe(assignment.header)}"><option value="">Selecciona</option>${preferred.map(optionRole => `<option value="${optionRole}" ${role === optionRole ? "selected" : ""}>${safe(semanticRoles[table.type][optionRole].label)}</option>`).join("")}<option value="other">Otra información</option><option value="unknown">No sé</option></select>
   </label></div>`;
@@ -1912,10 +1928,13 @@ function columnProfile(rows, header) {
   return { numeric, dates, text, sample: values.slice(0, 3).join(", ") };
 }
 
-function semanticScore(header, role, config, profile) {
+function semanticScore(header, role, config, profile, type) {
   const name = normalize(header);
   if (role === "cliente" && /(vendedor|comercial|asesor|ejecutivo|representante)/.test(name)) return 0;
   if (role === "vendedor" && /(cliente|comprador|razon social|nit cliente|codigo cliente|id cliente)/.test(name)) return 0;
+  if (type === "sales" && role === "fecha" && /(inventario|corte|movimiento|vencimiento|caducidad)/.test(name)) return 0;
+  if (type === "sales" && role === "cantidad" && /(existencia|stock|inventario|saldo|disponible|minimo|maximo|reorden)/.test(name)) return 0;
+  if (type === "inventory" && role === "stock" && /(vendid|venta|despach|salida|factur)/.test(name)) return 0;
   let score = 0;
   for (const term of config.terms) {
     const normalizedTerm = normalize(term);
@@ -1939,7 +1958,7 @@ function inferInterpretation(table, type) {
   for (const [role, config] of Object.entries(semanticRoles[type])) {
     const ranked = table.headers
       .filter(header => !used.has(header))
-      .map(header => ({ header, profile: table.profiles[header] || columnProfile(table.rows, header), score: semanticScore(header, role, config, table.profiles[header] || columnProfile(table.rows, header)) }))
+      .map(header => ({ header, profile: table.profiles[header] || columnProfile(table.rows, header), score: semanticScore(header, role, config, table.profiles[header] || columnProfile(table.rows, header), type) }))
       .sort((a, b) => b.score - a.score);
     const best = ranked[0];
     if (!best || best.score < 2) { assignments[role] = null; continue; }
@@ -1964,9 +1983,11 @@ function localClassifyTable(table) {
   const salesScore = ["fecha", "producto"].filter(role => usable(sales.assignments[role])).length * 3
     + (usable(sales.assignments.cantidad) || usable(sales.assignments.valorTotal) ? 4 : 0);
   const inventoryScore = ["producto", "stock"].filter(role => usable(inventory.assignments[role])).length * 4;
-  const name = normalize(`${table.fileName} ${table.sheetName}`);
-  const salesBonus = /(venta|factur|despach|salida)/.test(name) ? 3 : 0;
-  const inventoryBonus = /(invent|exist|bodega|stock)/.test(name) ? 3 : 0;
+  const sheetName = normalize(table.sheetName);
+  const fileName = normalize(table.fileName);
+  const name = `${fileName} ${sheetName}`;
+  const salesBonus = /(venta|factur|despach|salida)/.test(sheetName) ? 3 : /(venta|factur|despach|salida)/.test(fileName) ? 1 : 0;
+  const inventoryBonus = /(invent|exist|bodega|stock)/.test(sheetName) ? 3 : /(invent|exist|bodega|stock)/.test(fileName) ? 1 : 0;
   const additionalName = /(cliente|proveedor|nomina|empleado|impuesto|resumen|contab|cartera)/.test(name);
   let type = "unknown";
   let score = 0;
@@ -1984,6 +2005,42 @@ function localClassifyTable(table) {
   };
 }
 
+function assignmentSupportsDomain(table, type, role, assignment) {
+  if (!assignment?.header || !table.headers.includes(assignment.header)) return false;
+  if (assignment.confirmed) return true;
+  const profile = table.profiles?.[assignment.header] || columnProfile(table.rows, assignment.header);
+  return semanticScore(assignment.header, role, semanticRoles[type][role], profile, type) >= 5;
+}
+
+function interpretationSupportsDomain(table, type, interpretation) {
+  if (!FIELD_CONFIG[type] || !interpretation?.assignments) return false;
+  const supports = role => assignmentSupportsDomain(table, type, role, interpretation.assignments[role]);
+  if (!FIELD_CONFIG[type].required.every(supports)) return false;
+  return !FIELD_CONFIG[type].measures.length || FIELD_CONFIG[type].measures.some(supports);
+}
+
+function repairStoredClassifiedDomains() {
+  if (!Array.isArray(app.classified)) return;
+  let changed = false;
+  app.classified = app.classified.map((table, tableIndex) => {
+    if (!table?.rows?.length || !table?.headers?.length) return table;
+    table.profiles ||= Object.fromEntries(table.headers.map(header => [header, columnProfile(table.rows, header)]));
+    if (interpretationSupportsDomain(table, table.type, table.interpretation)) return table;
+    const local = localClassifyTable(table);
+    if (!["sales", "inventory"].includes(local.type) || local.type === table.type) return table;
+    const interpretation = local.type === "sales" ? local.interpretations.sales : local.interpretations.inventory;
+    Object.values(interpretation.assignments).forEach(assignment => {
+      if (assignment) assignment.sourceTableIndex = tableIndex;
+    });
+    changed = true;
+    return { ...table, type: local.type, typeConfidence: local.typeConfidence, interpretation, mode: "local-fallback" };
+  });
+  if (changed) {
+    app.clarifications = {};
+    app.additionalSections = {};
+  }
+}
+
 function remoteRole(role) {
   return ({ fecha: "date", producto: "product", cantidad: "quantity", precio: "unit_price", valorTotal: "sale_value", stock: "stock", costo: "cost", valorInventario: "inventory_value", ultimoMovimiento: "last_movement", entradas: "entries", compras: "purchases", salidas: "exits", inventarioMinimo: "minimum_stock", inventarioMaximo: "maximum_stock", bodega: "warehouse", categoria: "category" })[role] || role;
 }
@@ -1994,7 +2051,9 @@ function localRole(role) {
 
 function buildClassifiedTable(table, local, interpreted) {
   const remote = interpreted.result;
-  const type = remote.sheet_type === "unknown" ? local.type : remote.sheet_type;
+  let type = remote.sheet_type === "unknown" ? local.type : remote.sheet_type;
+  let typeConfidence = remote.sheet_type === "unknown" ? local.typeConfidence : confidenceFromRemote(remote.confidence);
+  let mode = interpreted.mode;
   let interpretation = type === "sales" ? local.interpretations.sales : type === "inventory" ? local.interpretations.inventory : null;
   if (interpreted.mode === "remote-ai" && interpretation) {
     for (const [remoteName, remoteAssignment] of Object.entries(remote.columns)) {
@@ -2007,13 +2066,20 @@ function buildClassifiedTable(table, local, interpreted) {
         sample: table.profiles[remoteAssignment.source]?.sample || ""
       };
     }
+    if (!interpretationSupportsDomain(table, type, interpretation)) {
+      const fallbackType = local.type;
+      type = fallbackType;
+      typeConfidence = local.typeConfidence;
+      mode = "local-fallback";
+      interpretation = fallbackType === "sales" ? local.interpretations.sales : fallbackType === "inventory" ? local.interpretations.inventory : null;
+    }
   }
   return {
     ...table,
     type,
-    typeConfidence: confidenceFromRemote(remote.confidence),
+    typeConfidence,
     interpretation,
-    mode: interpreted.mode
+    mode
   };
 }
 
@@ -2022,7 +2088,8 @@ function requiredMappingIssues() {
   const relevant = type => app.classified.filter(table => table.type === type);
   const conflicts = app.classified.flatMap(table => {
     if (!table.interpretation || !["sales", "inventory"].includes(table.type)) return [];
-    const roles = table.type === "sales" ? ["fecha", "producto", "cantidad", "valorTotal"] : ["producto", "stock"];
+    const config = FIELD_CONFIG[table.type];
+    const roles = [...config.required, ...config.measures];
     const hasConfirmedSalesMeasure = table.type === "sales" && ["cantidad", "valorTotal"].some(role => table.interpretation.assignments[role]?.confirmed);
     return roles.filter(role => !(hasConfirmedSalesMeasure && ["cantidad", "valorTotal"].includes(role)))
       .map(role => [role, table.interpretation.assignments[role]])
@@ -2033,11 +2100,12 @@ function requiredMappingIssues() {
     message: "Este dato todavía necesita tu confirmación.",
     help: "Elige cuál quieres utilizar antes de continuar."
   });
-  const principalRoles = { sales: ["fecha", "producto", "cantidad", "valorTotal"], inventory: ["producto", "stock"] };
   const repeatedColumns = app.classified.flatMap((table, tableIndex) => {
-    if (!principalRoles[table.type]) return [];
+    const config = FIELD_CONFIG[table.type];
+    if (!config) return [];
+    const principalRoles = [...config.required, ...config.measures];
     const seen = new Map();
-    return principalRoles[table.type].flatMap(role => {
+    return principalRoles.flatMap(role => {
       const assignment = table.interpretation.assignments[role];
       if (!assignment?.header) return [];
       const key = `${assignmentSourceIndex(assignment, tableIndex)}::${assignment.header}`;
