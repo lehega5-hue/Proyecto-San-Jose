@@ -66,6 +66,7 @@ const source = fs.readFileSync(appPath, "utf8") + `
   executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen, nextScreen, cycleSummaryScreen,
   syncOpportunityCycle, decideOpportunityAfterReview,
   beginAnalysisCycle, currentAnalysisCycle, analysisCycleComparison, startOpportunity,
+  cycleOpportunityEntries, currentOpportunityPlanState, productDisplayName,
   buildFeedbackRecord, recordOpportunityReview, detectFollowupEvents,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 };
@@ -85,6 +86,7 @@ const {
   executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen, nextScreen, cycleSummaryScreen,
   syncOpportunityCycle, decideOpportunityAfterReview,
   beginAnalysisCycle, currentAnalysisCycle, analysisCycleComparison, startOpportunity,
+  cycleOpportunityEntries, currentOpportunityPlanState, productDisplayName,
   buildFeedbackRecord, recordOpportunityReview, detectFollowupEvents,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 } = sandbox.__test;
@@ -795,12 +797,14 @@ function setStageThree(data, referenceDate = new Date("2026-08-08T12:00:00Z"), c
   app.analysis = analyze(data, referenceDate);
   app.tasks = [];
   app.actionPlan = null;
+  app.opportunityPlans = {};
   app.planDetailOpen = false;
   app.opportunityHistory = [];
   app.analysisCycles = [];
   app.currentAnalysisCycleId = null;
   app.newCyclePending = false;
   app.currentOpportunityKey = null;
+  app.activeOpportunityId = null;
   app.activeOpportunityIndex = 0;
   app.activePriority = 0;
   app.opportunityAttempt = 1;
@@ -1757,6 +1761,87 @@ test("CICLO 6: el cierre resume oportunidades, datos y voz del usuario y ofrece 
   assert.ok(html.includes("Lo que resultó más fácil"));
   assert.ok(html.includes("Lo que resultó más difícil"));
   assert.ok(html.includes("Cargar nuevos datos →"));
+});
+
+function setIndependentOpportunityCycle() {
+  const sales = [];
+  for (let month = 1; month <= 6; month += 1) {
+    const recent = month > 3;
+    const quantity = recent ? 20 : 100;
+    sales.push({ fecha: `2026-0${month}-10`, producto: "4", referencia: "4", nombreProducto: "Café Tradicional 500 g", cantidad: quantity, valorTotal: quantity * 1000, utilidad: recent ? 5000 : 30000 });
+    sales.push({ fecha: `2026-0${month}-11`, producto: "B", cantidad: 50, valorTotal: 50000, utilidad: 10000 });
+  }
+  const inventory = [{ producto: "4", referencia: "4", nombreProducto: "Café Tradicional 500 g", stock: 900 }, { producto: "B", stock: 10 }];
+  setStageThree({ sales, inventory });
+  const common = { level: "general", nivelUrgencia: "Importante", magnitud: 40, periodo: "Dos periodos de tres meses", limitaciones: [], hipotesisPorValidar: [] };
+  app.analysis.priorities = [
+    { ...common, type: "business-decline", dominio: "ventas", problemaGeneral: "Caída general de ventas", title: "Las ventas bajaron", reason: "Las ventas bajaron 40 %.", evidence: "La Referencia 4 explica la mayor parte de la reducción.", causasObservadas: ["La Referencia 4 vendió menos."], focosPrioritarios: [{ evidencia: "La Referencia 4 explica 60 % de la reducción." }], driver: { dimension: "producto", product: "4" } },
+    { ...common, type: "profit-decline", dominio: "ventas", problemaGeneral: "Caída general de utilidad", title: "La utilidad bajó", reason: "La utilidad bajó 50 %.", evidence: "La utilidad de la Referencia 4 disminuyó.", causasObservadas: ["La utilidad de la Referencia 4 fue menor."], focosPrioritarios: [{ evidencia: "La Referencia 4 explica la mayor pérdida de utilidad." }] },
+    { ...common, type: "inventory-excess", dominio: "inventario", problemaGeneral: "Muchas existencias frente a lo que estás vendiendo", title: "Hay existencias altas", reason: "Las existencias son altas frente a las ventas.", evidence: "La Referencia 4 concentra existencias.", causasObservadas: ["Hay muchas unidades disponibles frente a las ventas recientes."], focosPrioritarios: [{ evidencia: "La Referencia 4 concentra las existencias." }], items: [{ producto: "4", stock: 900, stockShare: .99, recentSalesShare: .28, recentSold: 60 }] }
+  ];
+  app.datasetName = "Tres oportunidades independientes";
+  beginAnalysisCycle();
+  app.step = 7;
+}
+
+test("CICLO CORREGIDO 1: ventas, utilidad e inventario conservan planes, metas y progreso independientes", () => {
+  setIndependentOpportunityCycle();
+  const plans = [];
+  const signalSets = [];
+  const comments = ["Comentario de ventas", "Comentario de utilidad", "Comentario de inventario"];
+  for (let index = 0; index < 3; index += 1) {
+    startOpportunity(index);
+    const html = planScreen();
+    const plan = getActionPlan();
+    plans.push(plan.phases.map(phase => phase.action).join(" | "));
+    signalSets.push(plan.signals.map(signal => signal.name).join(" | "));
+    assert.ok(html.includes('id="task-count">0 de'));
+    assert.ok(app.tasks.every(value => value === false));
+    app.tasks[0] = true;
+    currentOpportunityPlanState().tasks = [...app.tasks];
+    const feedback = buildFeedbackRecord({ planCompletado: "En parte", mejoraPercibida: "Sí", comentarioUsuario: comments[index] }, new Date(`2026-08-0${index + 1}T12:00:00Z`));
+    recordOpportunityReview(feedback);
+  }
+  assert.equal(new Set(plans).size, 3);
+  assert.equal(new Set(signalSets).size, 3);
+  assert.ok(signalSets[0].includes("Unidades vendidas") || signalSets[0].includes("Valor vendido"));
+  assert.ok(signalSets[1].toLowerCase().includes("utilidad"));
+  assert.ok(!signalSets[1].includes("Clientes que volvieron a comprar"));
+  assert.ok(signalSets[2].includes("Unidades disponibles"));
+  const records = app.opportunityHistory.filter(item => item.cicloAnalisisId === app.currentAnalysisCycleId);
+  assert.equal(new Set(records.map(item => item.opportunityId)).size, 3);
+  assert.deepEqual(Array.from(records.map(item => item.retroalimentacion.comentarioUsuario)), comments);
+});
+
+test("CICLO CORREGIDO 2: las transiciones son 1 a 2, 2 a 3 y 3 a cierre", () => {
+  setIndependentOpportunityCycle();
+  app.lastOpportunityDecision = { next: true, state: "Mejoró suficientemente", key: "improved", completedOpportunityIndex: 0 };
+  let html = nextScreen();
+  assert.ok(html.includes("Oportunidad trabajada · 1"));
+  assert.ok(html.includes("Siguiente oportunidad · 2"));
+  app.lastOpportunityDecision = { next: true, state: "Mejoró suficientemente", key: "improved", completedOpportunityIndex: 1 };
+  html = nextScreen();
+  assert.ok(html.includes("Oportunidad trabajada · 2"));
+  assert.ok(html.includes("Siguiente oportunidad · 3"));
+  assert.ok(!html.includes("Siguiente oportunidad · 2"));
+  app.lastOpportunityDecision = { next: true, state: "Mejoró suficientemente", key: "improved", completedOpportunityIndex: 2 };
+  html = nextScreen();
+  assert.ok(html.includes("Oportunidad trabajada · 3"));
+  assert.ok(html.includes("Terminamos las oportunidades principales de esta revisión."));
+  assert.ok(!html.includes("Siguiente oportunidad ·"));
+  assert.ok(html.includes("Ver resumen de esta revisión →"));
+});
+
+test("CICLO CORREGIDO 3: una referencia numérica nunca se presenta como producto aislado", () => {
+  setIndependentOpportunityCycle();
+  assert.equal(productDisplayName("4"), "Café Tradicional 500 g (Referencia 4)");
+  startOpportunity(0);
+  const namedPlan = JSON.stringify(getActionPlan());
+  assert.ok(namedPlan.includes("Café Tradicional 500 g (Referencia 4)"));
+  app.dataset = { sales: [{ producto: "4" }], inventory: [] };
+  assert.equal(productDisplayName("4"), "Referencia 4");
+  const diagnosticCopy = app.analysis.priorities.map(item => [item.title, item.reason, item.evidence].join(" ")).join(" ");
+  assert.ok(!/(?<!Referencia )\b4 explica/.test(diagnosticCopy));
 });
 
 (async () => {
