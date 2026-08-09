@@ -20,6 +20,7 @@ function readableNumber(value) {
 }
 
 const app = {
+  userId: null,
   step: 2,
   start: null,
   context: {},
@@ -158,16 +159,110 @@ const safe = value => String(value ?? "").replace(/[&<>'"]/g, character => ({
 const confidenceWeight = confidence => ({ Alta: 3, Media: 2, Baja: 1 }[confidence] || 0);
 const confidenceFromRemote = confidence => ({ high: "Alta", medium: "Media", low: "Baja" }[confidence] || "Baja");
 
-function startDemo() {
-  $("#welcome-view").classList.add("hidden");
-  $("#app-view").classList.remove("hidden");
-  app.start = Date.now();
-  app.completed.start = true;
-  go(2);
+const DEMO_USER = Object.freeze({
+  id: "demo-san-jose",
+  email: "demo@sanjose.com",
+  passwordHash: "996ebdf798646996aa8cf0b9432c9fa0676fa46e7cec49ad2df1a243679f5e3f"
+});
+const DEMO_STORAGE_KEY = `sanJose.users.${DEMO_USER.id}`;
+const PERSISTED_APP_FIELDS = [
+  "step", "start", "context", "dataset", "datasetName", "expected", "source", "analysis", "tables", "classified",
+  "semanticMode", "semanticPending", "clarifications", "additionalSections", "tasks", "actionPlan", "opportunityHistory",
+  "analysisCycles", "currentAnalysisCycleId", "newCyclePending", "currentOpportunityKey", "activeOpportunityIndex",
+  "opportunityAttempt", "lastOpportunityDecision", "cycleSummaryOpen", "planDetailOpen", "activePriority", "feedback", "completed"
+];
+
+async function sha256(value) {
+  const bytes = new TextEncoder().encode(String(value || ""));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
-$("#start-demo").addEventListener("click", startDemo);
-$("#restart-button").addEventListener("click", () => location.reload());
+async function demoCredentialsValid(email, password) {
+  if (String(email || "").trim().toLowerCase() !== DEMO_USER.email) return false;
+  return await sha256(password) === DEMO_USER.passwordHash;
+}
+
+function demoStateSnapshot() {
+  const appState = Object.fromEntries(PERSISTED_APP_FIELDS.map(field => [field, app[field]]));
+  return {
+    version: 1,
+    userId: DEMO_USER.id,
+    savedAt: new Date().toISOString(),
+    businessContext: app.context,
+    uploadedDataHistory: app.analysisCycles.map(cycle => cycle.datosAnalizados),
+    analysisHistory: app.analysisCycles.map(cycle => ({ cycleId: cycle.cycleId, fecha: cycle.fecha, hechos: cycle.hechos, hipotesis: cycle.hipotesis })),
+    opportunitiesHistory: app.opportunityHistory,
+    plansHistory: app.analysisCycles.flatMap(cycle => cycle.planes || []),
+    activitiesHistory: app.analysisCycles.flatMap(cycle => [...(cycle.actividadesRealizadas || []), ...(cycle.actividadesPendientes || [])]),
+    feedbackHistory: app.analysisCycles.flatMap(cycle => cycle.retroalimentacion || []),
+    cycleHistory: app.analysisCycles,
+    businessMemory: { contextoInicial: app.context, cicloActual: app.currentAnalysisCycleId, oportunidadesAnteriores: app.opportunityHistory.length },
+    currentProgress: { step: app.step, tasks: app.tasks, activeOpportunityIndex: app.activeOpportunityIndex, opportunityAttempt: app.opportunityAttempt, cycleSummaryOpen: app.cycleSummaryOpen },
+    appState
+  };
+}
+
+function persistDemoProgress() {
+  if (app.userId !== DEMO_USER.id || typeof localStorage === "undefined") return false;
+  try {
+    localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(demoStateSnapshot()));
+    return true;
+  } catch (error) {
+    console.warn("No pudimos guardar el progreso local de esta prueba.", error);
+    return false;
+  }
+}
+
+function restoreDemoProgress() {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    const stored = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY) || "null");
+    if (!stored || stored.userId !== DEMO_USER.id || !stored.appState) return false;
+    PERSISTED_APP_FIELDS.forEach(field => {
+      if (Object.hasOwn(stored.appState, field)) app[field] = stored.appState[field];
+    });
+    app.userId = DEMO_USER.id;
+    app.files = [];
+    return true;
+  } catch (error) {
+    console.warn("No pudimos recuperar el progreso local de esta prueba.", error);
+    return false;
+  }
+}
+
+function resetDemoProgress() {
+  if (typeof localStorage !== "undefined") localStorage.removeItem(DEMO_STORAGE_KEY);
+  location.reload();
+}
+
+function startDemo(restored = false) {
+  $("#welcome-view").classList.add("hidden");
+  $("#app-view").classList.remove("hidden");
+  app.start ||= Date.now();
+  app.completed.start = true;
+  if (restored) render();
+  else go(2);
+}
+
+async function submitDemoAccess(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form));
+  const message = $("#demo-login-message");
+  const valid = await demoCredentialsValid(values.email, values.password);
+  form.elements.password.value = "";
+  if (!valid) {
+    message.textContent = "El correo o la contraseña no coinciden. Revisa e intenta nuevamente.";
+    return;
+  }
+  message.textContent = "";
+  app.userId = DEMO_USER.id;
+  startDemo(restoreDemoProgress());
+}
+
+$("#demo-login-form").addEventListener("submit", submitDemoAccess);
+$("#restart-button").addEventListener("click", resetDemoProgress);
 $("#test-summary-button").addEventListener("click", showTestSummary);
 $(".dialog-close").addEventListener("click", () => $("#test-dialog").close());
 
@@ -301,6 +396,7 @@ function render() {
   $("#screen").innerHTML = screens[app.step - 1]();
   $("#screen").focus({ preventScroll: true });
   bindScreen();
+  persistDemoProgress();
 }
 
 function nav(back, next, label = "Continuar") {
@@ -311,7 +407,7 @@ function nav(back, next, label = "Continuar") {
 }
 
 function welcome() {
-  return `<section class="hero-screen"><div><p class="eyebrow">MVP académico</p><h1>Tus datos te muestran qué atender primero.</h1><p>No te damos más datos. Te ayudamos a saber qué hacer con los que ya tienes.</p><button class="button gold" type="button" data-go="2">Empezar análisis →</button></div></section>`;
+  return `<section class="hero-screen"><div><p class="eyebrow">MVP · Orientación basada en datos</p><h1>Tus datos te muestran qué atender primero.</h1><p>No te damos más datos. Te ayudamos a saber qué hacer con los que ya tienes.</p><button class="button gold" type="button" data-go="2">Empezar análisis →</button></div></section>`;
 }
 
 function contextScreen() {
@@ -1311,7 +1407,7 @@ function bindScreen() {
   }));
   document.querySelectorAll("[data-go]:not([data-priority])").forEach(button => button.addEventListener("click", () => go(Number(button.dataset.go))));
   $("#download-summary")?.addEventListener("click", downloadExecutiveSummary);
-  $("#restart-demo")?.addEventListener("click", () => location.reload());
+  $("#restart-demo")?.addEventListener("click", resetDemoProgress);
   $("#back-to-welcome")?.addEventListener("click", () => location.reload());
   $("#open-plan-detail")?.addEventListener("click", () => { app.planDetailOpen = true; render(); window.scrollTo({ top: 0, behavior: "smooth" }); });
   $("#back-opportunities")?.addEventListener("click", () => { app.planDetailOpen = false; render(); window.scrollTo({ top: 0, behavior: "smooth" }); });
@@ -3393,6 +3489,7 @@ function updateTask(event) {
   event.target.closest(".action-check")?.classList.toggle("completed", event.target.checked);
   const currentCycle = app.opportunityHistory.at(-1);
   if (currentCycle?.actividades?.[index]) currentCycle.actividades[index].completada = event.target.checked;
+  persistDemoProgress();
 }
 
 function detectFollowupEvents(comment) {

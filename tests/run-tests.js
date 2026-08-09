@@ -2,9 +2,17 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { webcrypto } = require("node:crypto");
 const PDFLib = require("../assets/pdf-lib.min.js");
 
 const noop = () => {};
+const localValues = new Map();
+const localStorage = {
+  getItem: key => localValues.has(key) ? localValues.get(key) : null,
+  setItem: (key, value) => localValues.set(key, String(value)),
+  removeItem: key => localValues.delete(key),
+  clear: () => localValues.clear()
+};
 const fallbackElement = {
   addEventListener: noop,
   classList: { add: noop, remove: noop, toggle: noop },
@@ -27,11 +35,14 @@ const document = {
 const sandbox = {
   Blob,
   console,
+  crypto: webcrypto,
   document,
   FormData: class {},
   Intl,
   location: { reload: noop },
   navigator: {},
+  localStorage,
+  TextEncoder,
   setTimeout,
   clearTimeout,
   URL: { createObjectURL: () => "blob:test", revokeObjectURL: noop },
@@ -45,6 +56,7 @@ const appPath = path.join(__dirname, "..", "app.js");
 const source = fs.readFileSync(appPath, "utf8") + `
 ;globalThis.__test = {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
+  demoCredentialsValid, demoStateSnapshot, persistDemoProgress, restoreDemoProgress,
   setupSpeechRecognition, voiceState: () => ({ isListening }), contextScreen, contextProgress, dataScreen, semanticRoles,
   inferInterpretation, buildCanonicalDataset, interpretedScope,
   handleInterpretationAction, selectRoleColumn, interpretationRow,
@@ -63,6 +75,7 @@ vm.runInContext(source, sandbox, { filename: appPath });
 
 const {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
+  demoCredentialsValid, demoStateSnapshot, persistDemoProgress, restoreDemoProgress,
   setupSpeechRecognition, voiceState, contextScreen, contextProgress, dataScreen, semanticRoles, inferInterpretation,
   buildCanonicalDataset, interpretedScope, handleInterpretationAction,
   selectRoleColumn, interpretationRow, columnChooser, columnOptionValue,
@@ -156,6 +169,67 @@ function resetInterpretation(tables) {
   app.semanticPending = true;
   app.step = 3;
 }
+
+test("LANDING 1: elimina referencias anteriores y presenta un único acceso simple", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  assert.ok(html.includes("MVP · Orientación basada en datos"));
+  assert.ok(html.includes("Tus datos te muestran qué atender primero."));
+  assert.ok(html.includes("Entra a San José"));
+  assert.ok(html.includes('name="email"'));
+  assert.ok(html.includes('name="password"'));
+  assert.ok(html.includes("Entrar y continuar →"));
+  assert.ok(html.includes("assets/logo-san-jose-azul.png"));
+  assert.ok(!/acad[eé]mic/i.test(html));
+  assert.ok(!html.includes("demo@sanjose.com"));
+  ["Crear cuenta", "Registrarse", "Recuperar contraseña"].forEach((copy) => assert.ok(!html.includes(copy)));
+});
+
+test("LANDING 2: rechaza datos incorrectos sin exponer detalles técnicos", async () => {
+  assert.equal(await demoCredentialsValid("correo-incorrecto@example.com", "valor-incorrecto"), false);
+  assert.equal(await demoCredentialsValid("demo@sanjose.com", "valor-incorrecto"), false);
+});
+
+test("LANDING 3: guarda y recupera progreso bajo la clave exclusiva del usuario de prueba", () => {
+  localStorage.clear();
+  app.userId = "demo-san-jose";
+  app.step = 7;
+  app.context = { actividad: "Comercio", contextoLibre: "Contexto acumulado" };
+  app.tasks = [true, false, true];
+  app.analysisCycles = [{
+    cycleId: "ciclo-1",
+    datosAnalizados: { ventas: 12 },
+    hechos: [],
+    hipotesis: [],
+    planes: [],
+    actividadesRealizadas: [],
+    actividadesPendientes: [],
+    retroalimentacion: []
+  }];
+  app.currentAnalysisCycleId = "ciclo-1";
+  assert.equal(persistDemoProgress(), true);
+  const stored = JSON.parse(localStorage.getItem("sanJose.users.demo-san-jose"));
+  assert.equal(stored.userId, "demo-san-jose");
+  assert.equal(stored.currentProgress.step, 7);
+  assert.equal(stored.businessContext.contextoLibre, "Contexto acumulado");
+  assert.ok(!Object.hasOwn(stored, "password"));
+
+  app.step = 2;
+  app.context = {};
+  app.tasks = [];
+  app.analysisCycles = [];
+  assert.equal(restoreDemoProgress(), true);
+  assert.equal(app.step, 7);
+  assert.equal(app.context.contextoLibre, "Contexto acumulado");
+  assert.deepEqual(Array.from(app.tasks), [true, false, true]);
+
+  app.userId = null;
+  app.step = 2;
+  app.context = {};
+  app.tasks = [];
+  app.analysisCycles = [];
+  app.currentAnalysisCycleId = null;
+  localStorage.clear();
+});
 
 test("VOZ 1: el dictado continuo reinicia si el navegador termina la escucha", async () => {
   const voice = setupVoice();

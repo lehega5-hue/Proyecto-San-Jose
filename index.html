@@ -11,16 +11,25 @@
 <body>
   <div id="welcome-view" class="institutional-welcome">
     <section class="welcome-brand">
-      <img src="assets/logo-san-jose-v3.png" alt="San José – Transformación Estratégica. Hacemos simple lo complejo.">
       <div class="welcome-copy">
-        <span>MVP académico · Orientación basada en datos</span>
+        <span>MVP · Orientación basada en datos</span>
         <h1>Tus datos te muestran qué atender primero.</h1>
         <p>San José revisa la información que ya utiliza tu negocio y te muestra qué merece atención primero, por qué y qué puedes hacer.</p>
         <p class="welcome-secondary">Empieza con tus ventas e inventario. Si la información no es suficiente, te diremos qué hace falta antes de recomendar.</p>
-        <button id="start-demo" class="button gold" type="button">Empezar análisis →</button>
+        <form id="demo-login-form" class="demo-access" novalidate>
+          <h2>Entra a San José</h2>
+          <p>Ingresa para continuar con la información y el progreso de tu negocio.</p>
+          <label for="demo-email">Correo</label>
+          <input id="demo-email" name="email" type="email" autocomplete="username" required>
+          <label for="demo-password">Contraseña</label>
+          <input id="demo-password" name="password" type="password" autocomplete="current-password" required>
+          <button class="button gold" type="submit">Entrar y continuar →</button>
+          <p id="demo-login-message" class="demo-login-message" role="alert" aria-live="polite"></p>
+        </form>
       </div>
     </section>
     <aside class="welcome-proof">
+      <img class="welcome-logo" src="assets/logo-san-jose-azul.png" alt="San José – Transformación Estratégica. Hacemos simple lo complejo.">
       <p class="eyebrow">No te damos más datos</p>
       <h2>Primero entendemos tus datos.<br>Luego te mostramos qué atender.</h2>
       <ol><li>Cuéntanos lo esencial</li><li>Sube tu información</li><li>Mira qué atender primero</li><li>Sigue un plan sencillo</li></ol>

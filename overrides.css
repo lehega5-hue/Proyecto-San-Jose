@@ -21,41 +21,41 @@ p { text-wrap: pretty; }
 .institutional-welcome {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(340px, .65fr);
+  grid-template-columns: minmax(0, 1.65fr) minmax(380px, .85fr);
   background: var(--white);
 }
 
 .welcome-brand {
-  display: grid;
-  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: clamp(26px, 3vw, 42px);
-  padding: clamp(30px, 3vw, 50px);
+  padding: clamp(38px, 6vw, 88px);
   border-right: 1px solid var(--line);
 }
 
-.welcome-brand > img {
-  width: 100%;
-  height: auto;
-  object-fit: contain;
-}
-
-.welcome-copy { max-width: 760px; }
+.welcome-copy { width: min(760px, 100%); margin: 0 auto; }
 .welcome-copy > span,
 .welcome-proof .eyebrow { color: var(--gold); font-size: .76rem; font-weight: 850; letter-spacing: .13em; text-transform: uppercase; }
-.welcome-copy h1 { margin: 13px 0 16px; color: var(--navy); font: 500 clamp(2.55rem, 3.6vw, 4rem)/.98 Georgia, serif; }
+.welcome-copy h1 { max-width: 720px; margin: 13px 0 16px; color: var(--navy); font: 500 clamp(2.8rem, 4.4vw, 4.8rem)/.98 Georgia, serif; }
 .welcome-copy p { max-width: 700px; color: var(--muted); font-size: 1.1rem; }
 .welcome-copy .welcome-secondary { font-size: .98rem; }
-.welcome-copy .button { margin-top: 6px; }
+
+.demo-access { width: min(540px, 100%); margin-top: clamp(28px, 4vw, 42px); padding-top: clamp(24px, 3vw, 32px); border-top: 1px solid var(--line); }
+.demo-access h2 { margin: 0 0 6px; color: var(--navy); font: 500 clamp(1.65rem, 2.6vw, 2.15rem)/1.15 Georgia, serif; }
+.demo-access > p { margin: 0 0 16px; font-size: .92rem; }
+.demo-access label { margin-top: 14px; color: var(--navy); }
+.demo-access input { min-height: 48px; margin-top: 6px; border-radius: 6px; }
+.demo-access .button { width: 100%; min-height: 50px; margin-top: 22px; }
+.demo-access .demo-login-message { min-height: 22px; margin: 9px 0 0; color: var(--red); font-size: .82rem; }
 
 .welcome-proof {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: clamp(32px, 5vw, 68px);
+  padding: clamp(32px, 4vw, 64px);
   background: var(--navy);
   color: var(--white);
 }
+.welcome-logo { display: block; width: min(440px, 100%); height: auto; margin: 0 auto clamp(22px, 4vh, 38px); object-fit: contain; }
 .welcome-proof h2 { color: var(--white); font: 500 clamp(2rem, 3.5vw, 3.2rem)/1.05 Georgia, serif; }
 .welcome-proof ol { margin: 28px 0; padding: 0; list-style: none; counter-reset: stages; }
 .welcome-proof li { counter-increment: stages; display: flex; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,.14); }
@@ -573,7 +573,6 @@ p { text-wrap: pretty; }
 @media (max-width: 900px) {
   .institutional-welcome { grid-template-columns: 1fr; }
   .welcome-brand { border-right: 0; }
-  .welcome-brand > img { width: min(360px, 100%); }
   .welcome-proof { padding-top: 48px; padding-bottom: 48px; }
   .mapping-grid, .consulting-detail, .continuity-grid, .quality-layout, .opportunity-transition .continuity-grid, .cycle-opportunities, .cycle-experience { grid-template-columns: 1fr; }
   .secondary-priorities .priority-grid { grid-template-columns: 1fr 1fr; }
@@ -646,10 +645,10 @@ p { text-wrap: pretty; }
 }
 
 @media (max-width: 520px) {
-  .welcome-brand { grid-template-columns: 1fr; padding: 28px 22px 42px; }
-  .welcome-brand > img { width: 100%; height: auto; }
+  .welcome-brand { padding: 34px 22px 42px; }
   .welcome-copy h1 { font-size: 2.55rem; }
   .welcome-proof { padding: 38px 22px; }
+  .welcome-logo { width: min(340px, 100%); }
   .header-actions #test-summary-button { display: none; }
   .app-header { height: 64px; }
   .screen { width: min(100% - 24px, 1120px); }
