@@ -825,8 +825,21 @@ function diagnosticReviewText(finding) {
   return "La situación señalada y la información que falta para explicarla mejor.";
 }
 
+function diagnosticReviewItems(finding) {
+  const foci = app.analysis?.diagnostico?.focosPrioritarios || [];
+  const concrete = foci.map(item => item.evidencia).filter(Boolean).slice(0, 3);
+  return concrete.length ? concrete : [diagnosticReviewText(finding)];
+}
+
+function contextualDiagnosisHtml() {
+  const coincidences = app.analysis?.diagnostico?.coincidenciasContextoDatos || [];
+  if (!coincidences.length) return "";
+  return `<aside class="contextual-diagnosis" aria-labelledby="contextual-diagnosis-title"><span id="contextual-diagnosis-title">Tuvimos en cuenta lo que nos contaste</span>${coincidences.slice(0, 2).map(item => `<p>${safe(item.texto || item)}</p>`).join("")}</aside>`;
+}
+
 function resultEvidenceHtml(presentation, finding) {
-  return `<section class="priority-evidence" id="priority-evidence"><article><span>¿Qué encontramos?</span><p>${safe(presentation.found)}</p></article><article><span>¿Por qué es importante?</span><p>${safe(presentation.important)}</p></article><article><span>¿Qué conviene investigar?</span><p>${safe(diagnosticReviewText(finding))}</p></article></section>`;
+  const reviewItems = diagnosticReviewItems(finding);
+  return `<section class="priority-evidence" id="priority-evidence"><article><span>¿Qué encontramos?</span><p>${safe(presentation.found)}</p></article><article><span>¿Por qué es importante?</span><p>${safe(presentation.important)}</p></article><article class="review-now"><span>¿Qué deberías revisar ahora?</span>${reviewItems.length > 1 ? `<ul>${reviewItems.map(item => `<li>${safe(item)}</li>`).join("")}</ul>` : `<p>${safe(reviewItems[0])}</p>`}</article></section>${contextualDiagnosisHtml()}`;
 }
 
 function stageThreeSecondaryFindings() {
@@ -927,7 +940,7 @@ function resultsScreen() {
     <section class="result-section" aria-labelledby="summary-title"><h2 id="summary-title">Tus datos en pocas palabras</h2><div class="result-stats">${summaryCardsHtml()}</div></section>
     ${resultQualityHtml()}
     <section class="result-section" aria-labelledby="charts-title"><h2 id="charts-title">Lo que pasó con tus ventas</h2><div class="result-charts">${trendChartHtml()}${productChartHtml()}</div></section>
-    ${insufficient ? `<section class="insufficient-priority"><p class="section-kicker">Resultado del análisis</p><h2>Todavía no tenemos información suficiente para decirte qué atender primero.</h2><p>${safe(quality.reasons[0] || "No encontramos suficientes datos utilizables para comparar productos o periodos.")}</p></section>` : `<section class="result-section priority-section" aria-labelledby="priority-title"><p class="section-kicker">Atiende esto primero</p><article class="main-priority"><h2 id="priority-title">${safe(presentation.title)}</h2><div class="priority-metrics">${presentation.metrics.slice(0, 4).map(metric => `<span>${safe(metric)}</span>`).join("")}</div><p class="quality-notice">${presentation.strength === "MEDIA" ? `Este diagnóstico utiliza información con ${quality.score} % de calidad. Ten en cuenta las limitaciones indicadas.` : presentation.strength === "BAJA" ? `Este diagnóstico se basa en información con ${quality.score} % de calidad y debe tomarse como una señal inicial.` : `Basado en información con ${quality.score} % de calidad.`}</p></article></section>${resultEvidenceHtml(presentation, main)}<div class="priority-actions"><button class="button gold" type="button" data-go="7">Ver mis 3 acciones</button><button class="button secondary" type="button" data-priority="0" data-go="6">Ver evidencia</button></div>`}
+    ${insufficient ? `<section class="insufficient-priority"><p class="section-kicker">Resultado del análisis</p><h2>Todavía no tenemos información suficiente para decirte qué atender primero.</h2><p>${safe(quality.reasons[0] || "No encontramos suficientes datos utilizables para comparar productos o periodos.")}</p></section>` : `<section class="result-section priority-section" aria-labelledby="priority-title"><p class="section-kicker">Atiende esto primero</p><article class="main-priority"><h2 id="priority-title">${safe(presentation.title)}</h2><div class="priority-metrics">${presentation.metrics.slice(0, 4).map(metric => `<span>${safe(metric)}</span>`).join("")}</div><p class="quality-notice">${presentation.strength === "MEDIA" ? `Este diagnóstico utiliza información con ${quality.score} % de calidad. Ten en cuenta las limitaciones indicadas.` : presentation.strength === "BAJA" ? `Este diagnóstico se basa en información con ${quality.score} % de calidad y debe tomarse como una señal inicial.` : `Basado en información con ${quality.score} % de calidad.`}</p></article></section>${resultEvidenceHtml(presentation, main)}<div class="priority-actions"><button class="button secondary" type="button" data-priority="0" data-go="6">Ver evidencia</button><button class="button gold priority-next" type="button" data-go="7">Ver mi plan de 3 acciones →</button></div>`}
     ${secondary.length ? `<section class="result-section also-found"><h2>También encontramos</h2><div class="secondary-findings">${secondary.map(item => `<article class="secondary-finding"><p>${safe(item.sentence)}</p></article>`).join("")}</div></section>` : ""}
     <details class="analysis-details"><summary>Ver detalle del análisis</summary>${managementDetailHtml(main, presentation, insufficient)}</details>
     <div class="download-summary-action"><button id="download-summary" class="button secondary" type="button" ${insufficient ? "disabled" : ""}>Descargar resumen ejecutivo</button>${insufficient ? "<p>Podrás descargarlo cuando exista información suficiente para sustentar una conclusión.</p>" : ""}</div>
@@ -2533,6 +2546,70 @@ function diagnosticDataLimitations(metrics, data) {
   return [...new Set(limitations)];
 }
 
+function contextualDiagnosis(context, metrics) {
+  const raw = [context?.contextoLibre, context?.eventoReciente].map(value => String(value || "").trim()).filter(Boolean).join(" ");
+  const normalized = normalize(raw);
+  const panorama = metrics.panorama;
+  const coincidences = [];
+  const hypotheses = [];
+  const evidence = [];
+  const add = (level, text, hypothesis = "", proof = "") => {
+    if (!text || coincidences.length >= 2 || coincidences.some(item => item.texto === text)) return;
+    coincidences.push({ nivel: level, texto: text });
+    if (hypothesis) hypotheses.push(hypothesis);
+    if (proof) evidence.push(proof);
+  };
+
+  if (raw) {
+    const mentionsClient = /(cliente|comprador)/.test(normalized);
+    const mentionsLostClient = mentionsClient && /(perd|dejo de compr|no (volvio|volvieron)|se retiro)/.test(normalized);
+    const inactiveCustomers = metrics.customerRate >= .7
+      ? metrics.customerDrivers.filter(item => item.priorTotal > 0 && item.recentTotal === 0)
+      : [];
+    const namedInactiveCustomer = inactiveCustomers.find(item => normalize(item.product).length >= 3 && normalized.includes(normalize(item.product)));
+    if (namedInactiveCustomer) {
+      const priorShare = panorama.priorTotal ? namedInactiveCustomer.priorTotal / panorama.priorTotal : 0;
+      const proof = `${namedInactiveCustomer.product} dejó de registrar compras y anteriormente representaba ${readablePercent(priorShare)} de las ventas.`;
+      add("RESPALDADO_POR_DATOS", `Los datos respaldan que ${proof.charAt(0).toLowerCase() + proof.slice(1)}`, "", proof);
+    } else if (mentionsClient && inactiveCustomers.length && panorama.status === "VENTAS EN DESCENSO") {
+      const priorTotal = inactiveCustomers.reduce((sum, item) => sum + item.priorTotal, 0);
+      const priorShare = panorama.priorTotal ? priorTotal / panorama.priorTotal : 0;
+      const proof = `${countText(inactiveCustomers.length, "cliente que antes compraba dejó", "clientes que antes compraban dejaron")} de registrar compras y representaba${inactiveCustomers.length === 1 ? "" : "n"} ${readablePercent(priorShare)} de las ventas anteriores.`;
+      add("POSIBLE_EXPLICACION", `Nos contaste que hubo un cambio relacionado con clientes. Los datos muestran que ${proof.charAt(0).toLowerCase() + proof.slice(1)} Esto podría estar relacionado con la reducción, pero no demuestra por sí solo que sea la causa.`, "Revisar cuánto de la reducción podría estar relacionado con los clientes que dejaron de comprar.", proof);
+    } else if (mentionsLostClient && panorama.status === "VENTAS EN DESCENSO") {
+      add("COINCIDENCIA", "Nos contaste que perdiste un cliente durante este periodo. Esto coincide con una reducción reciente de las ventas, aunque los datos disponibles no permiten confirmar que esa sea la causa.", "Revisar si la pérdida del cliente podría estar relacionada con la reducción de ventas.");
+    }
+
+    const mentionsSupply = /(proveedor|abastec|sin producto|falta de producto|escasez)/.test(normalized);
+    if (mentionsSupply && metrics.riskItems.length) {
+      const products = metrics.riskItems.slice(0, 2).map(item => item.producto).join(" y ");
+      const proof = `${products} ${metrics.riskItems.length === 1 ? "tiene" : "tienen"} pocas existencias frente a sus ventas recientes.`;
+      add("COINCIDENCIA", `Nos contaste que hubo problemas de abastecimiento o con un proveedor. Esto coincide con la baja disponibilidad que encontramos en ${products}.`, "Revisar si el problema de abastecimiento podría estar relacionado con la disponibilidad actual.", proof);
+    } else if (mentionsSupply && panorama.status === "VENTAS EN DESCENSO") {
+      add("POSIBLE_EXPLICACION", "Nos contaste que hubo problemas de abastecimiento o falta de producto. Esto podría estar relacionado con la reducción de ventas, pero los archivos no permiten comprobarlo.", "Revisar si la falta de producto afectó las ventas durante el periodo.");
+    }
+
+    if (/(precio|tarifa)/.test(normalized) && panorama.reliable) {
+      add("POSIBLE_EXPLICACION", "Nos contaste que hubo cambios de precio. Esto podría estar relacionado con la variación de las ventas, pero los datos disponibles no demuestran esa relación.", "Comparar las ventas antes y después del cambio de precio.");
+    }
+    if (/(cerr|vacacion|temporada|festiv|obra|personal|vendedor|comercial)/.test(normalized) && panorama.reliable) {
+      add("COINCIDENCIA", "Nos contaste que ocurrió una situación especial durante este periodo. Esto coincide con el periodo en el que observamos cambios en las ventas y conviene revisarlo sin asumir que fue la causa.", "Revisar si la situación especial podría estar relacionada con el cambio observado.");
+    }
+  }
+
+  return {
+    contextoEmpresarial: {
+      actividad: context?.actividad || "",
+      manejoInformacion: context?.registro || "",
+      antiguedad: context?.antiguedad || ""
+    },
+    contextoRelevante: coincidences.length ? raw : "",
+    coincidenciasContextoDatos: coincidences.slice(0, 2),
+    hipotesisContextuales: [...new Set(hypotheses)].slice(0, 2),
+    evidenciaContextual: [...new Set(evidence)].slice(0, 2)
+  };
+}
+
 function buildDiagnosticHandoff(primary, metrics, resultQuality, data) {
   const sales = data.sales || [];
   const panorama = metrics.panorama;
@@ -2581,7 +2658,8 @@ function buildDiagnosticHandoff(primary, metrics, resultQuality, data) {
       compras: false,
       visitasComerciales: false,
       competencia: false
-    }
+    },
+    ...contextualDiagnosis(app.context, metrics)
   };
 }
 

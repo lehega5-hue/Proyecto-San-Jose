@@ -707,8 +707,8 @@ function stageThreeSales({ months = 6, rowsPerMonth = 4, products = ["A", "B", "
   return rows;
 }
 
-function setStageThree(data, referenceDate = new Date("2026-08-08T12:00:00Z")) {
-  app.context = {};
+function setStageThree(data, referenceDate = new Date("2026-08-08T12:00:00Z"), context = {}) {
+  app.context = context;
   app.dataset = data;
   app.analysis = analyze(data, referenceDate);
   app.tasks = [];
@@ -726,12 +726,13 @@ test("ETAPA 3 A: ventas, cantidades e inventario completos producen resumen, cal
   assert.ok(html.indexOf("Calidad de la información") < html.indexOf("Lo que pasó con tus ventas"));
   assert.ok(html.indexOf("Lo que pasó con tus ventas") < html.indexOf("id=\"priority-title\""));
   assert.ok(html.indexOf("id=\"priority-title\"") < html.indexOf("id=\"priority-evidence\""));
-  assert.ok(html.indexOf("id=\"priority-evidence\"") < html.indexOf("Ver mis 3 acciones"));
-  assert.ok(html.indexOf("Ver mis 3 acciones") < html.indexOf("También encontramos"));
+  assert.ok(html.indexOf("id=\"priority-evidence\"") < html.indexOf("Ver mi plan de 3 acciones"));
+  assert.ok(html.indexOf("Ver evidencia") < html.indexOf("Ver mi plan de 3 acciones"));
+  assert.ok(html.indexOf("Ver mi plan de 3 acciones") < html.indexOf("También encontramos"));
   assert.ok(html.indexOf("También encontramos") < html.indexOf("Ver detalle del análisis"));
   assert.equal((html.match(/class="result-chart(?: chart|\")/g) || []).length, 2);
   assert.equal((html.match(/class="result-stat"/g) || []).length, 4);
-  assert.ok(html.includes("Ver mis 3 acciones"));
+  assert.ok(html.includes("Ver mi plan de 3 acciones"));
   assert.ok(html.includes("Ver detalle del análisis"));
   assert.ok(html.includes("Resumen para tomar decisiones"));
   assert.ok(html.includes("Lo que todavía no podemos saber"));
@@ -1026,6 +1027,45 @@ test("MOTOR 10: analiza clientes confirmados como explicación de una caída gen
   assert.ok(result.priorities.slice(1).some(finding => finding.driver?.dimension === "cliente" && finding.driver.product === "Cliente Norte"));
 });
 
+test("CONTEXTO 1: conecta un cliente mencionado con evidencia real sin inventar causalidad", () => {
+  const sales = [];
+  for (let month = 1; month <= 6; month += 1) {
+    if (month <= 3) sales.push({ fecha: `2026-0${month}-10`, producto: "A", cliente: "Cliente Norte", cantidad: 70, valorTotal: 70000 });
+    sales.push({ fecha: `2026-0${month}-11`, producto: "B", cliente: "Cliente Sur", cantidad: 30, valorTotal: 30000 });
+  }
+  const context = { actividad: "Comercio", registro: "Excel o Google Sheets", antiguedad: "3 a 5 años", contextoLibre: "En mayo perdimos al Cliente Norte." };
+  const result = setStageThree({ sales, inventory: [] }, new Date("2026-08-08T12:00:00Z"), context);
+  const diagnosis = result.diagnostico;
+  assert.equal(diagnosis.contextoEmpresarial.actividad, "Comercio");
+  assert.equal(diagnosis.contextoRelevante, context.contextoLibre);
+  assert.equal(diagnosis.coincidenciasContextoDatos.length, 1);
+  assert.equal(diagnosis.coincidenciasContextoDatos[0].nivel, "RESPALDADO_POR_DATOS");
+  assert.ok(diagnosis.coincidenciasContextoDatos[0].texto.includes("Los datos respaldan que"));
+  assert.ok(diagnosis.evidenciaContextual[0].includes("Cliente Norte dejó de registrar compras"));
+  const html = resultsScreen();
+  assert.ok(html.includes("Tuvimos en cuenta lo que nos contaste"));
+  assert.ok(html.includes("Cliente Norte"));
+  assert.ok(html.indexOf("Tuvimos en cuenta lo que nos contaste") < html.indexOf("Ver evidencia"));
+  assert.ok(!html.includes("bajaron porque"));
+});
+
+test("CONTEXTO 2: un cambio de precio permanece como hipótesis y no como causa observada", () => {
+  const sales = businessRows({ A: [60, 60, 60, 20, 20, 20], B: [40, 40, 40, 30, 30, 30] });
+  const result = setStageThree({ sales, inventory: [] }, new Date("2026-08-08T12:00:00Z"), { contextoLibre: "Cambiamos los precios en abril." });
+  assert.equal(result.diagnostico.coincidenciasContextoDatos[0].nivel, "POSIBLE_EXPLICACION");
+  assert.ok(result.diagnostico.coincidenciasContextoDatos[0].texto.includes("podría estar relacionado"));
+  assert.ok(result.diagnostico.hipotesisContextuales.some(item => item.includes("precio")));
+  assert.ok(!result.diagnostico.causasObservadas.some(item => item.includes("precio")));
+});
+
+test("CONTEXTO 3: oculta el bloque cuando el relato no aporta una coincidencia relevante", () => {
+  const sales = businessRows({ A: [60, 60, 60, 20, 20, 20], B: [40, 40, 40, 30, 30, 30] });
+  const result = setStageThree({ sales, inventory: [] }, new Date("2026-08-08T12:00:00Z"), { contextoLibre: "Nuestro negocio vende productos para el hogar." });
+  assert.equal(result.diagnostico.coincidenciasContextoDatos.length, 0);
+  assert.equal(result.diagnostico.contextoRelevante, "");
+  assert.ok(!resultsScreen().includes("Tuvimos en cuenta lo que nos contaste"));
+});
+
 test("ARQUITECTURA 1: todos los módulos entregan el contrato empresarial común", () => {
   const sales = businessRows({ A: [60, 60, 60, 20, 20, 20], B: [40, 40, 40, 30, 30, 30] });
   const result = setStageThree({ sales, inventory: [{ producto: "A", stock: 500 }, { producto: "B", stock: 5 }] });
@@ -1050,11 +1090,12 @@ test("ARQUITECTURA 2: el diagnóstico entrega hechos, hipótesis y datos disponi
   assert.equal(diagnosis.datosDisponibles.competencia, false);
 });
 
-test("ARQUITECTURA 3: Etapa 3 investiga y no presenta un plan comercial detallado", () => {
+test("ARQUITECTURA 3: Etapa 3 muestra qué revisar sin presentar un plan comercial detallado", () => {
   const sales = businessRows({ A: [60, 60, 60, 20, 20, 20], B: [40, 40, 40, 30, 30, 30] });
   setStageThree({ sales, inventory: [] });
   const html = resultsScreen();
-  assert.ok(html.includes("¿Qué conviene investigar?"));
+  assert.ok(html.includes("¿Qué deberías revisar ahora?"));
+  assert.ok(!html.includes("¿Qué conviene investigar?"));
   assert.ok(!html.includes("¿Qué puedes hacer?"));
   app.activePriority = 0;
   const evidence = evidenceScreen();
