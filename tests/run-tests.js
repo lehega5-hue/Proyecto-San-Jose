@@ -51,7 +51,8 @@ const source = fs.readFileSync(appPath, "utf8") + `
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
   roleDisplayLabel, primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen,
+  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen,
+  buildFeedbackRecord, detectFollowupEvents,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 };
 `;
@@ -66,7 +67,8 @@ const {
   columnDataQuality, columnIdentification, roleDisplayLabel,
   primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen,
+  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen,
+  buildFeedbackRecord, detectFollowupEvents,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 } = sandbox.__test;
 const tests = [];
@@ -1374,6 +1376,61 @@ test("ETAPA 4 J: la pantalla usa lenguaje simple y reserva las metas para el cie
   const phaseSection = html.slice(html.indexOf("plan-phases"), html.indexOf("stage-four-signals"));
   assert.ok(!phaseSection.includes(">Meta<"));
   assert.ok(html.includes(">Hoy<") && html.includes(">Meta<"));
+});
+
+test("DESPUÉS DEL PLAN A: muestra dos preguntas rápidas y una sola pregunta abierta", () => {
+  const html = feedbackScreen();
+  assert.ok(html.includes("Cuéntanos cómo te fue"));
+  assert.ok(html.includes("¿Pudiste hacer el plan?"));
+  assert.ok(html.includes("¿Notaste alguna mejora?"));
+  assert.ok(html.includes('value="En parte"'));
+  assert.equal((html.match(/<fieldset>/g) || []).length, 2);
+  assert.equal((html.match(/<textarea/g) || []).length, 1);
+  assert.ok(html.includes("Escribe o cuéntanos con tu voz"));
+  assert.ok(html.includes("Guardar y revisar qué sigue →"));
+  assert.ok(html.includes("Solo usamos lo que escribas o dictemos como texto para esta revisión."));
+});
+
+test("DESPUÉS DEL PLAN B: reutiliza el dictado continuo con el mensaje final acordado", () => {
+  const button = mockElement();
+  const textarea = mockElement("Ya escribí algo.");
+  const status = mockElement();
+  const elements = { "#feedback-voice-button": button, "#feedback-story": textarea, "#feedback-voice-status": status };
+  document.querySelector = selector => elements[selector] || fallbackElement;
+  sandbox.window.SpeechRecognition = FakeRecognition;
+  setupSpeechRecognition({ buttonSelector: "#feedback-voice-button", textareaSelector: "#feedback-story", statusSelector: "#feedback-voice-status", finishedMessage: "Listo. Revisa el texto y cambia lo que quieras antes de continuar.", unavailableMessage: "No pudimos usar el micrófono. Puedes continuar escribiendo." });
+  button.listeners.click();
+  assert.equal(button.textContent, "■ Terminar");
+  assert.equal(status.textContent, "Te estamos escuchando…");
+  FakeRecognition.instance.onresult(speechResult("Dos clientes volvieron."));
+  assert.equal(textarea.value, "Ya escribí algo. Dos clientes volvieron.");
+  button.listeners.click();
+  assert.equal(status.textContent, "Listo. Revisa el texto y cambia lo que quieras antes de continuar.");
+});
+
+test("DESPUÉS DEL PLAN C: guarda percepción, avance, metas y datos por separado", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  const actionPlan = getActionPlan();
+  const activityCount = actionPlan.phases.flatMap(phase => phase.activities).length;
+  app.tasks = Array(activityCount).fill(false);
+  app.tasks[0] = true;
+  const record = buildFeedbackRecord({ planCompletado: "En parte", mejoraPercibida: "Sí", comentarioUsuario: "Perdimos un cliente y seguimos con falta de producto del proveedor." }, new Date("2026-08-08T12:00:00Z"));
+  assert.equal(record.planCompletado, "En parte");
+  assert.equal(record.accionesRealizadas.length, 1);
+  assert.equal(record.accionesPendientes.length, activityCount - 1);
+  assert.ok(record.metasPrevias.length >= 1 && record.metasPrevias.length <= 3);
+  assert.equal(record.resultadosDisponibles.hayDatosNuevos, false);
+  assert.equal(record.loQueDiceElUsuario.mejoraPercibida, "Sí");
+  assert.equal(record.loQueMuestranLosDatos.hayDatosNuevos, false);
+  assert.ok(record.nuevosCambiosMencionados.includes("Pérdida de cliente"));
+  assert.ok(record.nuevosCambiosMencionados.includes("Falta de producto"));
+  assert.ok(record.nuevosCambiosMencionados.includes("Cambio relacionado con proveedor"));
+  assert.equal(record.fechaRevision, "2026-08-08T12:00:00.000Z");
+});
+
+test("DESPUÉS DEL PLAN D: evita lenguaje técnico frente al usuario", () => {
+  const html = feedbackScreen().toLowerCase();
+  ["retroalimentación", "iteración", "evaluación de desempeño", "kpi", "aprendizaje del sistema", "mejora continua", "ciclo de optimización", "feedback loop", "pdca"].forEach(term => assert.ok(!html.includes(term), `aparece ${term}`));
 });
 
 (async () => {

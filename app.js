@@ -1032,15 +1032,25 @@ function planChecklist() {
 }
 
 function feedbackScreen() {
-  return `<p class="eyebrow">Cuéntanos qué pasó</p>
-    <h1 class="screen-title">Tu experiencia ayuda a revisar qué sigue</h1>
-    <form id="feedback-form" class="panel">
+  return `<p class="eyebrow">Después del plan</p>
+    <h1 class="screen-title">Cuéntanos cómo te fue</h1>
+    <p class="screen-intro">Lo que nos cuentes nos ayudará a entender qué funcionó, qué cambió y qué deberíamos revisar después.</p>
+    <form id="feedback-form" class="panel feedback-simple">
       <div class="feedback-grid">
-        ${radioQuestion("complete", "¿Pudiste completar el plan?", ["Sí", "Parcialmente", "No"])}
-        ${radioQuestion("improved", "¿Notaste alguna mejora?", ["Sí", "Todavía no", "No estoy seguro"])}
+        ${radioQuestion("planCompletado", "¿Pudiste hacer el plan?", ["Sí", "En parte", "No"])}
+        ${radioQuestion("mejoraPercibida", "¿Notaste alguna mejora?", ["Sí", "Todavía no", "No estoy seguro"])}
       </div>
-      <label>Cuéntanos brevemente qué pasó (opcional)<textarea name="comment" rows="4"></textarea></label>
-      <div class="actions"><button class="button secondary" type="button" data-go="8">← Volver</button><button class="button gold" type="submit">Guardar y continuar →</button></div>
+      <section class="feedback-context" aria-labelledby="feedback-context-title">
+        <h2 id="feedback-context-title">Cuéntanos qué pasó</h2>
+        <p>Puedes decirnos qué mejoró, qué siguió igual, qué fue difícil o si pasó algo nuevo en tu negocio.</p>
+        <p>Entre más contexto nos des, mejor podremos entender qué debería revisarse después.</p>
+        <label for="feedback-story">Escribe o cuéntanos con tu voz<textarea id="feedback-story" name="comentarioUsuario" rows="4" placeholder="Cuéntanos qué pasó durante el plan."></textarea></label>
+        <div class="context-voice"><button id="feedback-voice-button" class="button secondary hidden" type="button" aria-pressed="false">🎙️ Empezar a hablar</button><p id="feedback-voice-status" class="message" role="status"></p></div>
+        <div class="feedback-examples"><strong>Puedes contarnos, por ejemplo:</strong><ul><li>qué mejoró;</li><li>qué no funcionó;</li><li>qué fue difícil;</li><li>si pasó algo nuevo;</li><li>cualquier cosa que creas importante.</li></ul><p>Ejemplo: logramos hablar con tres clientes, dos volvieron a comprar, pero seguimos teniendo problemas para conseguir un producto.</p></div>
+        <small class="feedback-privacy">Solo usamos lo que escribas o dictemos como texto para esta revisión.</small>
+      </section>
+      <section class="feedback-next"><h2>Esto nos ayudará a revisar qué sigue</h2><p>San José tendrá en cuenta lo que hiciste, lo que pasó y los nuevos cambios de tu negocio antes de mostrarte la siguiente prioridad.</p></section>
+      <div class="actions"><button class="button secondary" type="button" data-go="8">← Volver</button><button class="button gold" type="submit">Guardar y revisar qué sigue →</button></div>
     </form>`;
 }
 
@@ -1114,7 +1124,17 @@ function bindScreen() {
   }
   if ([7, 8].includes(app.step)) document.querySelectorAll(".task-check").forEach(input => input.addEventListener("change", updateTask));
   if (app.step === 4) $("#adaptive-form")?.addEventListener("submit", saveAdaptiveContext);
-  if (app.step === 9) $("#feedback-form").addEventListener("submit", saveFeedback);
+  if (app.step === 9) {
+    $("#feedback-form").addEventListener("submit", saveFeedback);
+    setupStoryTextarea("#feedback-story");
+    setupSpeechRecognition({
+      buttonSelector: "#feedback-voice-button",
+      textareaSelector: "#feedback-story",
+      statusSelector: "#feedback-voice-status",
+      finishedMessage: "Listo. Revisa el texto y cambia lo que quieras antes de continuar.",
+      unavailableMessage: "No pudimos usar el micrófono. Puedes continuar escribiendo."
+    });
+  }
 }
 
 function contextProgress(values) {
@@ -1150,8 +1170,8 @@ function resizeStoryTextarea(textarea = $("#business-story")) {
   textarea.style.overflowY = textarea.scrollHeight > 260 ? "auto" : "hidden";
 }
 
-function setupStoryTextarea() {
-  const textarea = $("#business-story");
+function setupStoryTextarea(selector = "#business-story") {
+  const textarea = $(selector);
   if (!textarea) return;
   textarea.addEventListener("input", () => resizeStoryTextarea(textarea));
   resizeStoryTextarea(textarea);
@@ -1183,12 +1203,19 @@ function saveAdaptiveContext(event) {
   render();
 }
 
-function setupSpeechRecognition() {
+function setupSpeechRecognition(options = {}) {
+  const {
+    buttonSelector = "#voice-button",
+    textareaSelector = "#business-story",
+    statusSelector = "#voice-status",
+    finishedMessage = "Listo. Puedes revisar y corregir el texto antes de continuar.",
+    unavailableMessage = "No pudimos usar el micrófono. Puedes escribir tu contexto."
+  } = options;
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const button = $("#voice-button");
+  const button = $(buttonSelector);
   if (!Recognition || !button) return;
-  const textarea = $("#business-story");
-  const status = $("#voice-status");
+  const textarea = $(textareaSelector);
+  const status = $(statusSelector);
   let baseText = "";
   let finalTranscript = "";
   let interimTranscript = "";
@@ -1217,7 +1244,7 @@ function setupSpeechRecognition() {
       if (error.name !== "InvalidStateError") {
         isListening = false;
         showIdleButton();
-        status.textContent = "No pudimos usar el micrófono. Puedes escribir tu contexto.";
+        status.textContent = unavailableMessage;
       }
     }
   };
@@ -1243,7 +1270,7 @@ function setupSpeechRecognition() {
     showIdleButton();
     status.textContent = ["not-allowed", "service-not-allowed"].includes(event.error)
       ? "No tenemos permiso para usar el micrófono. Puedes continuar escribiendo."
-      : "No pudimos usar el micrófono. Puedes escribir tu contexto.";
+      : unavailableMessage;
   };
   speechRecognition.onend = () => {
     if (!isListening) return;
@@ -1260,7 +1287,7 @@ function setupSpeechRecognition() {
       clearTimeout(speechRestartTimer);
       speechRecognition.stop();
       showIdleButton();
-      status.textContent = "Listo. Puedes revisar y corregir el texto antes de continuar.";
+      status.textContent = finishedMessage;
       return;
     }
     baseText = textarea.value.trim();
@@ -3070,9 +3097,65 @@ function updateTask(event) {
   event.target.closest(".action-check")?.classList.toggle("completed", event.target.checked);
 }
 
+function detectFollowupEvents(comment) {
+  const text = normalize(comment || "");
+  const eventPatterns = [
+    ["Pérdida de cliente", /(perdi|perdimos|perdio|dejo de comprar|se retiro).{0,35}cliente|cliente.{0,35}(perdi|perdimos|perdio|dejo de comprar|se retiro)/],
+    ["Cambio de precio", /(cambi|sub|baj).{0,20}(precio|tarifa)|(precio|tarifa).{0,20}(cambi|sub|baj)/],
+    ["Cambio relacionado con proveedor", /proveedor|abastecimiento/],
+    ["Falta de producto", /falta.{0,20}producto|sin existencias|agotado|escasez/],
+    ["Nuevo comercial", /nuevo.{0,20}(comercial|vendedor)|(comercial|vendedor).{0,20}nuevo/],
+    ["Cierre", /cerramos|cierre|cerrado/],
+    ["Competencia", /competencia|competidor/],
+    ["Temporada especial", /temporada|festiv|vacacion|evento especial/]
+  ];
+  return eventPatterns.filter(([, pattern]) => pattern.test(text)).map(([label]) => label);
+}
+
+function buildFeedbackRecord(values, reviewedAt = new Date()) {
+  const actionPlan = getActionPlan();
+  const activities = actionPlan.phases.flatMap((phase, phaseIndex) => phase.activities.map(activity => ({ fase: phaseIndex + 1, actividad: activity })));
+  const completed = activities.filter((_, index) => Boolean(app.tasks[index]));
+  const pending = activities.filter((_, index) => !app.tasks[index]);
+  const comment = String(values.comentarioUsuario || "").trim();
+  const planCompleted = values.planCompletado || "";
+  const perceivedImprovement = values.mejoraPercibida || "";
+  const goals = (actionPlan.signals || []).map(signal => ({
+    señal: signal.name,
+    valorAntesDelPlan: signal.today,
+    meta: signal.target,
+    referenciaAnterior: signal.reference || ""
+  }));
+  const date = reviewedAt instanceof Date ? reviewedAt : new Date(reviewedAt);
+  return {
+    planCompletado: planCompleted,
+    mejoraPercibida: perceivedImprovement,
+    comentarioUsuario: comment,
+    fechaRevision: Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString(),
+    problemaTrabajado: actionPlan.problemGeneral,
+    causaTrabajada: actionPlan.causeWorked,
+    accionesRealizadas: completed,
+    accionesPendientes: pending,
+    metasPrevias: goals,
+    resultadosDisponibles: {
+      hayDatosNuevos: false,
+      resultados: [],
+      puntoDePartida: goals.map(goal => ({ señal: goal.señal, valor: goal.valorAntesDelPlan }))
+    },
+    loQueDiceElUsuario: { planCompletado: planCompleted, mejoraPercibida: perceivedImprovement, comentario: comment },
+    loQueMuestranLosDatos: { hayDatosNuevos: false, resultados: [] },
+    nuevosCambiosMencionados: detectFollowupEvents(comment)
+  };
+}
+
 function saveFeedback(event) {
   event.preventDefault();
-  app.feedback = Object.fromEntries(new FormData(event.currentTarget));
+  if (isListening && speechRecognition) {
+    isListening = false;
+    clearTimeout(speechRestartTimer);
+    speechRecognition.stop();
+  }
+  app.feedback = buildFeedbackRecord(Object.fromEntries(new FormData(event.currentTarget)));
   app.completed.feedback = true;
   go(10);
 }
