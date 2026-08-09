@@ -37,6 +37,8 @@ const app = {
   additionalSections: {},
   tasks: [],
   actionPlan: null,
+  opportunityHistory: [],
+  currentOpportunityKey: null,
   activePriority: 0,
   feedback: {},
   completed: {
@@ -1001,10 +1003,48 @@ function stageFourPlanChecklist() {
     <p class="plan-responsibility">San José te ayuda a identificar prioridades y posibles acciones a partir de tus datos. La decisión final y su ejecución corresponden al empresario.</p>`;
 }
 
+function opportunityExplanation(finding) {
+  if (["stock-risk-general", "stockout"].includes(finding?.type)) return "Estamos trabajando primero en cuidar la disponibilidad de los productos importantes según sus ventas recientes.";
+  if (["inventory-accumulation", "inventory-excess", "inventory-no-movement", "slow"].includes(finding?.type)) return "Estamos trabajando primero en entender qué existencias necesitan atención y cómo se están moviendo.";
+  if (["sales-decline", "general-decline", "profit-decline"].includes(finding?.type) || /caída|bajando|reducción/i.test(finding?.problemaGeneral || finding?.title || "")) return "Estamos trabajando primero en recuperar las ventas y entender qué está explicando esta caída.";
+  return "Estamos trabajando primero en el foco que más puede ayudar a mejorar la situación actual.";
+}
+
+function syncOpportunityCycle(actionPlan) {
+  const key = normalize(`${actionPlan.problemGeneral}|${actionPlan.causeWorked}`);
+  const changed = Boolean(app.currentOpportunityKey && app.currentOpportunityKey !== key);
+  if (!app.currentOpportunityKey || changed) {
+    const previous = app.opportunityHistory.at(-1);
+    if (changed && previous?.estadoFinal === "En curso") previous.estadoFinal = "Pendiente de revisión";
+    app.opportunityHistory.push({
+      oportunidadAtendida: actionPlan.problemGeneral,
+      problemaOriginal: actionPlan.problemGeneral,
+      causas: [actionPlan.causeWorked, ...(actionPlan.causeEvidence || [])].filter(Boolean),
+      fechaInicio: actionPlan.handoff?.fechaInicio || isoDateAfter(0),
+      plan: actionPlan.phases.map(phase => ({ momento: phase.when, accion: phase.action, actividades: [...phase.activities] })),
+      actividades: actionPlan.phases.flatMap((phase, phaseIndex) => phase.activities.map((activity, activityIndex) => ({ fase: phaseIndex + 1, actividad: activity, completada: changed ? false : Boolean(app.tasks[actionPlan.phases.slice(0, phaseIndex).reduce((sum, item) => sum + item.activities.length, 0) + activityIndex]) }))),
+      metas: (actionPlan.signals || []).map(signal => ({ señal: signal.name, hoy: signal.today, meta: signal.target })),
+      resultado: null,
+      retroalimentacion: null,
+      estadoFinal: "En curso"
+    });
+    app.currentOpportunityKey = key;
+  }
+  return { changed, cycle: app.opportunityHistory.at(-1) };
+}
+
+function decideOpportunityAfterReview(review = {}) {
+  if (!review.hasNewData) return { next: false, state: "Información insuficiente" };
+  if (review.outcome === "worse") return { next: false, state: "Empeoró" };
+  if (review.outcome !== "improved" || !review.improvedEnough) return { next: false, state: "Sigue igual" };
+  if (review.remainsHighestPriority) return { next: false, state: "Sigue siendo prioritaria" };
+  return { next: true, state: "Mejoró suficientemente" };
+}
+
 function followupScreen() {
-  return `<p class="eyebrow">Seguimiento</p>
+  return `<p class="eyebrow">Ejecuta tu plan</p>
     <h1 class="screen-title">Avanza una acción a la vez</h1>
-    <p class="screen-intro">Puedes actualizar el plan cuando vuelvas a revisar tus datos.</p>
+    <p class="screen-intro">Completa el plan paso a paso. Cuando termines, cuéntanos cómo te fue para revisar qué sigue.</p>
     ${planChecklist()}
     ${nav(7, 9, "Contarnos qué pasó")}`;
 }
@@ -1013,11 +1053,16 @@ function planChecklist() {
   const actionPlan = getActionPlan();
   const plan = actionPlan.phases;
   const activities = plan.flatMap(phase => phase.activities);
-  if (app.tasks.length !== activities.length) app.tasks = Array(activities.length).fill(false);
+  const opportunity = syncOpportunityCycle(actionPlan);
+  if (opportunity.changed || app.tasks.length !== activities.length) app.tasks = Array(activities.length).fill(false);
   const done = app.tasks.filter(Boolean).length;
+  const finding = app.analysis?.priorities?.[0];
+  const signals = (actionPlan.signals || []).slice(0, 3);
   let activityIndex = 0;
-  return `<section class="plan-problem" aria-labelledby="plan-problem-title"><span>Problema que estamos atendiendo</span><h2 id="plan-problem-title">${safe(actionPlan.problemGeneral)}</h2><p><strong>Lo primero que vamos a trabajar:</strong> ${safe(actionPlan.causeWorked)}</p></section>
+  return `<section class="plan-problem execution-opportunity" aria-labelledby="execution-opportunity-title"><div><span>Oportunidad que estamos atendiendo</span><h2 id="execution-opportunity-title">${safe(actionPlan.problemGeneral)}</h2><p>${safe(opportunityExplanation(finding))}</p><p class="opportunity-focus">Empezaremos por: ${safe(actionPlan.causeWorked)}</p></div><img src="assets/logo-san-jose-azul.png" alt="San José – Transformación Estratégica"></section>
+    <section class="execution-signals" aria-labelledby="execution-signals-title"><h2 id="execution-signals-title">¿Cómo sabremos si está mejorando?</h2>${signals.length ? `<div>${signals.map(signal => `<article><h3>${safe(signal.name)}</h3><dl><div><dt>Hoy</dt><dd>${safe(signal.today)}</dd></div><div><dt>Meta</dt><dd>${safe(signal.target)}</dd></div></dl></article>`).join("")}</div>` : `<p>Todavía no tenemos cifras suficientes para definir una meta responsable.</p>`}</section>
     <div class="plan-progress"><strong id="task-count">${done} de ${activities.length}</strong><span>actividades completadas</span></div>
+    <div class="execution-plan-heading"><span>Tu plan en 3 fases</span><p>Estas actividades están pensadas para trabajar esta oportunidad.</p></div>
     <ol class="action-timeline" aria-label="Línea de tiempo del plan">${plan.map((phase, index) => `<li><span class="timeline-dot" aria-hidden="true"></span><b>${safe(phase.when)}</b><small>${index === 0 ? "Primero" : index === 1 ? "Luego" : "Después revisa"}</small></li>`).join("")}</ol>
     <div class="plan-phases">${plan.map((phase, phaseIndex) => {
       const phaseStart = activityIndex;
@@ -1028,7 +1073,7 @@ function planChecklist() {
         return `<label class="action-check ${app.tasks[index] ? "completed" : ""}"><input class="task-check" type="checkbox" data-task="${index}" data-phase="${phaseIndex}" ${app.tasks[index] ? "checked" : ""}><span class="check-mark" aria-hidden="true"></span><span class="action-copy"><strong>${safe(activity)}</strong></span></label>`;
       }).join("")}</div></article>`;
     }).join("")}</div>
-    <section class="plan-measures"><span>Qué revisar para saber si funcionó</span><h2>Mira estas señales en la fecha de revisión</h2><ul>${actionPlan.indicators.map(indicator => `<li><strong>${safe(indicator.name)}</strong><small>${safe(indicator.comparison)}</small></li>`).join("")}</ul></section>`;
+    <p class="plan-responsibility execution-responsibility">San José te ayuda a identificar prioridades y posibles acciones a partir de tus datos. La decisión final y su ejecución corresponden al empresario.</p>`;
 }
 
 function feedbackScreen() {
@@ -3095,6 +3140,8 @@ function updateTask(event) {
     offset += phase.activities.length;
   });
   event.target.closest(".action-check")?.classList.toggle("completed", event.target.checked);
+  const currentCycle = app.opportunityHistory.at(-1);
+  if (currentCycle?.actividades?.[index]) currentCycle.actividades[index].completada = event.target.checked;
 }
 
 function detectFollowupEvents(comment) {
@@ -3148,6 +3195,27 @@ function buildFeedbackRecord(values, reviewedAt = new Date()) {
   };
 }
 
+function recordOpportunityReview(feedbackRecord) {
+  const cycle = app.opportunityHistory.at(-1);
+  if (!cycle || !feedbackRecord) return null;
+  cycle.resultado = feedbackRecord.resultadosDisponibles;
+  cycle.retroalimentacion = {
+    planCompletado: feedbackRecord.planCompletado,
+    mejoraPercibida: feedbackRecord.mejoraPercibida,
+    comentarioUsuario: feedbackRecord.comentarioUsuario,
+    fechaRevision: feedbackRecord.fechaRevision
+  };
+  const dataResult = feedbackRecord.loQueMuestranLosDatos || {};
+  const decision = decideOpportunityAfterReview({
+    hasNewData: Boolean(dataResult.hayDatosNuevos),
+    outcome: dataResult.estado || "unknown",
+    improvedEnough: Boolean(dataResult.mejoraSuficiente),
+    remainsHighestPriority: dataResult.sigueSiendoPrioritaria !== false
+  });
+  cycle.estadoFinal = decision.state;
+  return decision;
+}
+
 function saveFeedback(event) {
   event.preventDefault();
   if (isListening && speechRecognition) {
@@ -3156,6 +3224,7 @@ function saveFeedback(event) {
     speechRecognition.stop();
   }
   app.feedback = buildFeedbackRecord(Object.fromEntries(new FormData(event.currentTarget)));
+  recordOpportunityReview(app.feedback);
   app.completed.feedback = true;
   go(10);
 }

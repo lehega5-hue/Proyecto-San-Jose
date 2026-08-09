@@ -51,8 +51,9 @@ const source = fs.readFileSync(appPath, "utf8") + `
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
   roleDisplayLabel, primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen,
-  buildFeedbackRecord, detectFollowupEvents,
+  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, followupScreen, feedbackScreen,
+  syncOpportunityCycle, decideOpportunityAfterReview,
+  buildFeedbackRecord, recordOpportunityReview, detectFollowupEvents,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 };
 `;
@@ -67,8 +68,9 @@ const {
   columnDataQuality, columnIdentification, roleDisplayLabel,
   primaryReviewProgress, interpretationPanel, mappingCard,
   stageThreeQuality, resultsScreen, trendChartHtml, productChartHtml, priorityPresentation,
-  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, feedbackScreen,
-  buildFeedbackRecord, detectFollowupEvents,
+  executiveSummaryModel, buildExecutiveSummaryPdf, managementDetailHtml, analysisLimitations, getPlan, getActionPlan, planScreen, followupScreen, feedbackScreen,
+  syncOpportunityCycle, decideOpportunityAfterReview,
+  buildFeedbackRecord, recordOpportunityReview, detectFollowupEvents,
   evidenceScreen, runBusinessAnalysisModules, prioritizeBusinessFindings
 } = sandbox.__test;
 const tests = [];
@@ -1378,6 +1380,72 @@ test("ETAPA 4 J: la pantalla usa lenguaje simple y reserva las metas para el cie
   assert.ok(html.includes(">Hoy<") && html.includes(">Meta<"));
 });
 
+test("EJECUCIÓN A: organiza oportunidad, señales y plan con el logo oficial", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  app.opportunityHistory = [];
+  app.currentOpportunityKey = null;
+  const actionPlan = getActionPlan();
+  const html = followupScreen();
+  const activityCount = actionPlan.phases.flatMap(phase => phase.activities).length;
+  assert.ok(html.includes("Avanza una acción a la vez"));
+  assert.ok(html.includes("Completa el plan paso a paso. Cuando termines, cuéntanos cómo te fue para revisar qué sigue."));
+  assert.ok(html.includes("Oportunidad que estamos atendiendo"));
+  assert.ok(!html.includes("Problema que estamos atendiendo"));
+  assert.ok(html.includes("assets/logo-san-jose-azul.png"));
+  assert.ok(html.includes("¿Cómo sabremos si está mejorando?"));
+  assert.ok(html.includes("Estas actividades están pensadas para trabajar esta oportunidad."));
+  assert.ok(html.includes("Tu plan en 3 fases"));
+  assert.equal((html.match(/class="task-check"/g) || []).length, activityCount);
+  actionPlan.signals.forEach(signal => {
+    assert.ok(html.includes(signal.name));
+    assert.ok(html.includes(signal.today));
+    assert.ok(html.includes(signal.target));
+  });
+  assert.equal((html.match(/La decisión final y su ejecución corresponden al empresario\./g) || []).length, 1);
+});
+
+test("EJECUCIÓN B: no muestra más de tres señales ni lenguaje técnico", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  app.opportunityHistory = [];
+  app.currentOpportunityKey = null;
+  const html = followupScreen().toLowerCase();
+  assert.ok(getActionPlan().signals.length <= 3);
+  ["kpi", "indicador de gestión", "target", "baseline", "performance", "seguimiento estratégico", "medición de desempeño", "cierre de proyecto", "iteración"].forEach(term => assert.ok(!html.includes(term), `aparece ${term}`));
+});
+
+test("EJECUCIÓN C: una nueva oportunidad crea otro ciclo y no reutiliza actividades", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  app.opportunityHistory = [];
+  app.currentOpportunityKey = null;
+  followupScreen();
+  const firstKey = app.currentOpportunityKey;
+  const firstOpportunity = app.opportunityHistory[0].oportunidadAtendida;
+  app.tasks = Array(getActionPlan().phases.flatMap(phase => phase.activities).length).fill(true);
+  const inventoryData = { sales: [], inventory: [{ producto: "Inventario A", stock: 500 }, { producto: "Inventario B", stock: 300 }] };
+  app.dataset = inventoryData;
+  app.analysis = analyze(inventoryData, new Date("2026-08-08T12:00:00Z"));
+  app.actionPlan = null;
+  followupScreen();
+  assert.notEqual(app.currentOpportunityKey, firstKey);
+  assert.equal(app.opportunityHistory.length, 2);
+  assert.equal(app.opportunityHistory[0].oportunidadAtendida, firstOpportunity);
+  assert.equal(app.opportunityHistory[0].estadoFinal, "Pendiente de revisión");
+  assert.ok(app.tasks.every(value => value === false));
+  assert.ok(app.opportunityHistory[1].actividades.every(item => item.completada === false));
+});
+
+test("EJECUCIÓN D: completar actividades no decide por sí solo pasar a otra oportunidad", () => {
+  const insufficient = decideOpportunityAfterReview({ hasNewData: false, activitiesCompleted: true });
+  const stillPriority = decideOpportunityAfterReview({ hasNewData: true, outcome: "improved", improvedEnough: true, remainsHighestPriority: true, activitiesCompleted: true });
+  const nextOpportunity = decideOpportunityAfterReview({ hasNewData: true, outcome: "improved", improvedEnough: true, remainsHighestPriority: false });
+  assert.equal(insufficient.next, false);
+  assert.equal(insufficient.state, "Información insuficiente");
+  assert.equal(stillPriority.next, false);
+  assert.equal(stillPriority.state, "Sigue siendo prioritaria");
+  assert.equal(nextOpportunity.next, true);
+  assert.equal(nextOpportunity.state, "Mejoró suficientemente");
+});
+
 test("DESPUÉS DEL PLAN A: muestra dos preguntas rápidas y una sola pregunta abierta", () => {
   const html = feedbackScreen();
   assert.ok(html.includes("Cuéntanos cómo te fue"));
@@ -1410,10 +1478,13 @@ test("DESPUÉS DEL PLAN B: reutiliza el dictado continuo con el mensaje final ac
 
 test("DESPUÉS DEL PLAN C: guarda percepción, avance, metas y datos por separado", () => {
   setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  app.opportunityHistory = [];
+  app.currentOpportunityKey = null;
   const actionPlan = getActionPlan();
   const activityCount = actionPlan.phases.flatMap(phase => phase.activities).length;
   app.tasks = Array(activityCount).fill(false);
   app.tasks[0] = true;
+  syncOpportunityCycle(actionPlan);
   const record = buildFeedbackRecord({ planCompletado: "En parte", mejoraPercibida: "Sí", comentarioUsuario: "Perdimos un cliente y seguimos con falta de producto del proveedor." }, new Date("2026-08-08T12:00:00Z"));
   assert.equal(record.planCompletado, "En parte");
   assert.equal(record.accionesRealizadas.length, 1);
@@ -1426,6 +1497,11 @@ test("DESPUÉS DEL PLAN C: guarda percepción, avance, metas y datos por separad
   assert.ok(record.nuevosCambiosMencionados.includes("Falta de producto"));
   assert.ok(record.nuevosCambiosMencionados.includes("Cambio relacionado con proveedor"));
   assert.equal(record.fechaRevision, "2026-08-08T12:00:00.000Z");
+  const decision = recordOpportunityReview(record);
+  assert.equal(decision.next, false);
+  assert.equal(app.opportunityHistory[0].estadoFinal, "Información insuficiente");
+  assert.equal(app.opportunityHistory[0].retroalimentacion.mejoraPercibida, "Sí");
+  assert.equal(app.opportunityHistory[0].resultado.hayDatosNuevos, false);
 });
 
 test("DESPUÉS DEL PLAN D: evita lenguaje técnico frente al usuario", () => {
