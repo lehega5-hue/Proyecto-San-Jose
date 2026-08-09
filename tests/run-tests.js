@@ -235,23 +235,25 @@ test("ETAPA 1 D: el progreso usa mensajes simples y solo habilita al completar",
   assert.equal(complete.text, "Listo. Ya puedes continuar.");
 });
 
-test("ETAPA 2 TEXTO: explica las formas de cargar ventas e inventario sin cambiar la función", () => {
+test("ETAPA 2 CLARIDAD: muestra solo los seis datos básicos sin bloquear la carga", () => {
   app.files = [];
   app.dataset = null;
   app.semanticPending = false;
   const html = dataScreen();
-  assert.ok(html.includes("Sube tus ventas y tu inventario"));
-  assert.ok(html.includes("en un solo archivo con ventas e inventario en hojas diferentes"));
-  assert.ok(html.includes("en dos archivos separados, uno de ventas y otro de inventario"));
-  assert.ok(html.includes("solo ventas o solo inventario si es lo único que tienes"));
-  assert.ok(html.includes("No pasa nada si solo tienes ventas o solo inventario. Podemos empezar con la información disponible."));
-  assert.ok(html.includes("No necesitas cambiar los nombres de las columnas ni preparar un archivo especial. San José revisará la información y te dirá qué encontró."));
+  assert.ok(html.includes("Usa los archivos que ya tienes"));
+  assert.ok(html.includes("Puedes subir ventas, inventario o ambos. Pueden estar en un mismo Excel, en hojas diferentes, o en archivos separados."));
+  assert.ok(html.includes("Antes de subirlos, revisa que tengas estos datos"));
+  ["Fecha de venta", "Producto o referencia", "Cantidad vendida", "Valor de la venta", "Unidades disponibles"].forEach(text => assert.ok(html.includes(text), `falta ${text}`));
+  assert.equal((html.match(/Producto o referencia/g) || []).length, 2);
+  assert.equal((html.match(/minimum-data-grid/g) || []).length, 1);
+  assert.ok(html.includes("Si te falta alguno, puedes subir el archivo igualmente. San José te dirá qué puede analizar con la información disponible."));
+  assert.ok(html.includes("No importa cómo se llamen las columnas en tu archivo. San José intentará reconocerlas."));
   assert.ok(html.includes("Arrastra aquí tus archivos de ventas o inventario"));
-  assert.ok(html.includes("Puedes subir uno o varios archivos"));
   assert.ok(html.includes('type="file" multiple'));
   assert.ok(html.includes(".xlsx,.xls,.csv"));
   assert.ok(html.includes("máximo 5 MB por archivo"));
-  assert.ok(!html.includes("Sube la información que ya usas"));
+  ["Cliente", "Comercial", "Utilidad", "Costo", "Categoría", "Proveedor", "Fecha último movimiento", "campos obligatorios", "variables requeridas", "schema", "mapping"].forEach(text => assert.ok(!html.includes(text), `no debe mostrarse ${text}`));
+  assert.ok(!html.includes("Puedes subir uno o varios archivos"));
 });
 
 test("DEMO 1: existe un único ejemplo y contiene solo ventas", () => {

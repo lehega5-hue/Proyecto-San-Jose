@@ -261,18 +261,21 @@ function dataScreen() {
     : "";
   return `<p class="eyebrow">Sube tu información</p>
     <h1 class="screen-title">Usa los archivos que ya tienes</h1>
-    <p class="screen-intro">Puedes cargar uno o varios archivos de Excel o CSV. San José revisará automáticamente qué información contienen.</p>
-    <div class="truth-strip">No necesitas cambiar los nombres de las columnas ni preparar un archivo especial. San José revisará la información y te dirá qué encontró.</div>
+    <p class="screen-intro">Puedes subir ventas, inventario o ambos. Pueden estar en un mismo Excel, en hojas diferentes, o en archivos separados.</p>
+    <section class="minimum-data" aria-labelledby="minimum-data-title">
+      <h2 id="minimum-data-title">Antes de subirlos, revisa que tengas estos datos</h2>
+      <div class="minimum-data-grid">
+        <article><h3>Ventas</h3><ul><li>Fecha de venta</li><li>Producto o referencia</li><li>Cantidad vendida</li><li>Valor de la venta</li></ul></article>
+        <article><h3>Inventario</h3><ul><li>Producto o referencia</li><li>Unidades disponibles</li></ul></article>
+      </div>
+      <p class="missing-data-note">Si te falta alguno, puedes subir el archivo igualmente. San José te dirá qué puede analizar con la información disponible.</p>
+      <p class="column-name-note">No importa cómo se llamen las columnas en tu archivo. San José intentará reconocerlas.</p>
+    </section>
     <section class="panel unified-upload">
-      <h2>Sube tus ventas y tu inventario</h2>
-      <p>Puedes cargar la información como la tengas hoy:</p>
-      <ul class="upload-options"><li>en un solo archivo con ventas e inventario en hojas diferentes;</li><li>en dos archivos separados, uno de ventas y otro de inventario;</li><li>o cargar solo ventas o solo inventario si es lo único que tienes.</li></ul>
-      <p class="upload-availability-note">No pasa nada si solo tienes ventas o solo inventario. Podemos empezar con la información disponible.</p>
       <label id="drop-zone" class="drop-zone">
         <input id="business-files" type="file" multiple accept=".xlsx,.xls,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
         <span class="drop-icon" aria-hidden="true">↑</span>
         <strong>Arrastra aquí tus archivos de ventas o inventario</strong>
-        <span>Puedes subir uno o varios archivos</span>
         <small>Excel (.xlsx, .xls) o CSV · máximo 5 MB por archivo</small>
       </label>
       ${fileList}
