@@ -437,6 +437,34 @@ p { text-wrap: pretty; }
 .plan-progress { display: flex; align-items: baseline; gap: 12px; margin: 24px 0 18px; }
 .plan-progress strong { color: var(--navy); font: 500 2.5rem Georgia, serif; }
 .plan-progress span { color: var(--muted); }
+.stage-four-problem { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: clamp(24px, 5vw, 56px); align-items: center; }
+.stage-four-problem img { display: block; width: 150px; height: 150px; object-fit: contain; }
+.stage-four-problem p + p { margin-top: 7px; }
+.plan-start { margin: 24px 0 0; padding: clamp(24px, 4vw, 36px); border: 1px solid #e1d2ad; border-top: 4px solid var(--gold); background: #fffaf0; }
+.plan-start > span, .phase-name { display: block; margin: 0; color: var(--gold-dark); font-size: .72rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.plan-start > h2 { max-width: 860px; margin: 8px 0 12px; color: var(--navy); font: 500 clamp(1.45rem, 2.8vw, 2.1rem)/1.2 Georgia, serif; }
+.plan-start > p { max-width: 880px; margin: 7px 0 0; color: #3f4a5b; }
+.plan-context { max-width: 900px; margin-top: 20px; padding: 16px 18px; border-left: 3px solid var(--gold); background: var(--white); }
+.plan-context strong { color: var(--navy); }
+.plan-context p { margin: 6px 0 0; color: #4c5667; }
+.stage-four-phase .phase-name { padding: 22px 24px 0; }
+.stage-four-phase > h2 { padding-top: 7px; }
+.client-questions { margin: 8px 24px 24px; padding: 17px 20px; background: #f7f8fa; }
+.client-questions strong { color: var(--navy); }
+.client-questions ul { margin: 9px 0 0; padding-left: 20px; color: #4c5667; }
+.client-questions li + li { margin-top: 5px; }
+.stage-four-signals > span { font-size: .76rem; }
+.plan-signal-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; background: transparent; }
+.plan-signal { min-width: 0; padding: 20px; border: 1px solid var(--line); background: #fbfbfc; }
+.plan-signal h3 { min-height: 2.5em; margin: 0 0 14px; color: var(--navy); font-size: 1rem; }
+.plan-signal dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
+.plan-signal dl div { padding: 11px; background: var(--white); }
+.plan-signal dt { color: var(--muted); font-size: .68rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.plan-signal dd { margin: 5px 0 0; color: var(--navy); font-weight: 800; }
+.plan-signal p { margin: 12px 0 0; color: #4c5667; font-size: .82rem; }
+.plan-signal small { display: block; margin-top: 9px; color: var(--muted); }
+.plan-no-signal { max-width: 780px; margin: 0; color: #4c5667; }
+.plan-responsibility { max-width: 920px; margin: 24px auto 0; padding: 18px 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: .86rem; text-align: center; }
 .action-list { display: grid; gap: 12px; }
 .action-check { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: start; margin: 0; padding: 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); cursor: pointer; }
 .action-check:hover { border-color: var(--gold); }
@@ -522,6 +550,9 @@ p { text-wrap: pretty; }
   .timeline-dot { grid-row: 1 / span 2; }
   .plan-phase > header { align-items: flex-start; flex-direction: column; }
   .plan-measures ul { grid-template-columns: 1fr; }
+  .stage-four-problem { grid-template-columns: 1fr; }
+  .stage-four-problem img { width: 112px; height: 112px; }
+  .plan-signal-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 520px) {

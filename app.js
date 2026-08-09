@@ -963,11 +963,42 @@ function evidenceScreen() {
 function planScreen() {
   if (!app.analysis) return missingState();
   app.completed.plan = true;
-  return `<p class="eyebrow">Sigue un plan sencillo</p>
-    <h1 class="screen-title">Tres acciones para empezar</h1>
-    <p class="screen-intro">Primero entiende el foco principal, luego actúa sobre él y después revisa si la situación mejoró.</p>
-    ${planChecklist()}
+  return `<div class="stage-four-plan"><p class="eyebrow">Un paso a la vez</p>
+    <h1 class="screen-title">Tu plan en 3 fases</h1>
+    <p class="screen-intro">Primero revisamos qué cambió, después actuamos y al final comprobamos si mejoró.</p>
+    ${stageFourPlanChecklist()}</div>
     ${nav(6, 8, "Hacer seguimiento")}`;
+}
+
+function stageFourPlanChecklist() {
+  const actionPlan = getActionPlan();
+  const plan = actionPlan.phases;
+  const activities = plan.flatMap(phase => phase.activities);
+  if (app.tasks.length !== activities.length) app.tasks = Array(activities.length).fill(false);
+  const done = app.tasks.filter(Boolean).length;
+  const phaseNames = ["Entender qué cambió", "Actuar sobre lo encontrado", "Comprobar si mejoró"];
+  let activityIndex = 0;
+  const context = actionPlan.context?.length
+    ? `<aside class="plan-context"><strong>Tuvimos en cuenta lo que nos contaste</strong>${actionPlan.context.map(item => `<p>${safe(item)}</p>`).join("")}</aside>`
+    : "";
+  const signals = actionPlan.signals?.length
+    ? `<div class="plan-signal-grid">${actionPlan.signals.slice(0, 3).map(signal => `<article class="plan-signal"><h3>${safe(signal.name)}</h3><dl><div><dt>Hoy</dt><dd>${safe(signal.today)}</dd></div><div><dt>Meta</dt><dd>${safe(signal.target)}</dd></div></dl>${signal.reference ? `<p>Referencia anterior: <strong>${safe(signal.reference)}</strong></p>` : ""}${signal.note ? `<small>${safe(signal.note)}</small>` : ""}</article>`).join("")}</div>`
+    : `<p class="plan-no-signal">Con la información disponible todavía no podemos calcular una meta responsable. La tercera fase te ayudará a crear un punto de comparación.</p>`;
+  return `<section class="plan-problem stage-four-problem" aria-labelledby="plan-problem-title"><div><span>Problema que estamos atendiendo</span><h2 id="plan-problem-title">${safe(actionPlan.problemGeneral)}</h2>${actionPlan.problemEvidence.map(item => `<p>${safe(item)}</p>`).join("")}</div><img src="assets/logo-san-jose-azul.png" alt="San José – Transformación Estratégica"></section>
+    <section class="plan-start" aria-labelledby="plan-start-title"><span>Empezaremos por aquí</span><h2 id="plan-start-title">${safe(actionPlan.causeWorked)}</h2>${actionPlan.causeEvidence.map(item => `<p>${safe(item)}</p>`).join("")}${context}</section>
+    <div class="plan-progress"><strong id="task-count">${done} de ${activities.length}</strong><span>actividades completadas</span></div>
+    <ol class="action-timeline" aria-label="Tiempos del plan">${plan.map((phase, index) => `<li><span class="timeline-dot" aria-hidden="true"></span><b>${safe(phase.when)}</b><small>${index === 0 ? "Primero" : index === 1 ? "Después" : "Al final"}</small></li>`).join("")}</ol>
+    <div class="plan-phases">${plan.map((phase, phaseIndex) => {
+      const phaseStart = activityIndex;
+      activityIndex += phase.activities.length;
+      const phaseDone = app.tasks.slice(phaseStart, activityIndex).filter(Boolean).length;
+      return `<article class="plan-phase stage-four-phase"><header><div><span>Fase ${phaseIndex + 1}</span><b>${safe(phase.when)}</b></div><small data-phase-progress="${phaseIndex}">${phaseDone} de ${phase.activities.length} actividades</small></header><p class="phase-name">${safe(phaseNames[phaseIndex])}</p><h2>${safe(phase.action)}</h2><p class="phase-evidence">${safe(phase.evidence)}</p><div class="phase-activities">${phase.activities.map((activity, localIndex) => {
+        const index = phaseStart + localIndex;
+        return `<label class="action-check ${app.tasks[index] ? "completed" : ""}"><input class="task-check" type="checkbox" data-task="${index}" data-phase="${phaseIndex}" ${app.tasks[index] ? "checked" : ""}><span class="check-mark" aria-hidden="true"></span><span class="action-copy"><strong>${safe(activity)}</strong></span></label>`;
+      }).join("")}</div>${phase.questions?.length ? `<aside class="client-questions"><strong>Preguntas que pueden ayudarte</strong><ul>${phase.questions.map(question => `<li>${safe(question)}</li>`).join("")}</ul></aside>` : ""}</article>`;
+    }).join("")}</div>
+    <section class="plan-measures stage-four-signals"><span>¿Cómo sabremos si mejoró?</span><h2>Compara estas señales al terminar la tercera fase</h2>${signals}</section>
+    <p class="plan-responsibility">San José te ayuda a identificar prioridades y posibles acciones a partir de tus datos. La decisión final y su ejecución corresponden al empresario.</p>`;
 }
 
 function followupScreen() {
@@ -2776,7 +2807,7 @@ function metricCards() {
 }
 
 function actionPlanTiming(level) {
-  if (level === "Crítico") return { labels: ["HOY", "EN 3 DÍAS", "EN 7 DÍAS"], days: [0, 3, 7] };
+  if (level === "Crítico") return { labels: ["HOY", "EN 2 DÍAS", "EN 7 DÍAS"], days: [0, 2, 7] };
   if (level === "Importante") return { labels: ["HOY", "EN 8 DÍAS", "EN 15 DÍAS"], days: [0, 8, 15] };
   return { labels: ["ESTA SEMANA", "EN 15 DÍAS", "EN 30 DÍAS"], days: [7, 15, 30] };
 }
@@ -2842,6 +2873,78 @@ function latestInventoryBaseline(products) {
   return Object.values(latest).filter(item => Number.isFinite(item.stock)).map(item => ({ producto: item.product, unidades: item.stock }));
 }
 
+function planRecoveryShare(urgency) {
+  if (urgency === "Crítico") return .40;
+  if (urgency === "Importante") return .32;
+  return .25;
+}
+
+function partialRecoverySignal(name, panorama, urgency, formatter, note) {
+  if (!panorama?.reliable || !(panorama.priorAverage > panorama.recentAverage) || panorama.recentAverage < 0) return null;
+  const current = panorama.recentAverage;
+  const target = current + (panorama.priorAverage - current) * planRecoveryShare(urgency);
+  const normalizedTarget = name === "Unidades vendidas" ? Math.ceil(target) : Math.round(target);
+  if (!(normalizedTarget > current)) return null;
+  return {
+    name,
+    today: formatter(current),
+    target: formatter(normalizedTarget),
+    reference: formatter(panorama.priorAverage),
+    note
+  };
+}
+
+function salesPlanSignals(finding, diagnosis, timing, products) {
+  const metrics = app.analysis.metrics;
+  const signals = [];
+  const customers = diagnosis.datosDisponibles.clientes ? relatedDeclineEntities(products[0], "cliente").slice(0, 5) : [];
+  if (customers.length) {
+    const share = diagnosis.nivelUrgencia === "Crítico" ? .60 : diagnosis.nivelUrgencia === "Importante" ? .50 : .40;
+    const target = Math.max(1, Math.min(customers.length, Math.ceil(customers.length * share)));
+    signals.push({
+      name: "Clientes que volvieron a comprar",
+      today: `0 de ${customers.length}`,
+      target: `${target} de ${customers.length}`,
+      note: `Una recuperación parcial y verificable durante los próximos ${timing.days[2]} días.`
+    });
+  }
+  const units = partialRecoverySignal("Unidades vendidas", metrics.unitPanorama, diagnosis.nivelUrgencia, value => `${readableNumber(value)} unidades al mes`, "Recuperar una parte de la diferencia frente al periodo anterior.");
+  if (units) signals.push(units);
+  const value = partialRecoverySignal("Valor vendido", metrics.valuePanorama, diagnosis.nivelUrgencia, amount => `${money.format(amount)} al mes`, "Recuperar una parte de la diferencia sin asumir que debe alcanzarse todo de inmediato.");
+  if (value) signals.push(value);
+  if (finding.type === "profit-decline" && metrics.utilityPanorama?.reliable) {
+    const utility = partialRecoverySignal(utilityName(metrics)[0].toUpperCase() + utilityName(metrics).slice(1), metrics.utilityPanorama, diagnosis.nivelUrgencia, amount => utilityDisplay(metrics, amount), "Revisar que la mejora de ventas también cuide la rentabilidad.");
+    if (utility) signals.unshift(utility);
+  }
+  return signals.slice(0, 3);
+}
+
+function inventoryPlanSignals(finding, diagnosis, timing, products) {
+  const metrics = app.analysis.metrics;
+  if (finding.type === "inventory-only") return [];
+  const names = new Set(products.map(normalize));
+  const matching = items => (items || []).filter(item => !names.size || names.has(normalize(item.producto)));
+  const isRisk = ["stock-risk-general", "stockout"].includes(finding.type);
+  const source = matching(isRisk ? metrics.riskItems : [...(metrics.excessItems || []), ...(metrics.noMovementItems || [])]);
+  const stock = source.reduce((sum, item) => sum + (Number.isFinite(item.stock) ? item.stock : 0), 0)
+    || latestInventoryBaseline(products).reduce((sum, item) => sum + item.unidades, 0);
+  const signals = [];
+  if (stock > 0 && isRisk) {
+    const recentMonths = Math.max(1, metrics.unitPanorama?.recent?.length || 3);
+    const recentMonthlyDemand = source.reduce((sum, item) => sum + (Number.isFinite(item.recentSold) ? item.recentSold : 0), 0) / recentMonths;
+    const coverage = diagnosis.nivelUrgencia === "Crítico" ? 1.5 : 2;
+    const target = Math.ceil(recentMonthlyDemand * coverage);
+    if (target > stock) signals.push({ name: "Unidades disponibles", today: `${readableNumber(stock)} unidades`, target: `${readableNumber(target)} unidades`, note: "Mantener disponibilidad suficiente para cubrir las ventas recientes, sin acumular de más." });
+  } else if (stock > 0) {
+    const reduction = diagnosis.nivelUrgencia === "Crítico" ? .15 : diagnosis.nivelUrgencia === "Importante" ? .12 : .08;
+    const target = Math.max(0, Math.floor(stock * (1 - reduction)));
+    signals.push({ name: "Unidades disponibles", today: `${readableNumber(stock)} unidades`, target: `${readableNumber(target)} unidades`, note: `Reducir gradualmente las existencias durante los próximos ${timing.days[2]} días.` });
+  }
+  const units = partialRecoverySignal("Unidades vendidas", metrics.unitPanorama, diagnosis.nivelUrgencia, value => `${readableNumber(value)} unidades al mes`, "Comprobar si el movimiento mejora frente al periodo reciente.");
+  if (units) signals.push(units);
+  return signals.slice(0, 3);
+}
+
 function salesActionPlan(finding, diagnosis, timing, products) {
   const metrics = app.analysis.metrics;
   const primaryProduct = products[0] || "los productos que más explican el cambio";
@@ -2870,7 +2973,7 @@ function salesActionPlan(finding, diagnosis, timing, products) {
   const secondTarget = customerNames.length ? "los clientes priorizados" : products.length ? products.join(" y ") : "el foco señalado";
   const phases = [
     { when: timing.labels[0], objective: "Entender qué cambió en el foco de mayor impacto.", action: firstAction, evidence: firstEvidence, activities: firstActivities },
-    { when: timing.labels[1], objective: isProfit ? `Corregir una causa confirmada que esté reduciendo el ${measureName}.` : "Responder a la causa confirmada con una acción pequeña y clara.", action: customerNames.length ? `Habla con ${secondTarget} y define cómo recuperar su compra después de confirmar qué cambió.` : `Actúa sobre la causa confirmada de ${secondTarget}.`, evidence: `No asumimos que precio, competencia, servicio o disponibilidad sean la causa hasta comprobarlo.`, activities: [customerNames.length ? "Contacta a los clientes priorizados y pregunta qué cambió." : "Confirma si cambió la demanda, la disponibilidad, el servicio o el precio.", "Define una sola acción para cada causa confirmada.", "Anota qué hiciste y desde qué fecha."] },
+    { when: timing.labels[1], objective: isProfit ? `Corregir una causa confirmada que esté reduciendo el ${measureName}.` : "Responder a la causa confirmada con una acción pequeña y clara.", action: customerNames.length ? `Habla con ${secondTarget} y define cómo recuperar su compra después de confirmar qué cambió.` : `Actúa sobre la causa confirmada de ${secondTarget}.`, evidence: `No asumimos que precio, competencia, servicio o disponibilidad sean la causa hasta comprobarlo.`, activities: [customerNames.length ? "Contacta a los clientes priorizados y pregunta qué cambió." : "Confirma si cambió la demanda, la disponibilidad, el servicio o el precio.", "Define una sola acción para cada causa confirmada.", "Anota qué hiciste y desde qué fecha."], questions: customerNames.length ? ["¿Qué cambió en tus compras?", "¿Tuviste algún problema con el producto o servicio?", "¿Cambió el precio o tu necesidad?", "¿Estás comprando otro producto o a otro proveedor?"] : [] },
     { when: timing.labels[2], objective: "Comprobar si la situación empezó a mejorar y ajustar si hace falta.", action: customerNames.length ? `Revisa si las ventas de ${primaryProduct} y de los clientes priorizados empezaron a mejorar.` : `Revisa si el ${measureName} de ${products.join(" y ") || primaryProduct} empezó a mejorar.`, evidence: "Compara con el promedio de los últimos tres meses completos; no uses un periodo incompleto.", activities: [hasUnits ? "Compara las unidades vendidas." : `Compara el ${measureName}.`, hasValue ? "Compara el valor vendido." : "Usa la misma medida disponible en el diagnóstico.", customerNames.length ? "Revisa cuántos clientes volvieron a comprar y ajusta si no hay mejora." : "Ajusta la acción si no hay mejora."] }
   ];
   const indicators = [];
@@ -2914,13 +3017,21 @@ function inventoryActionPlan(finding, diagnosis, timing, products) {
 function getActionPlan() {
   const finding = app.analysis?.priorities[0];
   const diagnosis = app.analysis?.diagnostico;
-  if (!finding || !diagnosis) return { problemGeneral: "Información insuficiente", causeWorked: "Completar la información", phases: [], indicators: [] };
+  if (!finding || !diagnosis) return { problemGeneral: "Información insuficiente", causeWorked: "Completar la información", problemEvidence: [], causeEvidence: [], context: [], phases: [], signals: [], indicators: [] };
   const timing = actionPlanTiming(diagnosis.nivelUrgencia);
   const products = planProductNames(finding);
   const inventoryTypes = ["inventory-accumulation", "inventory-excess", "inventory-no-movement", "stock-risk-general", "stockout", "inventory-only", "slow"];
-  const detail = finding.dominio === "inventario" || inventoryTypes.includes(finding.type)
+  const inventoryPlan = finding.dominio === "inventario" || inventoryTypes.includes(finding.type);
+  const detail = inventoryPlan
     ? inventoryActionPlan(finding, diagnosis, timing, products)
     : salesActionPlan(finding, diagnosis, timing, products);
+  const signals = inventoryPlan
+    ? inventoryPlanSignals(finding, diagnosis, timing, products)
+    : salesPlanSignals(finding, diagnosis, timing, products);
+  const textList = value => (Array.isArray(value) ? value : [value]).filter(Boolean);
+  const problemEvidence = textList(diagnosis.evidenciaProblema).slice(0, 2);
+  const causeEvidence = (diagnosis.focosPrioritarios || []).map(item => item.evidencia).filter(item => item && item !== detail.causeEvidence).slice(0, 2);
+  const context = (diagnosis.coincidenciasContextoDatos || []).map(item => item.texto || item).filter(Boolean).slice(0, 2);
   const baseline = {
     periodo: diagnosis.periodoAnalizado,
     promedioMensualReciente: app.analysis.metrics.panorama?.reliable ? app.analysis.metrics.panorama.recentAverage : null,
@@ -2938,7 +3049,7 @@ function getActionPlan() {
     valorBase: baseline
   };
   app.actionPlan = handoff;
-  return { problemGeneral: diagnosis.problemGeneral, causeWorked: detail.causeEvidence, urgency: diagnosis.nivelUrgencia, phases: detail.phases, indicators: detail.indicators, handoff };
+  return { problemGeneral: diagnosis.problemGeneral, causeWorked: detail.causeEvidence, problemEvidence, causeEvidence, context, urgency: diagnosis.nivelUrgencia, phases: detail.phases, signals, indicators: detail.indicators, handoff };
 }
 
 function getPlan() {

@@ -1249,11 +1249,11 @@ test("DIAGNÓSTICO 8: un margen porcentual no se suma ni se presenta como dinero
   assert.equal(main.magnitudDetalle.valorDejadoDeGenerar, null);
 });
 
-test("ETAPA 4 A: una situación crítica usa hoy, 3 días y 7 días", () => {
+test("ETAPA 4 A: una situación crítica usa hoy, 2 días y 7 días", () => {
   setStageThree({ sales: businessRows({ "Referencia 4": [100, 100, 100, 10, 10, 10] }), inventory: [] });
   const plan = getActionPlan();
   assert.equal(plan.urgency, "Crítico");
-  assert.deepEqual(Array.from(plan.phases, phase => phase.when), ["HOY", "EN 3 DÍAS", "EN 7 DÍAS"]);
+  assert.deepEqual(Array.from(plan.phases, phase => phase.when), ["HOY", "EN 2 DÍAS", "EN 7 DÍAS"]);
   assert.equal(plan.phases.length, 3);
   assert.ok(plan.phases.every(phase => phase.activities.length >= 1 && phase.activities.length <= 3));
   assert.ok(plan.phases[0].action.includes("Referencia 4"));
@@ -1326,13 +1326,54 @@ test("ETAPA 4 G: la pantalla muestra problema, línea de tiempo, fases y progres
   setStageThree({ sales: businessRows({ A: [60, 60, 60, 30, 30, 30], B: [40, 40, 40, 30, 30, 30] }), inventory: [] });
   const html = planScreen();
   const activityCount = getActionPlan().phases.flatMap(phase => phase.activities).length;
-  assert.ok(html.includes("Tres acciones para empezar"));
+  assert.ok(html.includes("Tu plan en 3 fases"));
   assert.ok(html.includes("Problema que estamos atendiendo"));
-  assert.ok(html.includes("Línea de tiempo del plan"));
+  assert.ok(html.includes("Empezaremos por aquí"));
+  assert.ok(html.includes("Tiempos del plan"));
   assert.ok(html.includes("Fase 1") && html.includes("Fase 2") && html.includes("Fase 3"));
+  assert.ok(html.includes("Entender qué cambió") && html.includes("Actuar sobre lo encontrado") && html.includes("Comprobar si mejoró"));
   assert.ok(html.includes(`0 de ${activityCount}`));
-  assert.ok(html.includes("Qué revisar para saber si funcionó"));
+  assert.ok(html.includes("¿Cómo sabremos si mejoró?"));
+  assert.ok(html.includes("assets/logo-san-jose-azul.png"));
+  assert.equal((html.match(/La decisión final y su ejecución corresponden al empresario\./g) || []).length, 1);
   assert.equal((html.match(/class="task-check"/g) || []).length, activityCount);
+});
+
+test("ETAPA 4 H: calcula metas parciales con valor de hoy y referencia real", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  const plan = getActionPlan();
+  const units = plan.signals.find(signal => signal.name === "Unidades vendidas");
+  assert.ok(units);
+  assert.equal(units.today, "20 unidades al mes");
+  assert.equal(units.reference, "100 unidades al mes");
+  assert.ok(Number.parseInt(units.target, 10) > 20);
+  assert.ok(Number.parseInt(units.target, 10) < 100);
+  assert.ok(plan.signals.length <= 3);
+});
+
+test("ETAPA 4 I: la meta de clientes se adapta a la cantidad realmente afectada", () => {
+  const sales = [];
+  ["Norte", "Sur", "Centro", "Occidente", "Oriente"].forEach((cliente, clientIndex) => {
+    for (let month = 1; month <= 6; month += 1) sales.push({ fecha: `2026-0${month}-10`, producto: "A", cliente, cantidad: month <= 3 ? 20 - clientIndex : 0, valorTotal: (month <= 3 ? 20 - clientIndex : 0) * 1000 });
+  });
+  setStageThree({ sales, inventory: [] });
+  const plan = getActionPlan();
+  const customers = plan.signals.find(signal => signal.name === "Clientes que volvieron a comprar");
+  assert.ok(customers);
+  assert.equal(customers.today, "0 de 5");
+  assert.notEqual(customers.target, "5 de 5");
+  assert.ok(plan.phases[1].questions.length >= 1);
+  assert.equal(plan.phases[0].questions, undefined);
+  assert.equal(plan.phases[2].questions, undefined);
+});
+
+test("ETAPA 4 J: la pantalla usa lenguaje simple y reserva las metas para el cierre", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  const html = planScreen();
+  ["Gantt", "KPI", "indicador", "target", "baseline", "performance", "mitigación", "framework", "root cause", "gap"].forEach(term => assert.ok(!html.toLowerCase().includes(term.toLowerCase()), `aparece ${term}`));
+  const phaseSection = html.slice(html.indexOf("plan-phases"), html.indexOf("stage-four-signals"));
+  assert.ok(!phaseSection.includes(">Meta<"));
+  assert.ok(html.includes(">Hoy<") && html.includes(">Meta<"));
 });
 
 (async () => {
