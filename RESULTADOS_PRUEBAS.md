@@ -1,12 +1,12 @@
 # Resultados de pruebas · San José
 
-Fecha: 8 de agosto de 2026.
+Fecha: 9 de agosto de 2026.
 
 Entorno: Node.js 24 incluido en Codex y servidor HTTP estático local.
 
 ## Resultado
 
-**50 de 50 pruebas automatizadas aprobadas.** La batería cubre tarjetas uniformes, selector permanente, confirmación, archivos con varias hojas, medidas flexibles, calidad calculada, alcance dinámico, dictado, demostración, priorización y los diez escenarios obligatorios de la Etapa 3.
+**132 de 132 pruebas automatizadas aprobadas.** La batería cubre tarjetas uniformes, selector permanente, confirmación, archivos con varias hojas, medidas flexibles, calidad calculada, alcance dinámico, dictado, demostración, priorización, ciclo de oportunidades y generación dinámica de planes.
 
 ```powershell
 node tests/run-tests.js
@@ -132,6 +132,31 @@ La pantalla mantiene un máximo de cuatro indicadores, dos gráficos y dos halla
 - `git diff --check` no reporta errores.
 - El escaneo no encuentra API keys, tokens, contraseñas ni secretos incrustados.
 - Los recursos usan rutas relativas compatibles con GitHub Pages.
+
+## Etapa 4 · Planes dinámicos por oportunidad
+
+El plan se genera desde un contrato estable compuesto por `id`, dominio, tipo, título, evidencia, magnitud, urgencia, causas observadas, foco prioritario, datos disponibles y calidad. La posición dentro de la lista indica únicamente prioridad.
+
+| Oportunidad probada | Dominio y foco detectado | Fases y actividades obtenidas | Señales y metas | Resultado |
+|---|---|---|---|---|
+| Varios clientes dejaron de comprar | Clientes | Revisar compras anteriores, contactar clientes priorizados y comprobar si volvieron a comprar | Clientes que volvieron a comprar, unidades o valor vendido | Aprobado |
+| Dos productos concentran las ventas | Ventas · concentración | Entender la dependencia, impulsar una alternativa con demanda y volver a calcular la concentración | Participación de productos principales y productos con ventas activas | Aprobado |
+| Caída asociada a un comercial | Comercial | Revisar ventas atendidas, confirmar causas con el equipo y comprobar recuperación | Comerciales con ventas recuperadas y medidas de venta disponibles | Aprobado |
+| Riesgo de falta de inventario | Inventario · faltantes | Confirmar existencias, reponer según demanda y comprobar disponibilidad | Unidades disponibles y unidades vendidas | Aprobado |
+| Producto sin movimiento | Inventario · inmovilidad | Confirmar unidades y tiempo sin movimiento, trabajar el producto y revisar si vuelve a tener salidas | Unidades disponibles, unidades vendidas y días sin movimiento cuando aplica | Aprobado |
+| Caída general de utilidad | Utilidad | Revisar productos que explican la pérdida, actuar sobre costo/precio/mezcla confirmados y comprobar recuperación | Utilidad y valor vendido; margen solo con información confiable | Aprobado |
+| Oportunidad financiera nueva sin plantilla específica | Fallback general | Entender la evidencia, trabajar una causa confirmada y comprobar el cambio con el mismo punto de partida | Estado de la oportunidad y meta derivada de su propia evidencia | Aprobado |
+
+### Aislamiento funcional comprobado
+
+- Cada oportunidad conserva un `opportunityId` estable durante el ciclo.
+- `plan1`, `plan2` y `plan3` son objetos diferentes; sus arreglos de fases también son referencias independientes.
+- Volver a una oportunidad recupera únicamente su propio plan guardado.
+- Actividades, señales, metas, progreso y retroalimentación se almacenan por `opportunityId` e intento.
+- Una oportunidad nueva empieza en **0 de X actividades**, aunque el plan anterior esté terminado.
+- Las transiciones verificadas son **1 → 2**, **2 → 3** y **3 → resumen final**.
+- Una oportunidad desconocida usa el fallback construido desde sus causas, evidencia y datos disponibles; no reutiliza el plan anterior.
+- Las referencias numéricas se presentan como **Referencia X** o **Nombre (Referencia X)** cuando el nombre está disponible.
 
 ## Aceptación manual recomendada
 

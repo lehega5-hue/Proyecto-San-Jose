@@ -1844,6 +1844,105 @@ test("CICLO CORREGIDO 3: una referencia numérica nunca se presenta como product
   assert.ok(!/(?<!Referencia )\b4 explica/.test(diagnosticCopy));
 });
 
+test("PLAN DINÁMICO 1: cada oportunidad recibe objetos de plan y fases con referencias independientes", () => {
+  setIndependentOpportunityCycle();
+  startOpportunity(0);
+  const salesPlan = getActionPlan();
+  startOpportunity(1);
+  const profitPlan = getActionPlan();
+  startOpportunity(2);
+  const inventoryPlan = getActionPlan();
+  assert.notStrictEqual(salesPlan, profitPlan);
+  assert.notStrictEqual(profitPlan, inventoryPlan);
+  assert.notStrictEqual(salesPlan.phases, profitPlan.phases);
+  assert.notStrictEqual(profitPlan.phases, inventoryPlan.phases);
+  assert.notDeepEqual(Array.from(salesPlan.phases, phase => phase.action), Array.from(profitPlan.phases, phase => phase.action));
+  assert.notDeepEqual(Array.from(profitPlan.phases, phase => phase.action), Array.from(inventoryPlan.phases, phase => phase.action));
+  startOpportunity(0);
+  assert.strictEqual(getActionPlan(), salesPlan);
+});
+
+function dynamicOpportunityData() {
+  const sales = [];
+  for (let month = 1; month <= 6; month += 1) {
+    const recent = month > 3;
+    sales.push({ fecha: `2026-0${month}-10`, producto: "Producto A", cliente: "Cliente Norte", vendedor: "Comercial A", cantidad: recent ? 8 : 45, valorTotal: (recent ? 8 : 45) * 1000, utilidad: (recent ? 2 : 12) * 1000 });
+    sales.push({ fecha: `2026-0${month}-11`, producto: "Producto B", cliente: "Cliente Sur", vendedor: "Comercial B", cantidad: recent ? 15 : 35, valorTotal: (recent ? 15 : 35) * 1000, utilidad: (recent ? 4 : 10) * 1000 });
+  }
+  return { sales, inventory: [{ producto: "Producto A", stock: 4, ultimoMovimiento: "2025-01-01" }, { producto: "Producto B", stock: 450, ultimoMovimiento: "2025-01-01" }] };
+}
+
+function planForDynamicFinding(finding) {
+  setStageThree(dynamicOpportunityData());
+  const common = { level: "general", nivelUrgencia: "Importante", magnitud: 35, periodo: "Dos periodos comparables", limitaciones: [], hipotesisPorValidar: [] };
+  app.analysis.priorities = [{ ...common, ...finding }];
+  app.datasetName = `Prueba ${finding.type}`;
+  beginAnalysisCycle();
+  app.step = 7;
+  startOpportunity(0);
+  return getActionPlan();
+}
+
+test("PLAN DINÁMICO 2: clientes, concentración, comerciales, faltantes e inmovilidad generan planes coherentes", () => {
+  const scenarios = [
+    {
+      expectedFocus: "customers",
+      expectedWords: ["clientes", "volvieron a comprar"],
+      finding: { type: "inactive-customers", dominio: "ventas", problemaGeneral: "Varios clientes dejaron de comprar", title: "Clientes inactivos", evidence: "Dos clientes redujeron sus compras.", causasObservadas: ["Los clientes dejaron de registrar compras."], focosPrioritarios: [{ evidencia: "Cliente Norte y Cliente Sur explican la reducción." }], driver: { dimension: "cliente", product: "Cliente Norte" } }
+    },
+    {
+      expectedFocus: "concentration",
+      expectedWords: ["dependen", "participación de los productos principales"],
+      finding: { type: "concentration", dominio: "ventas", problemaGeneral: "Dos productos concentran 82 % de las ventas", title: "Dependencia de productos", evidence: "Producto A y Producto B concentran las ventas.", causasObservadas: ["Las ventas están concentradas en pocos productos."], focosPrioritarios: [{ evidencia: "Dos productos representan 82 % de las ventas." }] }
+    },
+    {
+      expectedFocus: "commercial",
+      expectedWords: ["comercial a", "comerciales con ventas recuperadas"],
+      finding: { type: "sales-decline-cause", dominio: "ventas", problemaGeneral: "Caída asociada a un comercial", title: "Ventas atendidas por comercial", evidence: "Las ventas de Comercial A disminuyeron.", causasObservadas: ["Comercial A concentra la reducción observada."], focosPrioritarios: [{ evidencia: "Comercial A explica una parte importante de la reducción." }], driver: { dimension: "vendedor", product: "Comercial A" } }
+    },
+    {
+      expectedFocus: "stock-risk",
+      expectedWords: ["existencias físicas", "unidades disponibles"],
+      finding: { type: "stock-risk-general", dominio: "inventario", problemaGeneral: "Riesgo de falta de inventario", title: "Riesgo de faltantes", evidence: "Producto A tiene pocas unidades.", causasObservadas: ["Producto A tiene pocas existencias frente a sus ventas."], focosPrioritarios: [{ evidencia: "Producto A puede agotarse." }], items: [{ producto: "Producto A", stock: 4, recentSold: 24, recentSalesShare: .35 }] }
+    },
+    {
+      expectedFocus: "no-movement",
+      expectedWords: ["tiempo sin movimiento", "unidades disponibles"],
+      finding: { type: "inventory-no-movement", dominio: "inventario", problemaGeneral: "Producto sin movimiento", title: "Inventario inmóvil", evidence: "Producto B no registra movimiento reciente.", causasObservadas: ["Producto B lleva varios meses sin movimiento."], focosPrioritarios: [{ evidencia: "Producto B concentra unidades sin movimiento." }], items: [{ producto: "Producto B", stock: 450, recentSold: 0, stockShare: .99 }] }
+    }
+  ];
+  scenarios.forEach(({ finding, expectedFocus, expectedWords }) => {
+    const plan = planForDynamicFinding(finding);
+    const copy = JSON.stringify(plan).toLowerCase();
+    assert.equal(plan.focusKind, expectedFocus);
+    assert.equal(plan.phases.length, 3);
+    assert.ok(plan.activities.length >= 3);
+    assert.ok(plan.signals.length >= 1);
+    assert.equal(plan.targets.length, plan.signals.length);
+    expectedWords.forEach(word => assert.ok(copy.includes(word), `${finding.type} no incluye ${word}`));
+  });
+});
+
+test("PLAN DINÁMICO 3: una oportunidad nueva usa el fallback basado en su propia evidencia", () => {
+  const plan = planForDynamicFinding({
+    type: "cashflow-anomaly",
+    dominio: "finanzas",
+    problemaGeneral: "Los cobros recientes tardan más",
+    title: "Demora en cobros",
+    evidence: "El tiempo promedio de cobro aumentó 12 días.",
+    causasObservadas: ["Tres facturas concentran la demora observada."],
+    focosPrioritarios: [{ evidencia: "Las facturas A, B y C siguen pendientes." }]
+  });
+  const copy = JSON.stringify(plan);
+  assert.equal(plan.focusKind, "general");
+  assert.equal(plan.domain, "finanzas");
+  assert.ok(copy.includes("Entender qué está explicando esta oportunidad."));
+  assert.ok(copy.includes("Tres facturas concentran la demora observada."));
+  assert.ok(copy.includes("El tiempo promedio de cobro aumentó 12 días."));
+  assert.ok(!copy.includes("Clientes que volvieron a comprar"));
+  assert.ok(!copy.includes("Unidades disponibles"));
+});
+
 (async () => {
   let passed = 0;
   for (const [name, fn] of tests) {

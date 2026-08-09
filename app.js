@@ -280,10 +280,15 @@ function currentAnalysisCycle() {
 }
 
 function opportunityDomain(finding = {}) {
-  if (finding.type === "profit-decline") return "profit";
-  if (finding.dominio === "inventario" || /inventory|stock|slow/.test(finding.type || "")) return "inventory";
+  const declaredDomain = normalize(finding.domain || finding.dominio || "");
+  if (finding.type === "profit-decline" || /utilidad|margen|rentabilidad|profit/.test(declaredDomain)) return "profit";
+  if (/inventario|inventory/.test(declaredDomain) || /inventory|stock|slow/.test(finding.type || "")) return "inventory";
   if (finding.driver?.dimension === "cliente") return "customers";
   if (finding.driver?.dimension === "vendedor") return "commercial";
+  if (/cliente|customer/.test(declaredDomain)) return "customers";
+  if (/comercial|vendedor|commercial/.test(declaredDomain)) return "commercial";
+  if (/venta|sales/.test(declaredDomain)) return "sales";
+  if (declaredDomain) return declaredDomain.replace(/\s+/g, "-");
   return "sales";
 }
 
@@ -1319,6 +1324,14 @@ function syncOpportunityCycle(actionPlan) {
   if (!app.currentOpportunityKey || changed) {
     const existing = app.opportunityHistory.find(item => item.opportunityId === opportunityId && item.intento === app.opportunityAttempt);
     if (existing) {
+      const completedByActivity = new Map((existing.actividades || []).map(item => [normalize(item.actividad), Boolean(item.completada)]));
+      existing.oportunidadAtendida = actionPlan.problemGeneral;
+      existing.problemaOriginal = actionPlan.problemGeneral;
+      existing.evidencia = [...(actionPlan.problemEvidence || [])];
+      existing.causas = [actionPlan.causeWorked, ...(actionPlan.causeEvidence || [])].filter(Boolean);
+      existing.plan = actionPlan.phases.map(phase => ({ momento: phase.when, accion: phase.action, actividades: [...phase.activities] }));
+      existing.actividades = actionPlan.phases.flatMap((phase, phaseIndex) => phase.activities.map(activity => ({ fase: phaseIndex + 1, actividad: activity, completada: completedByActivity.get(normalize(activity)) || false })));
+      existing.metas = (actionPlan.signals || []).map(signal => ({ señal: signal.name, hoy: signal.today, meta: signal.target }));
       app.currentOpportunityKey = key;
       return { changed: false, cycle: existing };
     }
@@ -3262,11 +3275,11 @@ function planRowMeasure(row, basis) {
   return Number.isFinite(quantity) && quantity >= 0 ? quantity : 0;
 }
 
-function productDisplayName(product) {
+function productDisplayName(product, dataset = app.dataset) {
   const raw = String(product || "").trim();
   if (!raw) return "el producto señalado";
   if (/\breferencia\b/i.test(raw)) return raw;
-  const matchingRow = [...(app.dataset?.sales || []), ...(app.dataset?.inventory || [])].find(row =>
+  const matchingRow = [...(dataset?.sales || []), ...(dataset?.inventory || [])].find(row =>
     normalize(row.producto) === normalize(raw) || normalize(row.referencia) === normalize(raw)
   );
   const reference = String(matchingRow?.referencia || matchingRow?.sku || matchingRow?.codigoProducto || "").trim();
@@ -3277,20 +3290,20 @@ function productDisplayName(product) {
   return raw;
 }
 
-function productSubject(product, capitalized = false) {
-  const label = productDisplayName(product);
+function productSubject(product, capitalized = false, dataset = app.dataset) {
+  const label = productDisplayName(product, dataset);
   if (/^Referencia\b/i.test(label)) return `${capitalized ? "La" : "la"} ${label}`;
   return label;
 }
 
-function relatedDeclineEntities(product, role) {
-  const metrics = app.analysis?.metrics;
+function relatedDeclineEntities(product, role, analysisContext = {}) {
+  const metrics = analysisContext.metrics || app.analysis?.metrics;
   const panorama = metrics?.panorama;
   if (!panorama?.reliable) return [];
   const priorMonths = new Set(panorama.prior.map(item => item.month));
   const recentMonths = new Set(panorama.recent.map(item => item.month));
   const grouped = {};
-  (app.dataset?.sales || []).forEach(row => {
+  (analysisContext.dataset?.sales || app.dataset?.sales || []).forEach(row => {
     if (product && normalize(row.producto) !== normalize(product)) return;
     const label = String(row[role] || "").trim();
     const date = new Date(row.fecha);
@@ -3316,10 +3329,10 @@ function planProductNames(finding) {
   return [...new Set([...fromItems, ...fromDriver, ...fromDecline, ...fromFocus])].slice(0, 2);
 }
 
-function latestInventoryBaseline(products) {
+function latestInventoryBaseline(products, dataset = app.dataset) {
   const selected = new Set(products.map(normalize));
   const latest = {};
-  (app.dataset?.inventory || []).forEach(row => {
+  (dataset?.inventory || []).forEach(row => {
     const product = String(row.producto || "").trim();
     if (!product || (selected.size && !selected.has(normalize(product)))) return;
     const date = new Date(row.fechaCorte);
@@ -3351,11 +3364,11 @@ function partialRecoverySignal(name, panorama, urgency, formatter, note) {
   };
 }
 
-function salesPlanSignals(finding, diagnosis, timing, products) {
-  const metrics = app.analysis.metrics;
+function salesPlanSignals(finding, diagnosis, timing, products, analysisContext = {}) {
+  const metrics = analysisContext.metrics || app.analysis.metrics;
   const signals = [];
   const isProfit = finding.type === "profit-decline";
-  const customers = !isProfit && diagnosis.datosDisponibles.clientes ? relatedDeclineEntities(products[0], "cliente").slice(0, 5) : [];
+  const customers = !isProfit && diagnosis.datosDisponibles.clientes ? relatedDeclineEntities(products[0], "cliente", analysisContext).slice(0, 5) : [];
   if (customers.length) {
     const share = diagnosis.nivelUrgencia === "Crítico" ? .60 : diagnosis.nivelUrgencia === "Importante" ? .50 : .40;
     const target = Math.max(1, Math.min(customers.length, Math.ceil(customers.length * share)));
@@ -3377,15 +3390,15 @@ function salesPlanSignals(finding, diagnosis, timing, products) {
   return signals.slice(0, 3);
 }
 
-function inventoryPlanSignals(finding, diagnosis, timing, products) {
-  const metrics = app.analysis.metrics;
+function inventoryPlanSignals(finding, diagnosis, timing, products, analysisContext = {}) {
+  const metrics = analysisContext.metrics || app.analysis.metrics;
   if (finding.type === "inventory-only") return [];
   const names = new Set(products.map(normalize));
   const matching = items => (items || []).filter(item => !names.size || names.has(normalize(item.producto)));
   const isRisk = ["stock-risk-general", "stockout"].includes(finding.type);
   const source = matching(isRisk ? metrics.riskItems : [...(metrics.excessItems || []), ...(metrics.noMovementItems || [])]);
   const stock = source.reduce((sum, item) => sum + (Number.isFinite(item.stock) ? item.stock : 0), 0)
-    || latestInventoryBaseline(products).reduce((sum, item) => sum + item.unidades, 0);
+    || latestInventoryBaseline(products, analysisContext.dataset || app.dataset).reduce((sum, item) => sum + item.unidades, 0);
   const signals = [];
   if (stock > 0 && isRisk) {
     const recentMonths = Math.max(1, metrics.unitPanorama?.recent?.length || 3);
@@ -3403,14 +3416,14 @@ function inventoryPlanSignals(finding, diagnosis, timing, products) {
   return signals.slice(0, 3);
 }
 
-function salesActionPlan(finding, diagnosis, timing, products) {
-  const metrics = app.analysis.metrics;
+function salesActionPlan(finding, diagnosis, timing, products, analysisContext = {}) {
+  const metrics = analysisContext.metrics || app.analysis.metrics;
   const primaryProductRaw = products[0] || "";
-  const primaryProduct = primaryProductRaw ? productSubject(primaryProductRaw) : "los productos que más explican el cambio";
-  const productNames = products.map(product => productSubject(product));
+  const primaryProduct = primaryProductRaw ? productSubject(primaryProductRaw, false, analysisContext.dataset) : "los productos que más explican el cambio";
+  const productNames = products.map(product => productSubject(product, false, analysisContext.dataset));
   const isProfit = finding.type === "profit-decline";
-  const customerDetails = !isProfit && diagnosis.datosDisponibles.clientes ? relatedDeclineEntities(primaryProductRaw, "cliente").slice(0, 5) : [];
-  const sellerDetails = !isProfit && diagnosis.datosDisponibles.comerciales ? relatedDeclineEntities(primaryProductRaw, "vendedor").slice(0, 2) : [];
+  const customerDetails = !isProfit && diagnosis.datosDisponibles.clientes ? relatedDeclineEntities(primaryProductRaw, "cliente", analysisContext).slice(0, 5) : [];
+  const sellerDetails = !isProfit && diagnosis.datosDisponibles.comerciales ? relatedDeclineEntities(primaryProductRaw, "vendedor", analysisContext).slice(0, 2) : [];
   const customerNames = customerDetails.map(item => item.name);
   const customerShare = customerDetails.reduce((sum, item) => sum + item.contribution, 0);
   const sellerName = sellerDetails[0]?.name;
@@ -3450,9 +3463,9 @@ function salesActionPlan(finding, diagnosis, timing, products) {
   return { phases, indicators: indicators.slice(0, 3), causeEvidence };
 }
 
-function inventoryActionPlan(finding, diagnosis, timing, products) {
-  const metrics = app.analysis.metrics;
-  const names = products.map(product => productSubject(product)).join(" y ") || "los productos señalados";
+function inventoryActionPlan(finding, diagnosis, timing, products, analysisContext = {}) {
+  const metrics = analysisContext.metrics || app.analysis.metrics;
+  const names = products.map(product => productSubject(product, false, analysisContext.dataset)).join(" y ") || "los productos señalados";
   const isRisk = ["stock-risk-general", "stockout"].includes(finding.type);
   const inventoryOnly = finding.type === "inventory-only";
   const noMovement = finding.type === "inventory-no-movement";
@@ -3511,9 +3524,9 @@ function retryPlanAlternatives(previous, diagnosis) {
   ];
 }
 
-function adaptPlanForRetry(detail, diagnosis) {
-  if (app.opportunityAttempt <= 1) return detail;
-  const previous = previousOpportunityAttempt();
+function adaptPlanForRetry(detail, diagnosis, analysisContext = {}) {
+  if ((analysisContext.opportunityAttempt || 1) <= 1) return detail;
+  const previous = analysisContext.previousFeedback || null;
   if (!previous) return detail;
   const completed = new Set((previous.actividades || []).filter(item => item.completada).map(item => normalize(item.actividad)));
   const alternatives = retryPlanAlternatives(previous, diagnosis);
@@ -3535,54 +3548,211 @@ function adaptPlanForRetry(detail, diagnosis) {
   };
 }
 
+function opportunityFocusKind(opportunity) {
+  const finding = opportunity.rawFinding || {};
+  const searchable = normalize([opportunity.type, opportunity.title, ...(opportunity.observedCauses || [])].join(" "));
+  if (finding.driver?.dimension === "cliente" || /cliente|comprador|inactiv/.test(searchable)) return "customers";
+  if (finding.driver?.dimension === "vendedor" || /comercial|vendedor|asesor/.test(searchable)) return "commercial";
+  if (/concentration|maintain/.test(opportunity.type) || (opportunity.domain === "sales" && /dependencia.{0,30}producto|producto.{0,30}concentr/.test(searchable))) return "concentration";
+  if (opportunity.domain === "profit" || /utilidad|margen|rentabilidad/.test(searchable)) return "profit";
+  if (opportunity.domain === "inventory" && /sin movimiento|inmovil|no movement/.test(searchable)) return "no-movement";
+  if (opportunity.domain === "inventory" && /falta|agot|stockout|riesgo/.test(searchable)) return "stock-risk";
+  if (opportunity.domain === "inventory") return "inventory";
+  if (finding.driver?.dimension === "producto" || /producto|referencia/.test(searchable)) return "products";
+  if (/business-decline|trend|product-decline|sales-decline-cause/.test(opportunity.type)) return "sales";
+  return "general";
+}
+
+function opportunityContract(finding, diagnosis, entry) {
+  return {
+    id: entry?.id || stableOpportunityId(app.currentAnalysisCycleId || "revision-actual", finding, app.activeOpportunityIndex),
+    domain: entry?.domain || opportunityDomain(finding),
+    type: finding?.type || "general",
+    title: diagnosis?.problemGeneral || finding?.problemaGeneral || finding?.title || "Oportunidad de mejora",
+    evidence: (Array.isArray(diagnosis?.evidenciaProblema) ? diagnosis.evidenciaProblema : [diagnosis?.evidenciaProblema || finding?.evidence || finding?.reason]).filter(Boolean),
+    magnitude: diagnosis?.magnitud || finding?.magnitudDetalle || finding?.magnitud || null,
+    urgency: diagnosis?.nivelUrgencia || finding?.nivelUrgencia || "Observación",
+    observedCauses: [...(diagnosis?.causasObservadas || finding?.causasObservadas || [])],
+    priorityFocus: [...(diagnosis?.focosPrioritarios || finding?.focosPrioritarios || [])],
+    availableData: { ...(diagnosis?.datosDisponibles || {}) },
+    dataQuality: { ...(diagnosis?.calidadInformacion || {}) },
+    rawFinding: finding
+  };
+}
+
+function customerActionPlan(opportunity, diagnosis, timing, analysisContext) {
+  const customers = relatedDeclineEntities("", "cliente", analysisContext).slice(0, 8);
+  const sellers = diagnosis.datosDisponibles.comerciales ? relatedDeclineEntities(analysisContext.products[0] || "", "vendedor", analysisContext).slice(0, 2) : [];
+  const named = opportunity.rawFinding?.driver?.dimension === "cliente" ? [opportunity.rawFinding.driver.product] : customers.map(item => item.name);
+  const names = [...new Set(named.filter(Boolean))].slice(0, 5);
+  const focus = names.length ? names.join(", ") : "los clientes que dejaron de comprar o redujeron sus compras";
+  const product = analysisContext.products[0] ? productSubject(analysisContext.products[0], false, analysisContext.dataset) : "los productos relacionados";
+  const customerEvidence = customers.length ? `${customers.map(item => item.name).join(", ")} son los clientes con las mayores reducciones observadas.` : "";
+  const causeEvidence = customerEvidence || opportunity.observedCauses[0] || opportunity.priorityFocus[0]?.evidencia || opportunity.evidence[0];
+  const phases = [
+    { when: timing.labels[0], action: names.length ? `Revisa los ${names.length} clientes que más redujeron la compra de ${product}.` : `Revisa qué cambió en las compras de ${focus}.`, evidence: causeEvidence, activities: ["Compara cuándo compraron por última vez y cuánto compraban antes.", sellers[0] ? `Habla con ${sellers[0].name} y revisen qué cambió con estos clientes.` : "Pregunta a quienes atienden estos clientes qué cambió.", "Anota qué cambio está confirmado y qué todavía es una posibilidad."] },
+    { when: timing.labels[1], action: "Trabaja primero con los clientes que más explican la reducción.", evidence: "La acción debe partir de lo que el cliente o el equipo logre confirmar.", activities: ["Contacta a los clientes priorizados y pregunta qué cambió.", "Define una acción concreta para cada causa confirmada.", "Registra quién fue contactado, qué respondió y desde qué fecha actuarás."], questions: ["¿Qué cambió en tus compras?", "¿Tuviste algún problema con el producto o servicio?", "¿Cambió el precio o tu necesidad?"] },
+    { when: timing.labels[2], action: "Comprueba si los clientes priorizados volvieron a comprar.", evidence: "Compara periodos equivalentes y conserva separados los hechos de las explicaciones.", activities: ["Cuenta cuántos clientes volvieron a comprar.", "Compara las unidades o el valor vendido a esos clientes.", "Ajusta la acción si no aparece una mejora verificable."] }
+  ];
+  const signals = salesPlanSignals({ ...opportunity.rawFinding, type: "customer-opportunity" }, diagnosis, timing, [], analysisContext);
+  return { phases, signals, indicators: signals.map(signal => ({ name: signal.name, comparison: signal.note || "Compáralo con el punto de partida." })), causeEvidence };
+}
+
+function commercialActionPlan(opportunity, diagnosis, timing, analysisContext) {
+  const sellers = relatedDeclineEntities("", "vendedor", analysisContext).slice(0, 5);
+  const named = opportunity.rawFinding?.driver?.dimension === "vendedor" ? [opportunity.rawFinding.driver.product] : sellers.map(item => item.name);
+  const names = [...new Set(named.filter(Boolean))];
+  const focus = names.length ? names.join(" y ") : "los comerciales relacionados con la reducción";
+  const causeEvidence = opportunity.observedCauses[0] || opportunity.priorityFocus[0]?.evidencia || opportunity.evidence[0];
+  const phases = [
+    { when: timing.labels[0], action: `Habla con ${focus} y revisen qué cambió en las ventas atendidas.`, evidence: causeEvidence, activities: ["Compara sus ventas anteriores y recientes usando la misma medida.", "Revisa qué clientes, productos o zonas explican la diferencia.", "No atribuyas la causa al comercial hasta confirmar qué ocurrió."] },
+    { when: timing.labels[1], action: "Trabaja sobre las causas confirmadas con el equipo comercial.", evidence: "La evidencia puede señalar dónde ocurrió el cambio, pero no demuestra por sí sola quién lo causó.", activities: ["Define una acción concreta para cada causa confirmada.", "Asigna responsable y fecha sin duplicar actividades de otros planes.", "Registra qué se hizo y con qué clientes o productos."] },
+    { when: timing.labels[2], action: "Comprueba si las ventas atendidas por los comerciales priorizados mejoraron.", evidence: "Usa periodos equivalentes y la misma medida del diagnóstico.", activities: ["Compara unidades o valor vendido.", "Revisa si mejoraron los clientes o productos afectados.", "Ajusta la acción si el cambio no es verificable."] }
+  ];
+  const salesSignals = salesPlanSignals({ ...opportunity.rawFinding, type: "commercial-opportunity" }, diagnosis, timing, [], analysisContext).filter(signal => signal.name !== "Clientes que volvieron a comprar");
+  const teamSignal = names.length ? { name: "Comerciales con ventas recuperadas", today: `0 de ${names.length}`, target: `${Math.max(1, Math.ceil(names.length / 2))} de ${names.length}`, note: "Verificar una recuperación parcial en el periodo de revisión." } : null;
+  const signals = [teamSignal, ...salesSignals].filter(Boolean).slice(0, 3);
+  return { phases, signals, indicators: signals.map(signal => ({ name: signal.name, comparison: signal.note || "Compáralo con el punto de partida." })), causeEvidence };
+}
+
+function concentrationActionPlan(opportunity, diagnosis, timing, analysisContext) {
+  const metrics = analysisContext.metrics;
+  const leaders = (metrics.ranked || []).slice(0, 2).map(item => productSubject(item[0], false, analysisContext.dataset));
+  const focus = leaders.join(" y ") || "los productos que concentran las ventas";
+  const total = metrics.rankingBasis === "value" ? metrics.revenue : metrics.units;
+  const leadingValue = (metrics.ranked || []).slice(0, 2).reduce((sum, item) => sum + (metrics.rankingBasis === "value" ? item[1].revenue : item[1].units), 0);
+  const share = total ? leadingValue / total : metrics.topShare || 0;
+  const targetShare = Math.max(0, share - .08);
+  const causeEvidence = opportunity.observedCauses[0] || opportunity.priorityFocus[0]?.evidencia || opportunity.evidence[0];
+  const phases = [
+    { when: timing.labels[0], action: `Revisa por qué tus ventas dependen tanto de ${focus}.`, evidence: causeEvidence, activities: ["Confirma qué porcentaje aportan los productos principales.", "Revisa qué otros productos tienen demanda comprobable.", "Identifica el riesgo de que uno de los productos principales venda menos o no esté disponible."] },
+    { when: timing.labels[1], action: "Trabaja una alternativa concreta para reducir la dependencia sin descuidar lo que ya se vende.", evidence: "Diversificar solo tiene sentido cuando existe demanda o una oportunidad comercial confirmada.", activities: ["Elige un producto alternativo con evidencia de demanda.", "Define una acción pequeña para aumentar su participación.", "Mantén disponibles los productos que hoy sostienen las ventas."] },
+    { when: timing.labels[2], action: "Comprueba si las ventas están menos concentradas.", evidence: "Compara la participación de los mismos productos en periodos equivalentes.", activities: ["Calcula nuevamente la participación de los productos principales.", "Revisa si otros productos aumentaron su aporte.", "Ajusta la acción sin poner en riesgo las ventas actuales."] }
+  ];
+  const signals = [
+    { name: "Participación de los productos principales", today: readablePercent(share), target: readablePercent(targetShare), note: "Reducir gradualmente la dependencia, no eliminar la venta de los productos principales." },
+    { name: "Productos con ventas activas", today: `${(metrics.ranked || []).filter(item => item[1].units > 0 || item[1].revenue > 0).length} productos`, target: "Aumentar al menos un producto con demanda confirmada", note: "Contar solo productos con ventas reales." }
+  ];
+  return { phases, signals, indicators: signals.map(signal => ({ name: signal.name, comparison: signal.note })), causeEvidence };
+}
+
+function genericActionPlan(opportunity, diagnosis, timing) {
+  const cause = opportunity.observedCauses[0] || opportunity.priorityFocus[0]?.evidencia || opportunity.evidence[0] || "Todavía necesitamos confirmar qué está explicando esta oportunidad.";
+  const secondCause = opportunity.observedCauses[1] || opportunity.priorityFocus[1]?.evidencia;
+  const available = Object.entries(opportunity.availableData).filter(([, value]) => value).map(([key]) => key).slice(0, 3).join(", ");
+  const phases = [
+    { when: timing.labels[0], action: "Entender qué está explicando esta oportunidad.", evidence: opportunity.evidence[0] || cause, activities: [`Revisa la evidencia disponible: ${opportunity.evidence[0] || cause}`, `Confirma esta posible explicación: ${cause}`, secondCause ? `Compara también este foco: ${secondCause}` : `Usa los datos disponibles${available ? ` de ${available}` : ""} y anota qué información falta.`] },
+    { when: timing.labels[1], action: "Trabajar sobre las causas principales que encontramos.", evidence: cause, activities: ["Elige únicamente una causa que hayas podido confirmar.", "Define una acción concreta, un responsable y una fecha.", "Registra lo que hiciste sin convertir una hipótesis en un hecho."] },
+    { when: timing.labels[2], action: "Comprobar si la situación empezó a mejorar.", evidence: "Compara la misma evidencia con el punto de partida.", activities: ["Revisa nuevamente la señal relacionada con la oportunidad.", "Compara el resultado con el punto de partida.", "Ajusta la acción si no existe una mejora verificable."] }
+  ];
+  const signals = [{ name: "Estado de la oportunidad", today: "Pendiente de confirmar", target: "Causa principal confirmada y acción registrada", note: "Usa la misma evidencia para comprobar el cambio." }];
+  return { phases, signals, indicators: [{ name: signals[0].name, comparison: signals[0].note }], causeEvidence: cause };
+}
+
+function buildPlanForOpportunity(opportunity, analysisContext) {
+  const { diagnosis, timing, products } = analysisContext;
+  const focusKind = opportunityFocusKind(opportunity);
+  let detail;
+  if (focusKind === "customers") detail = customerActionPlan(opportunity, diagnosis, timing, analysisContext);
+  else if (focusKind === "commercial") detail = commercialActionPlan(opportunity, diagnosis, timing, analysisContext);
+  else if (focusKind === "concentration") detail = concentrationActionPlan(opportunity, diagnosis, timing, analysisContext);
+  else if (focusKind === "profit") {
+    detail = salesActionPlan(opportunity.rawFinding, diagnosis, timing, products, analysisContext);
+    detail.signals = salesPlanSignals(opportunity.rawFinding, diagnosis, timing, products, analysisContext);
+  } else if (["inventory", "stock-risk", "no-movement"].includes(focusKind)) {
+    detail = inventoryActionPlan(opportunity.rawFinding, diagnosis, timing, products, analysisContext);
+    detail.signals = inventoryPlanSignals(opportunity.rawFinding, diagnosis, timing, products, analysisContext);
+  } else if (["products", "sales"].includes(focusKind)) {
+    detail = salesActionPlan(opportunity.rawFinding, diagnosis, timing, products, analysisContext);
+    detail.signals = salesPlanSignals(opportunity.rawFinding, diagnosis, timing, products, analysisContext);
+  } else detail = genericActionPlan(opportunity, diagnosis, timing);
+  detail = adaptPlanForRetry(detail, diagnosis, analysisContext);
+  const phases = detail.phases.map(phase => ({ ...phase, activities: [...phase.activities], questions: phase.questions ? [...phase.questions] : undefined }));
+  const signals = (detail.signals || []).map(signal => ({ ...signal }));
+  const activities = phases.flatMap((phase, phaseIndex) => phase.activities.map((activity, activityIndex) => ({ id: `${opportunity.id}-f${phaseIndex + 1}-a${activityIndex + 1}`, phase: phaseIndex + 1, text: activity })));
+  const targets = signals.map(signal => ({ signal: signal.name, target: signal.target, current: signal.today }));
+  return {
+    opportunityId: opportunity.id,
+    domain: opportunity.domain,
+    type: opportunity.type,
+    focusKind,
+    opportunityTitle: opportunity.title,
+    causes: [...opportunity.observedCauses],
+    focus: opportunity.priorityFocus.map(item => ({ ...item })),
+    problemGeneral: opportunity.title,
+    causeWorked: detail.causeEvidence,
+    problemEvidence: [...opportunity.evidence].slice(0, 2),
+    causeEvidence: opportunity.priorityFocus.map(item => item.evidencia).filter(item => item && item !== detail.causeEvidence).slice(0, 2),
+    context: [...(analysisContext.relevantContext || [])],
+    urgency: opportunity.urgency,
+    phases,
+    activities,
+    signals,
+    targets,
+    indicators: detail.indicators || signals.map(signal => ({ name: signal.name, comparison: signal.note || "Compáralo con el punto de partida." })),
+    progress: { completed: 0, total: activities.length, activityProgress: Object.fromEntries(activities.map(activity => [activity.id, false])) }
+  };
+}
+
+const PLAN_GENERATOR_VERSION = 2;
+
 function getActionPlan() {
   const finding = currentOpportunityFinding();
   const diagnosis = currentOpportunityDiagnosis();
   if (!finding || !diagnosis) return { problemGeneral: "Información insuficiente", causeWorked: "Completar la información", problemEvidence: [], causeEvidence: [], context: [], phases: [], signals: [], indicators: [] };
+  const entry = currentOpportunityEntry();
+  const opportunity = opportunityContract(finding, diagnosis, entry);
+  const planKey = `${opportunity.id}:intento-${app.opportunityAttempt}`;
+  const savedState = app.opportunityPlans[planKey];
+  if (savedState?.plannerVersion === PLAN_GENERATOR_VERSION && savedState.plan) {
+    app.actionPlan = savedState.plan.handoff || null;
+    return savedState.plan;
+  }
   const timing = actionPlanTiming(diagnosis.nivelUrgencia);
   const products = planProductNames(finding);
-  const inventoryTypes = ["inventory-accumulation", "inventory-excess", "inventory-no-movement", "stock-risk-general", "stockout", "inventory-only", "slow"];
-  const inventoryPlan = finding.dominio === "inventario" || inventoryTypes.includes(finding.type);
-  const baseDetail = inventoryPlan
-    ? inventoryActionPlan(finding, diagnosis, timing, products)
-    : salesActionPlan(finding, diagnosis, timing, products);
-  const detail = adaptPlanForRetry(baseDetail, diagnosis);
-  const signals = inventoryPlan
-    ? inventoryPlanSignals(finding, diagnosis, timing, products)
-    : salesPlanSignals(finding, diagnosis, timing, products);
-  const textList = value => (Array.isArray(value) ? value : [value]).filter(Boolean);
-  const problemEvidence = textList(diagnosis.evidenciaProblema).slice(0, 2);
-  const causeEvidence = (diagnosis.focosPrioritarios || []).map(item => item.evidencia).filter(item => item && item !== detail.causeEvidence).slice(0, 2);
-  const context = (diagnosis.coincidenciasContextoDatos || []).map(item => item.texto || item).filter(Boolean).slice(0, 2);
+  const relevantContext = (diagnosis.coincidenciasContextoDatos || []).map(item => item.texto || item).filter(Boolean).slice(0, 2);
+  const analysisContext = {
+    metrics: app.analysis.metrics,
+    dataset: app.dataset || { sales: [], inventory: [] },
+    businessContext: { ...app.context },
+    diagnosis,
+    timing,
+    products: [...products],
+    relevantContext,
+    previousFeedback: previousOpportunityAttempt(),
+    opportunityAttempt: app.opportunityAttempt,
+    dataQuality: app.analysis.resultQuality
+  };
+  const plan = buildPlanForOpportunity(opportunity, analysisContext);
   const baseline = {
     periodo: diagnosis.periodoAnalizado,
     promedioMensualReciente: app.analysis.metrics.panorama?.reliable ? app.analysis.metrics.panorama.recentAverage : null,
     unidad: app.analysis.metrics.panorama?.basis === "value" ? "valor vendido" : "unidades vendidas",
-    inventario: latestInventoryBaseline(products)
+    inventario: latestInventoryBaseline(products, analysisContext.dataset)
   };
   const handoff = {
-    problemGeneral: diagnosis.problemGeneral,
-    causaTrabajada: detail.causeEvidence,
-    accionesPropuestas: detail.phases.map(phase => phase.action),
-    actividades: detail.phases.flatMap((phase, phaseIndex) => phase.activities.map(activity => ({ fase: phaseIndex + 1, momento: phase.when, actividad: activity }))),
+    opportunityId: opportunity.id,
+    domain: opportunity.domain,
+    problemGeneral: plan.problemGeneral,
+    causaTrabajada: plan.causeWorked,
+    accionesPropuestas: plan.phases.map(phase => phase.action),
+    actividades: plan.phases.flatMap((phase, phaseIndex) => phase.activities.map(activity => ({ fase: phaseIndex + 1, momento: phase.when, actividad: activity }))),
     fechaInicio: isoDateAfter(0),
     fechaRevision: isoDateAfter(timing.days[2]),
-    indicadoresSeguimiento: detail.indicators,
+    indicadoresSeguimiento: plan.indicators,
     valorBase: baseline
   };
+  plan.handoff = handoff;
   app.actionPlan = handoff;
-  const plan = { problemGeneral: diagnosis.problemGeneral, causeWorked: detail.causeEvidence, problemEvidence, causeEvidence, context, urgency: diagnosis.nivelUrgencia, phases: detail.phases, signals, indicators: detail.indicators, handoff };
-  const opportunity = currentOpportunityEntry();
-  const planKey = `${opportunity?.id || "oportunidad-actual"}:intento-${app.opportunityAttempt}`;
-  const previousState = app.opportunityPlans[planKey];
   app.opportunityPlans[planKey] = {
-    opportunityId: opportunity?.id || null,
+    plannerVersion: PLAN_GENERATOR_VERSION,
+    opportunityId: opportunity.id,
     opportunityIndex: app.activeOpportunityIndex,
-    domain: opportunity?.domain || opportunityDomain(finding),
+    domain: opportunity.domain,
     attempt: app.opportunityAttempt,
     plan,
-    tasks: previousState?.tasks?.length === plan.phases.flatMap(phase => phase.activities).length ? [...previousState.tasks] : Array(plan.phases.flatMap(phase => phase.activities).length).fill(false),
-    feedback: previousState?.feedback || null
+    tasks: Array(plan.activities.length).fill(false),
+    feedback: null
   };
   return plan;
 }
@@ -3615,7 +3785,12 @@ function updateTask(event) {
   );
   if (currentCycle?.actividades?.[index]) currentCycle.actividades[index].completada = event.target.checked;
   const planState = currentOpportunityPlanState();
-  if (planState) planState.tasks = [...app.tasks];
+  if (planState) {
+    planState.tasks = [...app.tasks];
+    planState.plan.progress.completed = done;
+    const activityId = planState.plan.activities[index]?.id;
+    if (activityId) planState.plan.progress.activityProgress[activityId] = event.target.checked;
+  }
   persistDemoProgress();
 }
 
