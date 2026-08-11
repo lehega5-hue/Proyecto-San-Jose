@@ -26,36 +26,84 @@
     );
   }
 
-  function anonymizedDescriptor(table) {
-    const samples = table.rows.slice(0, 3).map(row =>
-      Object.fromEntries(table.headers.map(header => [header, row[header]]))
-    );
+  const SAFE_HEADER_SIGNALS = new Set([
+    "fecha", "documento", "venta", "ventas", "factura", "facturada", "facturado", "dia", "periodo",
+    "producto", "articulo", "descripcion", "referencia", "sku", "item", "codigo", "mercancia",
+    "cantidad", "unidades", "und", "cant", "qty", "despacho", "volumen", "valor", "total", "neto",
+    "importe", "subtotal", "ingreso", "precio", "unitario", "costo", "coste", "utilidad", "ganancia",
+    "beneficio", "margen", "cliente", "comprador", "vendedor", "comercial", "asesor", "ejecutivo",
+    "representante", "existencia", "existencias", "stock", "inventario", "saldo", "disponible", "actual",
+    "bodega", "corte", "movimiento", "ultimo", "entrada", "entradas", "compra", "compras", "minimo",
+    "maximo", "recepcion", "recepciones", "salida", "salidas", "proveedor", "lote", "vencimiento"
+  ]);
+
+  function normalizedTokens(value) {
+    return String(value ?? "")
+      .replace(/([a-záéíóúñ])([A-ZÁÉÍÓÚÑ])/g, "$1 $2")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .match(/[a-z0-9]+/g) || [];
+  }
+
+  function safeColumnDescriptor(header, profile, index) {
+    const tokens = normalizedTokens(header);
     return {
-      file_name: table.fileName,
-      sheet_name: table.sheetName,
-      row_count: table.rows.length,
-      headers: table.headers,
-      inferred_types: table.profiles,
-      sample_rows: samples,
-      business_context: table.businessContext || {},
-      analysis_scope: ["sales", "inventory"]
+      id: `column_${index + 1}`,
+      semantic_signals: [...new Set(tokens.filter(token => SAFE_HEADER_SIGNALS.has(token)))],
+      token_count: tokens.length,
+      contains_digits: tokens.some(token => /\d/.test(token)),
+      inferred_type: {
+        numeric_ratio: Number(profile?.numeric) || 0,
+        date_ratio: Number(profile?.dates) || 0,
+        text_ratio: Number(profile?.text) || 0
+      }
     };
+  }
+
+  function anonymizedDescriptor(table) {
+    const sourceMap = new Map();
+    const columns = table.headers.map((header, index) => {
+      const descriptor = safeColumnDescriptor(header, table.profiles?.[header], index);
+      sourceMap.set(descriptor.id, header);
+      return descriptor;
+    });
+    return {
+      payload: {
+        row_count: table.rows.length,
+        column_count: table.headers.length,
+        columns,
+        analysis_scope: ["sales", "inventory"]
+      },
+      sourceMap
+    };
+  }
+
+  function restoreRemoteSources(result, sourceMap) {
+    const columns = {};
+    for (const [role, column] of Object.entries(result.columns)) {
+      const source = sourceMap.get(column.source);
+      if (!source) throw new Error("La respuesta usa una columna desconocida");
+      columns[role] = { ...column, source };
+    }
+    return { ...result, columns };
   }
 
   async function remoteInterpret(table, config) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
     try {
+      const descriptor = anonymizedDescriptor(table);
       const response = await fetch(config.endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(anonymizedDescriptor(table)),
+        body: JSON.stringify(descriptor.payload),
         signal: controller.signal
       });
       if (!response.ok) throw new Error(`Servicio no disponible (${response.status})`);
       const result = await response.json();
       if (!validRemoteResult(result)) throw new Error("Respuesta semántica inválida");
-      return { mode: "remote-ai", result };
+      return { mode: "remote-ai", result: restoreRemoteSources(result, descriptor.sourceMap) };
     } finally {
       clearTimeout(timer);
     }

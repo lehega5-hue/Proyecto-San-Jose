@@ -106,10 +106,10 @@ const datasets = {
 
 const semanticRoles = {
   sales: {
-    fecha: { label: "Fecha de venta", group: "main", description: "Nos permite revisar cómo cambian las ventas en el tiempo.", terms: ["fecha", "fecha venta", "fecha factura", "día", "periodo"] },
-    producto: { label: "Producto / referencia", group: "main", description: "Nos permite saber qué se vendió.", terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código producto", "mercancía"] },
-    cantidad: { label: "Cantidad vendida", group: "main", measure: true, description: "Permite analizar el volumen vendido.", terms: ["cantidad", "unidades", "und", "cant", "qty", "despacho", "volumen"] },
-    valorTotal: { label: "Valor total", group: "main", measure: true, description: "Permite analizar ingresos.", terms: ["valor total", "total venta", "vr total", "vr tot fac", "vr neto", "valor neto", "importe", "subtotal", "ingreso"] },
+    fecha: { label: "Fecha de venta", group: "main", description: "Nos permite revisar cómo cambian las ventas en el tiempo.", terms: ["fecha", "fecha venta", "fecha factura", "fecha documento", "fec venta", "día", "periodo"] },
+    producto: { label: "Producto / referencia", group: "main", description: "Nos permite saber qué se vendió.", terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código", "cod art", "código producto", "mercancía"] },
+    cantidad: { label: "Cantidad vendida", group: "main", measure: true, description: "Permite analizar el volumen vendido.", terms: ["cantidad", "cantidad vendida", "cantidad facturada", "unidades", "unidades vendidas", "und", "cant", "qty", "despacho", "volumen"] },
+    valorTotal: { label: "Valor total", group: "main", measure: true, description: "Permite analizar ingresos.", terms: ["valor", "valor total", "total venta", "vr total", "vr tot fac", "vr neto", "valor neto", "importe", "subtotal", "ingreso"] },
     precio: { label: "Precio unitario", group: "additional", description: "Con cantidad, permite calcular el valor total de la venta.", terms: ["precio", "precio venta", "valor unitario", "vr unitario"] },
     costo: { label: "Costo unitario", group: "additional", description: "Ayuda a estimar rentabilidad cuando también hay valor de venta.", terms: ["costo", "coste", "valor costo", "costo unitario"] },
     cliente: { label: "Cliente", group: "additional", terms: ["cliente", "nombre cliente", "id cliente", "codigo cliente", "nit cliente", "razon social", "comprador"] },
@@ -124,8 +124,8 @@ const semanticRoles = {
     formaPago: { label: "Forma de pago", group: "additional", terms: ["forma pago", "medio pago", "método pago"] }
   },
   inventory: {
-    producto: { label: "Producto / referencia", group: "main", description: "Nos permite identificar cada artículo.", terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código producto", "mercancía"] },
-    stock: { label: "Existencia actual", group: "main", description: "Nos permite saber cuántas unidades hay disponibles.", terms: ["existencia", "existencias", "stock", "inventario", "saldo", "disponible", "cantidad actual"] },
+    producto: { label: "Producto / referencia", group: "main", description: "Nos permite identificar cada artículo.", terms: ["producto", "artículo", "descripción", "referencia", "sku", "item", "código", "cod art", "código producto", "mercancía"] },
+    stock: { label: "Existencia actual", group: "main", description: "Nos permite saber cuántas unidades hay disponibles.", terms: ["existencia", "existencias", "existencia actual", "stock", "inventario", "saldo", "disponible", "cantidad actual", "cantidad inventario", "unidades disponibles", "qty on hand"] },
     fechaCorte: { label: "Fecha de inventario", group: "additional", recommended: true, description: "Ayuda a saber a qué momento corresponden las existencias.", terms: ["fecha corte", "fecha inventario", "fecha saldo", "corte"] },
     costo: { label: "Costo unitario", group: "additional", terms: ["costo", "coste", "valor costo", "costo unitario"] },
     valorInventario: { label: "Valor del inventario", group: "additional", terms: ["valor inventario", "valor del inventario", "valor stock", "valor existencia", "costo total inventario"] },
@@ -171,6 +171,17 @@ const normalize = value => String(value ?? "")
   .replace(/[._-]/g, " ")
   .replace(/\s+/g, " ")
   .trim();
+const semanticTokens = value => normalize(value).match(/[a-z0-9]+/g) || [];
+const hasAnyToken = (value, candidates) => {
+  const present = new Set(semanticTokens(value));
+  return candidates.some(candidate => present.has(normalize(candidate)));
+};
+const containsTokenSequence = (container, sequence) => {
+  if (!sequence.length || sequence.length > container.length) return false;
+  return container.some((_, index) => sequence.every((token, offset) => container[index + offset] === token));
+};
+const SEMANTIC_STOPWORDS = new Set(["de", "del", "la", "el", "las", "los", "para", "por", "en"]);
+const GENERIC_ROLE_ALIASES = new Set(["fecha", "codigo", "cantidad", "valor"]);
 const safe = value => String(value ?? "").replace(/[&<>'"]/g, character => ({
   "&": "&amp;",
   "<": "&lt;",
@@ -600,7 +611,14 @@ function interpretationPanel() {
     const typeLabel = table.type === "sales" ? "Parece contener ventas" : table.type === "inventory" ? "Parece contener inventario" : table.type === "additional" ? "Información complementaria. No la necesitamos en esta versión" : "No estamos seguros de qué contiene";
     return `<li class="found-sheet ${table.type}">
       <div><strong>${safe(table.fileName)}</strong><span>Hoja: ${safe(table.sheetName)}</span></div>
-      <div><b>${typeLabel}</b></div>
+      <div><b>${typeLabel}</b><label>Corregir tipo de información
+        <select class="sheet-domain-select" data-table="${index}" aria-label="Tipo de información de la hoja ${safe(table.sheetName)}">
+          <option value="sales" ${table.type === "sales" ? "selected" : ""}>Ventas</option>
+          <option value="inventory" ${table.type === "inventory" ? "selected" : ""}>Inventario</option>
+          <option value="additional" ${table.type === "additional" ? "selected" : ""}>Otra información</option>
+          <option value="unknown" ${table.type === "unknown" ? "selected" : ""}>No estoy seguro</option>
+        </select>
+      </label></div>
     </li>`;
   }).join("");
   const relevant = app.classified
@@ -794,7 +812,9 @@ function columnChooser(table, tableIndex, role, assignment) {
   const selectedSource = assignmentSourceIndex(assignment, tableIndex);
   const selectedValue = assignment?.header ? columnOptionValue(selectedSource, assignment.header) : "";
   const decision = roleDecision(tableIndex, role);
-  const groups = app.classified.map((sourceTable, sourceIndex) => `<optgroup label="Hoja: ${safe(sourceTable.sheetName)} · ${safe(sourceTable.fileName)}">${sourceTable.headers.map(header => {
+  const groups = app.classified.map((sourceTable, sourceIndex) => ({ sourceTable, sourceIndex }))
+    .filter(({ sourceTable }) => sourceTable.type === table.type)
+    .map(({ sourceTable, sourceIndex }) => `<optgroup label="Hoja: ${safe(sourceTable.sheetName)} · ${safe(sourceTable.fileName)}">${sourceTable.headers.map(header => {
     const value = columnOptionValue(sourceIndex, header);
     return `<option value="${safe(value)}" ${value === selectedValue ? "selected" : ""}>${safe(header)}</option>`;
   }).join("")}</optgroup>`).join("");
@@ -821,20 +841,23 @@ function assignmentSourceIndex(assignment, fallbackTableIndex) {
   return Number.isInteger(assignment?.sourceTableIndex) ? assignment.sourceTableIndex : fallbackTableIndex;
 }
 
-function coherentSourceIndex(tableIndex, assignments, roles) {
+function coherentSourceIndex(tableIndex, assignments, roles, expectedType = null) {
   const usable = roles.map(role => assignments[role]).filter(isUsableAssignment);
   if (!usable.length || usable.length !== roles.length) return null;
   const sources = new Set(usable.map(assignment => assignmentSourceIndex(assignment, tableIndex)));
-  return sources.size === 1 ? [...sources][0] : null;
+  if (sources.size !== 1) return null;
+  const sourceIndex = [...sources][0];
+  if (expectedType && app.classified[sourceIndex]?.type !== expectedType) return null;
+  return sourceIndex;
 }
 
 function interpretedScope() {
   const hasSales = app.classified.some((table, tableIndex) => {
     if (table.type !== "sales") return false;
     const assignments = table.interpretation.assignments;
-    return ["cantidad", "valorTotal"].some(measure => coherentSourceIndex(tableIndex, assignments, ["fecha", "producto", measure]) !== null);
+    return ["cantidad", "valorTotal"].some(measure => coherentSourceIndex(tableIndex, assignments, ["fecha", "producto", measure], "sales") !== null);
   });
-  const hasInventory = app.classified.some((table, tableIndex) => table.type === "inventory" && coherentSourceIndex(tableIndex, table.interpretation.assignments, ["producto", "stock"]) !== null);
+  const hasInventory = app.classified.some((table, tableIndex) => table.type === "inventory" && coherentSourceIndex(tableIndex, table.interpretation.assignments, ["producto", "stock"], "inventory") !== null);
   return { hasSales, hasInventory };
 }
 
@@ -1572,6 +1595,7 @@ function bindScreen() {
       readUploads(event.dataTransfer.files);
     });
     document.querySelectorAll(".interpretation-action").forEach(button => button.addEventListener("click", handleInterpretationAction));
+    document.querySelectorAll(".sheet-domain-select").forEach(select => select.addEventListener("change", setTableDomain));
     document.querySelectorAll(".role-column-select").forEach(select => select.addEventListener("change", selectRoleColumn));
     document.querySelectorAll(".ambiguous-role-select").forEach(select => select.addEventListener("change", selectAmbiguousMeaning));
     document.querySelectorAll(".additional-data[data-additional-key]").forEach(details => details.addEventListener("toggle", () => {
@@ -1886,8 +1910,8 @@ async function readUploads(fileList) {
       table.profiles = Object.fromEntries(table.headers.map(header => [header, columnProfile(table.rows, header)]));
       const local = localClassifyTable(table);
       const interpreted = await window.AIDataInterpreter.interpret(table, () => local.remote);
-      if (interpreted.mode === "remote-ai") usedRemote = true;
       const classifiedTable = buildClassifiedTable(table, local, interpreted);
+      if (classifiedTable.mode === "remote-ai") usedRemote = true;
       const sourceTableIndex = app.classified.length;
       if (classifiedTable.interpretation) Object.values(classifiedTable.interpretation.assignments).forEach(assignment => {
         if (assignment) assignment.sourceTableIndex = sourceTableIndex;
@@ -1919,54 +1943,171 @@ function numericValue(value) {
   return cleaned !== "" && Number.isFinite(Number(cleaned)) ? Number(cleaned) : NaN;
 }
 
+function isNumericProfileValue(value) {
+  if (typeof value === "number") return Number.isFinite(value);
+  const text = String(value ?? "").trim();
+  if (!text || /[a-záéíóúñ]/i.test(text)) return false;
+  return Number.isFinite(numericValue(text));
+}
+
 function columnProfile(rows, header) {
   const values = rows.slice(0, 50).map(row => row[header]).filter(value => String(value ?? "").trim() !== "");
   const total = values.length || 1;
-  const numeric = values.filter(value => Number.isFinite(numericValue(value))).length / total;
+  const numeric = values.filter(isNumericProfileValue).length / total;
   const dates = values.filter(value => /^\d{4}-\d{1,2}-\d{1,2}/.test(String(value)) || /^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(String(value))).length / total;
-  const text = values.filter(value => !Number.isFinite(numericValue(value)) && String(value).length > 1).length / total;
+  const text = values.filter(value => !isNumericProfileValue(value) && String(value).length > 1).length / total;
   return { numeric, dates, text, sample: values.slice(0, 3).join(", ") };
 }
 
-function semanticScore(header, role, config, profile, type) {
+function roleIsVisible(type, role) {
+  const config = FIELD_CONFIG[type];
+  return Boolean(config && [...config.required, ...config.measures, ...config.optional].includes(role));
+}
+
+function nominalMatch(header, terms) {
   const name = normalize(header);
-  if (role === "cliente" && /(vendedor|comercial|asesor|ejecutivo|representante)/.test(name)) return 0;
-  if (role === "vendedor" && /(cliente|comprador|razon social|nit cliente|codigo cliente|id cliente)/.test(name)) return 0;
-  if (type === "sales" && role === "fecha" && /(inventario|corte|movimiento|vencimiento|caducidad)/.test(name)) return 0;
-  if (type === "sales" && role === "cantidad" && /(existencia|stock|inventario|saldo|disponible|minimo|maximo|reorden)/.test(name)) return 0;
-  if (type === "inventory" && role === "stock" && /(vendid|venta|despach|salida|factur)/.test(name)) return 0;
-  let score = 0;
-  for (const term of config.terms) {
+  const headerTokens = semanticTokens(header).filter(token => !SEMANTIC_STOPWORDS.has(token));
+  let best = null;
+  const matchedSingleTokens = new Set();
+  terms.forEach(term => {
     const normalizedTerm = normalize(term);
-    if (name === normalizedTerm) score = Math.max(score, 9);
-    else if (name.length >= 3 && normalizedTerm.length >= 3 && (name.includes(normalizedTerm) || normalizedTerm.includes(name))) score = Math.max(score, 6);
-    else {
-      const overlap = normalizedTerm.split(" ").filter(token => token.length > 2 && name.split(" ").includes(token)).length;
-      score = Math.max(score, overlap * 2);
+    const termTokens = semanticTokens(term).filter(token => !SEMANTIC_STOPWORDS.has(token));
+    let score = 0;
+    let kind = "";
+    let confidence = "Media";
+    const generic = termTokens.length === 1 && GENERIC_ROLE_ALIASES.has(termTokens[0]);
+    if (name === normalizedTerm) {
+      score = generic ? 72 : 104 + Math.min(8, termTokens.length * 2);
+      kind = generic ? "generic-exact" : "exact";
+      confidence = generic ? "Media" : "Alta";
+    } else if (termTokens.length > 1 && termTokens.every(token => headerTokens.includes(token))) {
+      const ordered = containsTokenSequence(headerTokens, termTokens);
+      score = (ordered ? 94 : 88) + Math.min(8, termTokens.length * 2);
+      kind = "specific-alias";
+      confidence = "Alta";
+    } else if (termTokens.length === 1 && headerTokens.includes(termTokens[0])) {
+      score = generic ? 62 : 88;
+      kind = generic ? "generic-token" : "token";
+      confidence = generic ? "Media" : "Alta";
+      matchedSingleTokens.add(termTokens[0]);
     }
+    if (score && (!best || score > best.score)) best = { score, kind, term: normalizedTerm, confidence };
+  });
+  if (matchedSingleTokens.size > 1 && (!best || best.score < 102)) {
+    best = { score: 102 + Math.min(6, matchedSingleTokens.size), kind: "combined-tokens", term: [...matchedSingleTokens].join(" "), confidence: "Alta" };
   }
-  if (role === "producto" && /(producto|articulo|descripcion|mercancia|referencia|sku)/.test(name)) score += 3;
-  if (["fecha", "fechaCorte", "ultimoMovimiento", "vencimiento"].includes(role)) score += profile.dates * 6;
-  if (["cantidad", "precio", "valorTotal", "costo", "utilidad", "stock", "valorInventario", "entradas", "compras", "salidas", "inventarioMinimo", "inventarioMaximo", "puntoReposicion", "reservada", "disponible", "pendienteRecibir", "tiempoEntrega", "descuento"].includes(role)) score += profile.numeric * 3;
-  if (role === "producto") score += profile.text * 2;
-  return score;
+  return best;
+}
+
+function semanticEvidence(header, role, config, profile, type) {
+  if (role === "cliente" && hasAnyToken(header, ["vendedor", "comercial", "asesor", "ejecutivo", "representante"])) return 0;
+  if (role === "vendedor" && hasAnyToken(header, ["cliente", "comprador"])) return 0;
+  if (type === "sales" && role === "fecha" && hasAnyToken(header, ["inventario", "corte", "movimiento", "vencimiento", "caducidad"])) return 0;
+  if (type === "sales" && role === "cantidad" && hasAnyToken(header, ["existencia", "existencias", "stock", "inventario", "saldo", "disponible", "disponibles", "minimo", "maximo", "reorden"])) return 0;
+  if (type === "inventory" && role === "stock" && hasAnyToken(header, ["vendida", "vendidas", "venta", "ventas", "despacho", "despachos", "salida", "salidas", "factura", "facturas"])) return 0;
+  if (role === "producto" && hasAnyToken(header, ["cliente", "vendedor", "comercial", "proveedor"])) return 0;
+  if (role === "factura" && hasAnyToken(header, ["id"]) && !hasAnyToken(header, ["factura", "facturas"])) return 0;
+  const nominal = nominalMatch(header, config.terms);
+  if (!nominal) return 0;
+  let score = nominal.score;
+  if (["fecha", "fechaCorte", "ultimoMovimiento", "vencimiento"].includes(role)) score += profile.dates * 8;
+  if (["cantidad", "precio", "valorTotal", "costo", "utilidad", "stock", "valorInventario", "entradas", "compras", "salidas", "inventarioMinimo", "inventarioMaximo", "puntoReposicion", "reservada", "disponible", "pendienteRecibir", "tiempoEntrega", "descuento"].includes(role)) score += profile.numeric * 5;
+  if (role === "producto") score += profile.text * 3;
+  return { score, confidence: nominal.confidence, matchKind: nominal.kind };
+}
+
+function semanticScore(header, role, config, profile, type) {
+  return semanticEvidence(header, role, config, profile, type)?.score || 0;
+}
+
+function maximumWeightMatching(rows, columns, weightMatrix) {
+  const rowCount = rows.length;
+  const realColumnCount = columns.length;
+  const columnCount = realColumnCount + rowCount;
+  if (!rowCount) return new Map();
+  const maxWeight = weightMatrix.reduce((maximum, row) => row.reduce((rowMaximum, value) => Math.max(rowMaximum, value), maximum), 0);
+  const u = new Array(rowCount + 1).fill(0);
+  const v = new Array(columnCount + 1).fill(0);
+  const p = new Array(columnCount + 1).fill(0);
+  const way = new Array(columnCount + 1).fill(0);
+  const cost = (rowIndex, columnIndex) => maxWeight - (columnIndex < realColumnCount ? weightMatrix[rowIndex][columnIndex] : 0);
+  for (let row = 1; row <= rowCount; row += 1) {
+    p[0] = row;
+    let column0 = 0;
+    const minValues = new Array(columnCount + 1).fill(Infinity);
+    const used = new Array(columnCount + 1).fill(false);
+    do {
+      used[column0] = true;
+      const row0 = p[column0];
+      let delta = Infinity;
+      let column1 = 0;
+      for (let column = 1; column <= columnCount; column += 1) {
+        if (used[column]) continue;
+        const current = cost(row0 - 1, column - 1) - u[row0] - v[column];
+        if (current < minValues[column]) {
+          minValues[column] = current;
+          way[column] = column0;
+        }
+        if (minValues[column] < delta) {
+          delta = minValues[column];
+          column1 = column;
+        }
+      }
+      for (let column = 0; column <= columnCount; column += 1) {
+        if (used[column]) {
+          u[p[column]] += delta;
+          v[column] -= delta;
+        } else minValues[column] -= delta;
+      }
+      column0 = column1;
+    } while (p[column0] !== 0);
+    do {
+      const column1 = way[column0];
+      p[column0] = p[column1];
+      column0 = column1;
+    } while (column0 !== 0);
+  }
+  const result = new Map();
+  for (let column = 1; column <= realColumnCount; column += 1) {
+    if (p[column] && weightMatrix[p[column] - 1][column - 1] > 0) result.set(rows[p[column] - 1], columns[column - 1]);
+  }
+  return result;
 }
 
 function inferInterpretation(table, type) {
-  const assignments = {};
-  const used = new Set();
-  for (const [role, config] of Object.entries(semanticRoles[type])) {
-    const ranked = table.headers
-      .filter(header => !used.has(header))
-      .map(header => ({ header, profile: table.profiles[header] || columnProfile(table.rows, header), score: semanticScore(header, role, config, table.profiles[header] || columnProfile(table.rows, header), type) }))
-      .sort((a, b) => b.score - a.score);
-    const best = ranked[0];
-    if (!best || best.score < 2) { assignments[role] = null; continue; }
-    const confidence = best.score >= 8 ? "Alta" : best.score >= 5 ? "Media" : "Baja";
-    if (confidence === "Alta") used.add(best.header);
-    const duplicates = best.score >= 8 ? ranked.filter(item => item.score >= 8 && best.score - item.score <= 1).map(item => item.header) : [];
-    assignments[role] = { header: best.header, confidence: duplicates.length > 1 ? "Media" : confidence, score: best.score, sample: best.profile.sample, duplicates };
-  }
+  const assignments = Object.fromEntries(Object.keys(semanticRoles[type]).map(role => [role, null]));
+  const roleEntries = Object.entries(semanticRoles[type])
+    .map(([role, config]) => ({ role, config, visible: roleIsVisible(type, role) }))
+    .sort((a, b) => Number(b.visible) - Number(a.visible) || a.role.localeCompare(b.role));
+  const headers = [...table.headers].sort((a, b) => normalize(a).localeCompare(normalize(b)) || String(a).localeCompare(String(b)));
+  const candidates = [];
+  roleEntries.forEach(({ role, config, visible }) => {
+    headers.forEach(header => {
+      const profile = table.profiles[header] || columnProfile(table.rows, header);
+      const evidence = semanticEvidence(header, role, config, profile, type);
+      if (evidence && evidence.score >= 55) candidates.push({ role, header, profile, visible, ...evidence });
+    });
+  });
+  const candidateByPair = new Map(candidates.map(candidate => [`${candidate.role}\u0000${candidate.header}`, candidate]));
+  const roles = roleEntries.map(item => item.role);
+  const weights = roles.map(role => headers.map(header => {
+    const candidate = candidateByPair.get(`${role}\u0000${header}`);
+    return candidate ? candidate.score * 100 + (candidate.visible ? 1 : 0) : 0;
+  }));
+  const matched = maximumWeightMatching(roles, headers, weights);
+  matched.forEach((header, role) => {
+    const candidate = candidateByPair.get(`${role}\u0000${header}`);
+    if (!candidate) return;
+    const competing = candidates.filter(item => item.role === candidate.role && candidate.score - item.score <= 2);
+    const duplicates = competing.length > 1 ? competing.map(item => item.header) : [];
+    assignments[candidate.role] = {
+      header: candidate.header,
+      confidence: duplicates.length > 1 ? "Media" : candidate.confidence,
+      score: candidate.score,
+      sample: candidate.profile.sample,
+      duplicates
+    };
+  });
   return { headers: table.headers, assignments, rowCount: table.rows.length };
 }
 
@@ -1986,9 +2127,11 @@ function localClassifyTable(table) {
   const sheetName = normalize(table.sheetName);
   const fileName = normalize(table.fileName);
   const name = `${fileName} ${sheetName}`;
-  const salesBonus = /(venta|factur|despach|salida)/.test(sheetName) ? 3 : /(venta|factur|despach|salida)/.test(fileName) ? 1 : 0;
-  const inventoryBonus = /(invent|exist|bodega|stock)/.test(sheetName) ? 3 : /(invent|exist|bodega|stock)/.test(fileName) ? 1 : 0;
-  const additionalName = /(cliente|proveedor|nomina|empleado|impuesto|resumen|contab|cartera)/.test(name);
+  const salesNameTokens = ["venta", "ventas", "factura", "facturas", "despacho", "despachos", "salida", "salidas"];
+  const inventoryNameTokens = ["inventario", "inventarios", "existencia", "existencias", "bodega", "bodegas", "stock"];
+  const salesBonus = hasAnyToken(sheetName, salesNameTokens) ? 3 : hasAnyToken(fileName, salesNameTokens) ? 1 : 0;
+  const inventoryBonus = hasAnyToken(sheetName, inventoryNameTokens) ? 3 : hasAnyToken(fileName, inventoryNameTokens) ? 1 : 0;
+  const additionalName = hasAnyToken(name, ["cliente", "clientes", "proveedor", "proveedores", "nomina", "empleado", "empleados", "impuesto", "impuestos", "resumen", "contabilidad", "cartera"]);
   let type = "unknown";
   let score = 0;
   if (salesScore + salesBonus >= 8 && salesScore + salesBonus > inventoryScore + inventoryBonus) { type = "sales"; score = salesScore + salesBonus; }
@@ -2009,7 +2152,7 @@ function assignmentSupportsDomain(table, type, role, assignment) {
   if (!assignment?.header || !table.headers.includes(assignment.header)) return false;
   if (assignment.confirmed) return true;
   const profile = table.profiles?.[assignment.header] || columnProfile(table.rows, assignment.header);
-  return semanticScore(assignment.header, role, semanticRoles[type][role], profile, type) >= 5;
+  return semanticScore(assignment.header, role, semanticRoles[type][role], profile, type) >= 55;
 }
 
 function interpretationSupportsDomain(table, type, interpretation) {
@@ -2025,6 +2168,7 @@ function repairStoredClassifiedDomains() {
   app.classified = app.classified.map((table, tableIndex) => {
     if (!table?.rows?.length || !table?.headers?.length) return table;
     table.profiles ||= Object.fromEntries(table.headers.map(header => [header, columnProfile(table.rows, header)]));
+    if (table.domainUserSelected) return table;
     if (interpretationSupportsDomain(table, table.type, table.interpretation)) return table;
     const local = localClassifyTable(table);
     if (!["sales", "inventory"].includes(local.type) || local.type === table.type) return table;
@@ -2049,38 +2193,83 @@ function localRole(role) {
   return ({ date: "fecha", product: "producto", quantity: "cantidad", unit_price: "precio", sale_value: "valorTotal", stock: "stock", cost: "costo", inventory_value: "valorInventario", last_movement: "ultimoMovimiento", entries: "entradas", purchases: "entradas", exits: "salidas", minimum_stock: "inventarioMinimo", maximum_stock: "inventarioMaximo", warehouse: "bodega", category: "categoria" })[role] || role;
 }
 
-function buildClassifiedTable(table, local, interpreted) {
-  const remote = interpreted.result;
-  let type = remote.sheet_type === "unknown" ? local.type : remote.sheet_type;
-  let typeConfidence = remote.sheet_type === "unknown" ? local.typeConfidence : confidenceFromRemote(remote.confidence);
-  let mode = interpreted.mode;
-  let interpretation = type === "sales" ? local.interpretations.sales : type === "inventory" ? local.interpretations.inventory : null;
-  if (interpreted.mode === "remote-ai" && interpretation) {
-    for (const [remoteName, remoteAssignment] of Object.entries(remote.columns)) {
-      const role = localRole(remoteName);
-      if (!semanticRoles[type][role] || !table.headers.includes(remoteAssignment.source)) continue;
-      interpretation.assignments[role] = {
-        header: remoteAssignment.source,
-        confidence: confidenceFromRemote(remoteAssignment.confidence),
-        score: confidenceWeight(confidenceFromRemote(remoteAssignment.confidence)),
-        sample: table.profiles[remoteAssignment.source]?.sample || ""
-      };
-    }
-    if (!interpretationSupportsDomain(table, type, interpretation)) {
-      const fallbackType = local.type;
-      type = fallbackType;
-      typeConfidence = local.typeConfidence;
-      mode = "local-fallback";
-      interpretation = fallbackType === "sales" ? local.interpretations.sales : fallbackType === "inventory" ? local.interpretations.inventory : null;
-    }
-  }
+function cloneInterpretation(interpretation) {
+  if (!interpretation) return null;
   return {
-    ...table,
-    type,
-    typeConfidence,
-    interpretation,
-    mode
+    ...interpretation,
+    headers: [...(interpretation.headers || [])],
+    assignments: Object.fromEntries(Object.entries(interpretation.assignments || {}).map(([role, assignment]) => [role, assignment ? {
+      ...assignment,
+      duplicates: [...(assignment.duplicates || [])]
+    } : null]))
   };
+}
+
+function buildClassifiedTable(table, local, interpreted) {
+  const localInterpretation = selectedType => selectedType === "sales" ? local.interpretations.sales : selectedType === "inventory" ? local.interpretations.inventory : null;
+  const localResult = () => ({
+    ...table,
+    type: local.type,
+    typeConfidence: local.typeConfidence,
+    interpretation: cloneInterpretation(localInterpretation(local.type)),
+    mode: "local-fallback"
+  });
+  if (interpreted.mode !== "remote-ai") return localResult();
+  const remote = interpreted.result;
+  if (!remote || !["sales", "inventory"].includes(remote.sheet_type)) return localResult();
+  const type = remote.sheet_type;
+  const localIsValid = ["sales", "inventory"].includes(local.type) && interpretationSupportsDomain(table, local.type, localInterpretation(local.type));
+  if (localIsValid && type !== local.type) return localResult();
+  const remoteInterpretation = {
+    headers: [...table.headers],
+    assignments: Object.fromEntries(Object.keys(semanticRoles[type]).map(role => [role, null])),
+    rowCount: table.rows.length
+  };
+  let remoteValid = true;
+  const remoteSources = new Set();
+  for (const [remoteName, remoteAssignment] of Object.entries(remote.columns || {})) {
+    const role = localRole(remoteName);
+    if (!semanticRoles[type][role] || !table.headers.includes(remoteAssignment.source) || remoteSources.has(remoteAssignment.source)) {
+      remoteValid = false;
+      continue;
+    }
+    const candidate = {
+      header: remoteAssignment.source,
+      confidence: confidenceFromRemote(remoteAssignment.confidence),
+      score: confidenceWeight(confidenceFromRemote(remoteAssignment.confidence)),
+      sample: table.profiles[remoteAssignment.source]?.sample || "",
+      duplicates: []
+    };
+    if (!assignmentSupportsDomain(table, type, role, candidate)) remoteValid = false;
+    remoteSources.add(remoteAssignment.source);
+    remoteInterpretation.assignments[role] = candidate;
+  }
+  if (!remoteValid || !interpretationSupportsDomain(table, type, remoteInterpretation)) return localResult();
+  const interpretation = cloneInterpretation(localInterpretation(type)) || cloneInterpretation(remoteInterpretation);
+  Object.entries(remoteInterpretation.assignments).forEach(([role, assignment]) => {
+    if (assignment) interpretation.assignments[role] = assignment;
+  });
+  return { ...table, type, typeConfidence: confidenceFromRemote(remote.confidence), interpretation, mode: "remote-ai" };
+}
+
+function setTableDomain(event) {
+  const tableIndex = Number(event.target.dataset.table);
+  const nextType = event.target.value;
+  if (!Number.isInteger(tableIndex) || !["sales", "inventory", "additional", "unknown"].includes(nextType)) return;
+  const table = app.classified[tableIndex];
+  if (!table || table.type === nextType) return;
+  table.type = nextType;
+  table.typeConfidence = "Alta";
+  table.domainUserSelected = true;
+  table.mode = "user-confirmed";
+  table.interpretation = ["sales", "inventory"].includes(nextType) ? inferInterpretation(table, nextType) : null;
+  if (table.interpretation) Object.values(table.interpretation.assignments).forEach(assignment => {
+    if (assignment) assignment.sourceTableIndex = tableIndex;
+  });
+  Object.keys(app.clarifications).filter(key => key.startsWith(`${tableIndex}:`)).forEach(key => delete app.clarifications[key]);
+  Object.keys(app.additionalSections).filter(key => key.startsWith(`${tableIndex}:`)).forEach(key => delete app.additionalSections[key]);
+  refreshInterpretationAnalysis();
+  render();
 }
 
 function requiredMappingIssues() {
@@ -2123,7 +2312,7 @@ function requiredMappingIssues() {
     if (!table.interpretation || !["sales", "inventory"].includes(table.type)) return false;
     const assignments = table.interpretation.assignments;
     const roleSets = table.type === "sales" ? [["fecha", "producto", "cantidad"], ["fecha", "producto", "valorTotal"]] : [["producto", "stock"]];
-    return roleSets.some(roles => roles.every(role => isUsableAssignment(assignments[role])) && coherentSourceIndex(tableIndex, assignments, roles) === null);
+    return roleSets.some(roles => roles.every(role => isUsableAssignment(assignments[role])) && coherentSourceIndex(tableIndex, assignments, roles, table.type) === null);
   });
   if (incoherent) issues.push({
     title: "Los datos principales quedaron en hojas distintas",
@@ -2186,7 +2375,7 @@ function selectRoleColumn(event) {
   if (!header) return;
   const table = app.classified[tableIndex];
   const sourceTable = app.classified[sourceTableIndex];
-  if (!sourceTable?.headers.includes(header)) return;
+  if (!sourceTable?.headers.includes(header) || sourceTable.type !== table?.type) return;
   const importantRoles = table.type === "sales" ? ["fecha", "producto", "cantidad", "valorTotal"] : ["producto", "stock"];
   const usedBy = importantRoles.find(otherRole => {
     if (otherRole === role) return false;
@@ -2273,10 +2462,11 @@ function buildCanonicalDataset() {
     if (!["sales", "inventory"].includes(table.type) || !table.interpretation) continue;
     const assignments = table.interpretation.assignments;
     if (table.type === "sales") {
-      const sourceIndex = coherentSourceIndex(tableIndex, assignments, ["fecha", "producto", "cantidad"])
-        ?? coherentSourceIndex(tableIndex, assignments, ["fecha", "producto", "valorTotal"]);
+      const sourceIndex = coherentSourceIndex(tableIndex, assignments, ["fecha", "producto", "cantidad"], "sales")
+        ?? coherentSourceIndex(tableIndex, assignments, ["fecha", "producto", "valorTotal"], "sales");
       if (sourceIndex === null || processed.has(`sales:${sourceIndex}`)) continue;
       const sourceTable = app.classified[sourceIndex];
+      if (sourceTable?.type !== "sales") continue;
       const value = (row, role) => isUsableAssignment(assignments[role]) && assignmentSourceIndex(assignments[role], tableIndex) === sourceIndex ? row[assignments[role].header] : "";
       processed.add(`sales:${sourceIndex}`);
       sourceTable.rows.forEach(row => {
@@ -2288,9 +2478,10 @@ function buildCanonicalDataset() {
         sales.push(record);
       });
     } else {
-      const sourceIndex = coherentSourceIndex(tableIndex, assignments, ["producto", "stock"]);
+      const sourceIndex = coherentSourceIndex(tableIndex, assignments, ["producto", "stock"], "inventory");
       if (sourceIndex === null || processed.has(`inventory:${sourceIndex}`)) continue;
       const sourceTable = app.classified[sourceIndex];
+      if (sourceTable?.type !== "inventory") continue;
       const value = (row, role) => isUsableAssignment(assignments[role]) && assignmentSourceIndex(assignments[role], tableIndex) === sourceIndex ? row[assignments[role].header] : "";
       processed.add(`inventory:${sourceIndex}`);
       sourceTable.rows.forEach(row => inventory.push(Object.fromEntries(Object.keys(semanticRoles.inventory).map(role => [role, value(row, role)]))));

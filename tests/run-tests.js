@@ -58,7 +58,7 @@ const source = fs.readFileSync(appPath, "utf8") + `
   app, datasets, analyze, priorityScore, requiredMappingIssues,
   demoCredentialsValid, demoStateSnapshot, persistDemoProgress, restoreDemoProgress,
   setupSpeechRecognition, voiceState: () => ({ isListening }), contextScreen, contextProgress, dataScreen, semanticRoles, FIELD_CONFIG,
-  inferInterpretation, localClassifyTable, buildClassifiedTable, repairStoredClassifiedDomains, buildCanonicalDataset, interpretedScope,
+  inferInterpretation, localClassifyTable, buildClassifiedTable, repairStoredClassifiedDomains, setTableDomain, columnProfile, readUploads, buildCanonicalDataset, interpretedScope,
   handleInterpretationAction, selectRoleColumn, interpretationRow,
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
   roleDisplayLabel, primaryReviewProgress, interpretationPanel, mappingCard,
@@ -77,7 +77,7 @@ vm.runInContext(source, sandbox, { filename: appPath });
 const {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
   demoCredentialsValid, demoStateSnapshot, persistDemoProgress, restoreDemoProgress,
-  setupSpeechRecognition, voiceState, contextScreen, contextProgress, dataScreen, semanticRoles, FIELD_CONFIG, inferInterpretation, localClassifyTable, buildClassifiedTable, repairStoredClassifiedDomains,
+  setupSpeechRecognition, voiceState, contextScreen, contextProgress, dataScreen, semanticRoles, FIELD_CONFIG, inferInterpretation, localClassifyTable, buildClassifiedTable, repairStoredClassifiedDomains, setTableDomain, columnProfile, readUploads,
   buildCanonicalDataset, interpretedScope, handleInterpretationAction,
   selectRoleColumn, interpretationRow, columnChooser, columnOptionValue,
   columnDataQuality, columnIdentification, roleDisplayLabel,
@@ -408,7 +408,7 @@ test("Un dato opcional ausente no bloquea una carga real completa", () => {
   assert.equal(requiredMappingIssues().length, 0);
 });
 
-test("ANALÍTICA 1: identifica correctamente columnas normales con confianza alta", () => {
+test("ANALÍTICA 1: identifica columnas normales y pide revisar los alias genéricos", () => {
   const rows = [{ Fecha: "2026-01-01", "Cod Art": "A001", Cantidad: 2, "Valor Total": 20000 }];
   const table = makeTable("sales", rows, {});
   table.profiles.Fecha.dates = 1;
@@ -416,7 +416,7 @@ test("ANALÍTICA 1: identifica correctamente columnas normales con confianza alt
   table.profiles.Cantidad.numeric = 1;
   table.profiles["Valor Total"].numeric = 1;
   const result = inferInterpretation(table, "sales");
-  assert.equal(result.assignments.fecha.confidence, "Alta");
+  assert.equal(result.assignments.fecha.confidence, "Media");
   assert.equal(result.assignments.producto.header, "Cod Art");
 });
 
@@ -458,9 +458,9 @@ test("UX CRÍTICA: Cambiar muestra todas las columnas y corrige IdDocumento por 
   app.clarifications["0:cantidad"] = { status: "editing" };
   const selector = columnChooser(sales, 0, "cantidad", sales.interpretation.assignments.cantidad);
   assert.ok(selector.includes("Cantidad"));
-  assert.ok(selector.includes("Bodega"));
+  assert.ok(!selector.includes("Bodega"));
   assert.ok(selector.includes("Ventas · sales.csv"));
-  assert.ok(selector.includes("Inventario · inventory.csv"));
+  assert.ok(!selector.includes("Inventario · inventory.csv"));
   selectRoleColumn({ target: { dataset: { table: "0", role: "cantidad" }, value: columnOptionValue(0, "Cantidad") } });
   assert.equal(sales.interpretation.assignments.cantidad.header, "Cantidad");
   assert.equal(sales.interpretation.assignments.cantidad.sourceTableIndex, 0);
@@ -611,8 +611,8 @@ test("UX CRÍTICA: cambiar no muestra ejemplos y exige confirmar la nueva column
   const chooser = interpretationRow(sales, 0, "cantidad");
   assert.ok(chooser.includes("Fecha"));
   assert.ok(chooser.includes("Cantidad"));
-  assert.ok(chooser.includes("CodigoProducto"));
-  assert.ok(chooser.includes("Hoja: Productos"));
+  assert.ok(!chooser.includes("CodigoProducto"));
+  assert.ok(!chooser.includes("Hoja: Productos"));
   assert.ok(!chooser.includes("Ejemplos:"));
   selectRoleColumn({ target: { dataset: { table: "0", role: "cantidad" }, value: columnOptionValue(0, "Cantidad") } });
   const selected = interpretationRow(sales, 0, "cantidad");
@@ -796,6 +796,350 @@ test("DOMINIOS ETAPA 2: repara una clasificación antigua incompatible al recupe
   repairStoredClassifiedDomains();
   assert.equal(app.classified[0].type, "inventory");
   assert.ok(app.classified[0].interpretation.assignments.stock);
+});
+
+test("ENDURECIMIENTO 1: Inventario se interpreta como existencia sin activar la palabra venta", () => {
+  const raw = makeClassifiableTable([{ Producto: "A", Inventario: 12 }], "datos.xlsx", "Inventario");
+  const local = localClassifyTable(raw);
+  assert.equal(local.type, "inventory");
+  assert.equal(local.interpretations.inventory.assignments.stock.header, "Inventario");
+  assert.equal(local.interpretations.sales.assignments.cantidad, null);
+});
+
+test("ENDURECIMIENTO 2: CantidadInventario se reconoce como existencia y no como cantidad vendida", () => {
+  const raw = makeClassifiableTable([{ Producto: "A", CantidadInventario: 12 }], "datos.xlsx", "Existencias");
+  const local = localClassifyTable(raw);
+  assert.equal(local.type, "inventory");
+  assert.equal(local.interpretations.inventory.assignments.stock.header, "CantidadInventario");
+  assert.equal(local.interpretations.sales.assignments.cantidad, null);
+});
+
+test("ENDURECIMIENTO 3: QtyOnHand se reconoce mediante un alias específico de inventario", () => {
+  const raw = makeClassifiableTable([{ SKU: "A-01", QtyOnHand: 12 }], "datos.xlsx", "Hoja1");
+  const local = localClassifyTable(raw);
+  assert.equal(local.type, "inventory");
+  assert.equal(local.interpretations.inventory.assignments.stock.header, "QtyOnHand");
+});
+
+test("ENDURECIMIENTO 4: FechaMovimiento queda para el rol visible de último movimiento", () => {
+  const raw = makeClassifiableTable([{ Producto: "A", Stock: 12, FechaMovimiento: "2026-07-15" }], "datos.xlsx", "Inventario");
+  const interpretation = inferInterpretation(raw, "inventory");
+  assert.equal(interpretation.assignments.ultimoMovimiento.header, "FechaMovimiento");
+  assert.notEqual(interpretation.assignments.fechaCorte?.header, "FechaMovimiento");
+});
+
+test("ENDURECIMIENTO 5: fechas competidoras se asignan globalmente a sus roles específicos", () => {
+  const raw = makeClassifiableTable([{ Producto: "A", Stock: 12, FechaCorte: "2026-07-31", FechaMovimiento: "2026-07-15" }], "datos.xlsx", "Inventario");
+  const interpretation = inferInterpretation(raw, "inventory");
+  assert.equal(interpretation.assignments.fechaCorte.header, "FechaCorte");
+  assert.equal(interpretation.assignments.ultimoMovimiento.header, "FechaMovimiento");
+});
+
+test("ENDURECIMIENTO 6: IdDocumento y números irrelevantes no generan sugerencias por tipo de dato", () => {
+  const raw = makeClassifiableTable([{ Producto: "A", IdDocumento: 987654, ConsecutivoInterno: 42 }], "datos.xlsx", "Hoja1");
+  const sales = inferInterpretation(raw, "sales");
+  assert.equal(sales.assignments.cantidad, null);
+  assert.equal(sales.assignments.valorTotal, null);
+  assert.equal(sales.assignments.factura, null);
+});
+
+test("ENDURECIMIENTO 7: códigos alfanuméricos conservan perfil de texto", () => {
+  const profile = columnProfile([{ Codigo: "A001" }, { Codigo: "B-204" }], "Codigo");
+  assert.equal(profile.numeric, 0);
+  assert.equal(profile.text, 1);
+  const raw = makeClassifiableTable([{ Codigo: "A001", Stock: 4 }], "datos.xlsx", "Inventario");
+  const interpretation = inferInterpretation(raw, "inventory");
+  assert.equal(interpretation.assignments.producto.header, "Codigo");
+});
+
+test("ENDURECIMIENTO 8: una respuesta remota inválida del mismo dominio restaura exactamente el resultado local", () => {
+  const raw = makeClassifiableTable([{ Fecha: "2026-07-01", Producto: "A", Cantidad: 2, IdDocumento: 999 }], "datos.xlsx", "Ventas");
+  const local = localClassifyTable(raw);
+  const original = JSON.parse(JSON.stringify(local.interpretations.sales));
+  const classified = buildClassifiedTable(raw, local, { mode: "remote-ai", result: {
+    sheet_type: "sales", confidence: "high", columns: {
+      date: { source: "IdDocumento", confidence: "high" },
+      product: { source: "Producto", confidence: "high" },
+      quantity: { source: "Cantidad", confidence: "high" }
+    }
+  } });
+  assert.equal(classified.mode, "local-fallback");
+  assert.equal(JSON.stringify(classified.interpretation), JSON.stringify(original));
+  assert.equal(JSON.stringify(local.interpretations.sales), JSON.stringify(original));
+});
+
+test("ENDURECIMIENTO 9: el usuario puede corregir manualmente el dominio de una hoja", () => {
+  const raw = makeClassifiableTable([{ Producto: "A", QtyOnHand: 12 }], "datos.xlsx", "Hoja1");
+  const sales = { ...raw, type: "sales", interpretation: inferInterpretation(raw, "sales") };
+  resetInterpretation([sales]);
+  setTableDomain({ target: { dataset: { table: "0" }, value: "inventory" } });
+  assert.equal(app.classified[0].type, "inventory");
+  assert.equal(app.classified[0].domainUserSelected, true);
+  assert.equal(app.classified[0].interpretation.assignments.stock.header, "QtyOnHand");
+  assert.ok(interpretationPanel().includes('class="sheet-domain-select"'));
+});
+
+test("ENDURECIMIENTO 10: el cuerpo real remoto excluye filas, encabezados crudos y contexto identificable", async () => {
+  let requestBody = null;
+  const aiSandbox = {
+    window: { SAN_JOSE_AI_CONFIG: { enabled: true, endpoint: "https://interpreter.example.test", timeoutMs: 1000 } },
+    console,
+    fetch: async (_url, options) => {
+      requestBody = options.body;
+      return { ok: true, json: async () => ({ sheet_type: "unknown", confidence: "low", columns: {} }) };
+    },
+    AbortController, setTimeout, clearTimeout
+  };
+  vm.createContext(aiSandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "ai-interpreter.js"), "utf8"), aiSandbox);
+  await aiSandbox.window.AIDataInterpreter.interpret({
+    fileName: "Cliente-Secreto.xlsx",
+    sheetName: "Empresa Secreta",
+    headers: ["Cliente Persona Identificable", "NIT 900123 Valor"],
+    rows: [{ "Cliente Persona Identificable": "Persona Identificable", "NIT 900123 Valor": 12345 }],
+    profiles: { "Cliente Persona Identificable": { numeric: 0, dates: 0, text: 1, sample: "Persona Identificable" }, "NIT 900123 Valor": { numeric: 1, dates: 0, text: 0, sample: "12345" } },
+    businessContext: { contacto: "correo@secreto.co" }
+  }, () => ({ sheet_type: "unknown", confidence: "low", columns: {} }));
+  assert.ok(requestBody);
+  ["Persona Identificable", "Cliente-Secreto.xlsx", "Empresa Secreta", "correo@secreto.co", "900123", "12345", "sample", "business_context", "headers"].forEach(secret => assert.ok(!requestBody.includes(secret), secret));
+  const descriptor = JSON.parse(requestBody);
+  assert.deepEqual(descriptor.columns.map(column => column.id), ["column_1", "column_2"]);
+  assert.deepEqual(descriptor.columns[0].semantic_signals, ["cliente"]);
+  assert.deepEqual(descriptor.columns[1].semantic_signals, ["valor"]);
+  assert.equal(descriptor.row_count, 1);
+  assert.equal(descriptor.column_count, 2);
+});
+
+test("ENDURECIMIENTO 11: reconoce variantes realistas sin volver a usar subcadenas", () => {
+  const cases = [
+    {
+      type: "sales",
+      rows: [{ "Fecha Documento": "2026-07-01", "Codigo SKU": "A-01", "Cantidad Facturada": 3, "Valor Total Venta": 30000 }],
+      expected: { fecha: "Fecha Documento", producto: "Codigo SKU", cantidad: "Cantidad Facturada", valorTotal: "Valor Total Venta" }
+    },
+    {
+      type: "inventory",
+      rows: [{ "Codigo SKU": "A-01", "Existencia Actual Bodega": 8 }],
+      expected: { producto: "Codigo SKU", stock: "Existencia Actual Bodega" }
+    },
+    {
+      type: "sales",
+      rows: [{ "Fecha de la venta": "2026-07-01", "Código del producto": "A-01", "Unidades vendidas mes": 2 }],
+      expected: { fecha: "Fecha de la venta", producto: "Código del producto", cantidad: "Unidades vendidas mes" }
+    }
+  ];
+  cases.forEach(({ type, rows, expected }) => {
+    const raw = makeClassifiableTable(rows, "datos.xlsx", type === "sales" ? "Ventas" : "Inventario");
+    const local = localClassifyTable(raw);
+    assert.equal(local.type, type);
+    Object.entries(expected).forEach(([role, header]) => {
+      assert.equal(local.interpretations[type].assignments[role].header, header, `${type}:${role}`);
+      assert.equal(local.interpretations[type].assignments[role].confidence, "Alta", `${type}:${role}:confianza`);
+    });
+  });
+});
+
+test("ENDURECIMIENTO 12: alias genéricos permanecen en revisión aunque el tipo de dato coincida", () => {
+  const raw = makeClassifiableTable([{ Fecha: "2026-07-01", Codigo: "A-01", Cantidad: 2, Valor: 20000 }], "datos.xlsx", "Ventas");
+  const interpretation = inferInterpretation(raw, "sales");
+  for (const role of ["fecha", "producto", "cantidad", "valorTotal"]) {
+    assert.equal(interpretation.assignments[role].confidence, "Media", role);
+  }
+});
+
+test("ENDURECIMIENTO 13: Compras y Entradas reciben la asignación global óptima sin depender del orden", () => {
+  const variants = [
+    { Producto: "A", Stock: 4, Compras: 2, Entradas: 1 },
+    { Producto: "A", Stock: 4, Entradas: 1, Compras: 2 }
+  ];
+  variants.forEach(rows => {
+    const raw = makeClassifiableTable([rows], "datos.xlsx", "Inventario");
+    const interpretation = inferInterpretation(raw, "inventory");
+    assert.equal(interpretation.assignments.entradas.header, "Entradas");
+    assert.equal(interpretation.assignments.compras.header, "Compras");
+  });
+});
+
+test("ENDURECIMIENTO 14: additional, unknown, parcial, incompatible y dominio contrario conservan exactamente el local", () => {
+  const raw = makeClassifiableTable([{ FechaVenta: "2026-07-01", Producto: "A", CantidadVendida: 2, Stock: 7, IdDocumento: 999 }], "datos.xlsx", "Ventas");
+  const local = localClassifyTable(raw);
+  assert.equal(local.type, "sales");
+  const original = JSON.stringify(local.interpretations.sales);
+  const cases = [
+    { sheet_type: "additional", confidence: "high", columns: {} },
+    { sheet_type: "unknown", confidence: "high", columns: { date: { source: "FechaVenta", confidence: "high" } } },
+    { sheet_type: "sales", confidence: "high", columns: { product: { source: "Producto", confidence: "high" } } },
+    { sheet_type: "sales", confidence: "high", columns: { date: { source: "IdDocumento", confidence: "high" }, product: { source: "Producto", confidence: "high" }, quantity: { source: "CantidadVendida", confidence: "high" } } },
+    { sheet_type: "inventory", confidence: "high", columns: { product: { source: "Producto", confidence: "high" }, stock: { source: "Stock", confidence: "high" } } }
+  ];
+  cases.forEach(result => {
+    const classified = buildClassifiedTable(raw, local, { mode: "remote-ai", result });
+    assert.equal(classified.type, "sales", result.sheet_type);
+    assert.equal(classified.mode, "local-fallback", result.sheet_type);
+    assert.equal(JSON.stringify(classified.interpretation), original, result.sheet_type);
+    assert.equal(JSON.stringify(local.interpretations.sales), original, `${result.sheet_type}:inmutable`);
+  });
+});
+
+test("ENDURECIMIENTO 15: una interpretación remota completa y compatible sí puede utilizarse", () => {
+  const raw = makeClassifiableTable([{ FechaVenta: "2026-07-01", Producto: "A", CantidadVendida: 2 }], "datos.xlsx", "Ventas");
+  const local = localClassifyTable(raw);
+  const classified = buildClassifiedTable(raw, local, { mode: "remote-ai", result: {
+    sheet_type: "sales", confidence: "high", columns: {
+      date: { source: "FechaVenta", confidence: "high" },
+      product: { source: "Producto", confidence: "high" },
+      quantity: { source: "CantidadVendida", confidence: "high" }
+    }
+  } });
+  assert.equal(classified.mode, "remote-ai");
+  assert.equal(classified.type, "sales");
+});
+
+test("ENDURECIMIENTO 16: semanticMode refleja el fallback realmente usado al cargar", async () => {
+  const previousInterpreter = sandbox.window.AIDataInterpreter;
+  sandbox.window.AIDataInterpreter = { interpret: async () => ({ mode: "remote-ai", result: { sheet_type: "additional", confidence: "high", columns: {} } }) };
+  app.step = 3;
+  app.source = "";
+  app.context = {};
+  const csv = { name: "ventas.csv", size: 80, text: async () => "FechaVenta,Producto,CantidadVendida\n2026-07-01,A,2" };
+  await readUploads([csv]);
+  assert.equal(app.classified[0].mode, "local-fallback");
+  assert.equal(app.semanticMode, "local-fallback");
+  sandbox.window.AIDataInterpreter = previousInterpreter;
+});
+
+test("ENDURECIMIENTO 17: el selector y la capa canónica impiden cruces entre Ventas e Inventario", () => {
+  const sales = makeTable("sales", [{ Fecha: "2026-07-01", Producto: "A", Cantidad: 2 }], {
+    fecha: assignment("Fecha"), producto: assignment("Producto"), cantidad: assignment("Cantidad")
+  });
+  const inventory = makeTable("inventory", [{ Producto: "A", Stock: 8 }], {
+    producto: assignment("Producto"), stock: assignment("Stock")
+  });
+  sales.fileName = inventory.fileName = "negocio.xlsx";
+  resetInterpretation([sales, inventory]);
+  const chooser = columnChooser(sales, 0, "cantidad", sales.interpretation.assignments.cantidad);
+  assert.ok(chooser.includes("Cantidad"));
+  assert.ok(!chooser.includes("Stock"));
+  const before = sales.interpretation.assignments.cantidad.header;
+  selectRoleColumn({ target: { dataset: { table: "0", role: "cantidad" }, value: columnOptionValue(1, "Stock") } });
+  assert.equal(sales.interpretation.assignments.cantidad.header, before);
+  Object.values(sales.interpretation.assignments).filter(Boolean).forEach(item => { item.confirmed = true; });
+  Object.values(inventory.interpretation.assignments).filter(Boolean).forEach(item => { item.confirmed = true; });
+  const canonical = buildCanonicalDataset();
+  assert.equal(canonical.sales.length, 1);
+  assert.equal(canonical.inventory.length, 1);
+  assert.equal(canonical.sales[0].stock, undefined);
+  assert.equal(canonical.inventory[0].cantidad, undefined);
+});
+
+test("ENDURECIMIENTO 18: el selector manual admite todos los cambios permitidos y limpia solo su hoja", () => {
+  const salesRaw = makeClassifiableTable([{ FechaVenta: "2026-07-01", Producto: "A", CantidadVendida: 2 }], "negocio.xlsx", "Ventas");
+  const inventoryRaw = makeClassifiableTable([{ Producto: "A", Stock: 8 }], "negocio.xlsx", "Inventario");
+  const sales = { ...salesRaw, type: "sales", interpretation: inferInterpretation(salesRaw, "sales") };
+  const inventory = { ...inventoryRaw, type: "inventory", interpretation: inferInterpretation(inventoryRaw, "inventory") };
+  resetInterpretation([sales, inventory]);
+  app.clarifications = { "0:fecha": { status: "confirmed" }, "1:stock": { status: "confirmed" } };
+  app.additionalSections = { "0:sales": true, "1:inventory": true };
+  const inventoryBefore = JSON.stringify(inventory);
+  setTableDomain({ target: { dataset: { table: "0" }, value: "additional" } });
+  assert.equal(app.classified[0].type, "additional");
+  assert.equal(app.classified[0].interpretation, null);
+  assert.equal(JSON.stringify(app.classified[1]), inventoryBefore);
+  assert.equal(app.clarifications["0:fecha"], undefined);
+  assert.equal(app.clarifications["1:stock"].status, "confirmed");
+  assert.equal(app.additionalSections["0:sales"], undefined);
+  assert.equal(app.additionalSections["1:inventory"], true);
+  setTableDomain({ target: { dataset: { table: "1" }, value: "unknown" } });
+  assert.equal(app.classified[1].type, "unknown");
+  assert.equal(app.classified[1].interpretation, null);
+});
+
+test("ENDURECIMIENTO 19: el selector permite Inventario a Ventas y conserva la elección tras restaurar", () => {
+  localStorage.clear();
+  const raw = makeClassifiableTable([{ FechaVenta: "2026-07-01", Producto: "A", CantidadVendida: 2 }], "negocio.xlsx", "Hoja1");
+  const table = { ...raw, type: "inventory", interpretation: inferInterpretation(raw, "inventory") };
+  resetInterpretation([table]);
+  app.userId = "demo-san-jose";
+  setTableDomain({ target: { dataset: { table: "0" }, value: "sales" } });
+  assert.equal(app.classified[0].type, "sales");
+  assert.equal(app.classified[0].interpretation.assignments.fecha.header, "FechaVenta");
+  assert.equal(persistDemoProgress(), true);
+  app.classified = [];
+  assert.equal(restoreDemoProgress(), true);
+  assert.equal(app.classified[0].type, "sales");
+  assert.equal(app.classified[0].domainUserSelected, true);
+  app.userId = null;
+  localStorage.clear();
+});
+
+test("ENDURECIMIENTO 20: Ventas e Inventario pueden pasar a cada estado no analizable permitido", () => {
+  for (const sourceType of ["sales", "inventory"]) {
+    for (const targetType of ["additional", "unknown"]) {
+      const rows = sourceType === "sales"
+        ? [{ FechaVenta: "2026-07-01", Producto: "A", CantidadVendida: 2 }]
+        : [{ Producto: "A", Stock: 8 }];
+      const raw = makeClassifiableTable(rows, "negocio.xlsx", sourceType === "sales" ? "Ventas" : "Inventario");
+      const table = { ...raw, type: sourceType, interpretation: inferInterpretation(raw, sourceType) };
+      resetInterpretation([table]);
+      setTableDomain({ target: { dataset: { table: "0" }, value: targetType } });
+      assert.equal(app.classified[0].type, targetType, `${sourceType}:${targetType}`);
+      assert.equal(app.classified[0].interpretation, null, `${sourceType}:${targetType}:interpretation`);
+      assert.equal(app.classified[0].domainUserSelected, true, `${sourceType}:${targetType}:selected`);
+    }
+  }
+});
+
+test("ENDURECIMIENTO 21: el intérprete remoto traduce identificadores seguros solo después de recibir la respuesta", async () => {
+  let transmitted = "";
+  const aiSandbox = {
+    window: { SAN_JOSE_AI_CONFIG: { enabled: true, endpoint: "https://interpreter.example.test", timeoutMs: 1000 } },
+    console,
+    fetch: async (_url, options) => {
+      transmitted = options.body;
+      return { ok: true, json: async () => ({
+        sheet_type: "sales", confidence: "high", columns: {
+          date: { source: "column_1", confidence: "high" },
+          product: { source: "column_2", confidence: "high" },
+          quantity: { source: "column_3", confidence: "high" }
+        }
+      }) };
+    },
+    AbortController, setTimeout, clearTimeout
+  };
+  vm.createContext(aiSandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "ai-interpreter.js"), "utf8"), aiSandbox);
+  const table = {
+    headers: ["FechaVenta Privada", "Producto Interno", "CantidadVendida Confidencial"],
+    rows: [{ "FechaVenta Privada": "2026-07-01", "Producto Interno": "SECRETO-A", "CantidadVendida Confidencial": 2 }],
+    profiles: {
+      "FechaVenta Privada": { dates: 1, numeric: 0, text: 0 },
+      "Producto Interno": { dates: 0, numeric: 0, text: 1 },
+      "CantidadVendida Confidencial": { dates: 0, numeric: 1, text: 0 }
+    }
+  };
+  const interpreted = await aiSandbox.window.AIDataInterpreter.interpret(table, () => ({ sheet_type: "unknown", confidence: "low", columns: {} }));
+  assert.ok(!transmitted.includes("Privada"));
+  assert.ok(!transmitted.includes("Interno"));
+  assert.ok(!transmitted.includes("Confidencial"));
+  assert.ok(!transmitted.includes("SECRETO-A"));
+  assert.equal(interpreted.result.columns.date.source, "FechaVenta Privada");
+  assert.equal(interpreted.result.columns.product.source, "Producto Interno");
+  assert.equal(interpreted.result.columns.quantity.source, "CantidadVendida Confidencial");
+});
+
+test("ENDURECIMIENTO 22: un mapeo heredado de dominio contrario no habilita alcance ni datos canónicos", () => {
+  const sales = makeTable("sales", [{ Fecha: "2026-07-01", Producto: "A", Cantidad: 2 }], {
+    fecha: assignment("Fecha", "Alta", { sourceTableIndex: 1 }),
+    producto: assignment("Producto", "Alta", { sourceTableIndex: 1 }),
+    cantidad: assignment("Cantidad", "Alta", { sourceTableIndex: 1 })
+  });
+  const inventory = makeTable("inventory", [{ Fecha: "2026-07-01", Producto: "A", Cantidad: 2, Stock: 8 }], {
+    producto: assignment("Producto"), stock: assignment("Stock")
+  });
+  resetInterpretation([sales, inventory]);
+  assert.equal(interpretedScope().hasSales, false);
+  assert.ok(requiredMappingIssues().some(issue => issue.title.includes("hojas distintas")));
+  assert.equal(buildCanonicalDataset().sales.length, 0);
 });
 
 test("INVENTARIO OPCIONAL 1: producto y existencia continúan sin tarjetas opcionales", () => {
