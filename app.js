@@ -1058,7 +1058,9 @@ function productChartHtml() {
   const rows = visible.map((item, index) => `<div class="product-bar-row"><span>${safe(item.label)}</span><div><i style="--bar-width:${item.value / total * 100}%" class="${index === 0 ? "highlight" : ""}"></i></div><strong>${readablePercent(item.value / total)}</strong></div>`).join("");
   const topThree = ranked.slice(0, 3).reduce((sum, item) => sum + valueOf(item), 0) / total;
   const measure = metrics.chartBasis === "value" ? "valor vendido" : "unidades vendidas";
-  return `<article class="result-chart"><h3>Productos que más aportan a tus ventas</h3><p class="chart-subtitle">Porcentaje del ${safe(measure)}</p><div class="product-bars" role="img" aria-label="Porcentaje de los productos sobre el ${safe(measure)}">${rows}</div><p class="chart-meaning"><strong>Esto significa:</strong> Los ${Math.min(3, ranked.length)} productos principales representan ${readablePercent(topThree)} del ${safe(measure)}.</p></article>`;
+  const shareLabel = metrics.chartBasis === "value" ? "del valor vendido" : "de unidades vendidas";
+  const resultLabel = metrics.chartBasis === "value" ? "del valor vendido" : "de las unidades vendidas";
+  return `<article class="result-chart"><h3>Productos que más aportan a tus ventas</h3><p class="chart-subtitle">Porcentaje ${safe(shareLabel)}</p><div class="product-bars" role="img" aria-label="Porcentaje de los productos sobre el ${safe(measure)}">${rows}</div><p class="chart-meaning"><strong>Esto significa:</strong> Los ${Math.min(3, ranked.length)} productos principales representan ${readablePercent(topThree)} ${safe(resultLabel)}.</p></article>`;
 }
 
 function recommendationStrength(finding, quality) {
@@ -1119,8 +1121,9 @@ function priorityPresentation(finding) {
   }
   if (finding.type === "concentration") {
     const [product, values] = metrics.ranked[0];
-    const measure = metrics.rankingBasis === "value" ? "valor vendido" : "unidades vendidas";
-    const amount = metrics.rankingBasis === "value" ? `${money.format(values.revenue)} vendidos` : `${readableNumber(values.units)} unidades vendidas`;
+    const usesMoney = metrics.rankingBasis === "value" && hasMonetarySalesEvidence(metrics);
+    const measure = usesMoney ? "valor vendido" : "unidades vendidas";
+    const amount = usesMoney ? `${money.format(values.revenue)} vendidos` : `${readableNumber(values.units)} unidades vendidas`;
     return { title: lead(`cuánto dependen tus ventas de ${productSubject(product)}`), metrics: [amount, `${readablePercent(metrics.topShare)} del ${measure}`], found: `${productSubject(product, true)} es el producto que más aporta a las ventas registradas.`, important: `Este producto representa ${readablePercent(metrics.topShare)} del ${measure}.`, action: "Comprueba si este patrón continúa y revisa qué otros productos puedes impulsar.", strength };
   }
   if (finding.type === "trend") {
@@ -1137,13 +1140,14 @@ function priorityPresentation(finding) {
   }
   if (finding.type === "maintain" && metrics.ranked[0]) {
     const [product, values] = metrics.ranked[0];
-    const amount = metrics.rankingBasis === "value" ? `${money.format(values.revenue)} vendidos` : `${readableNumber(values.units)} unidades vendidas`;
-    return { title: lead(`la disponibilidad de ${productSubject(product)}`), metrics: [amount, `${readablePercent(metrics.topShare)} ${metrics.rankingBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}`], found: `${productSubject(product, true)} lidera las ventas registradas durante el periodo.`, important: "Mantener disponible un producto con demanda ayuda a evitar ventas que no puedas atender.", action: "Revisa sus existencias y el tiempo de entrega de tu proveedor.", strength };
+    const usesMoney = metrics.rankingBasis === "value" && hasMonetarySalesEvidence(metrics);
+    const amount = usesMoney ? `${money.format(values.revenue)} vendidos` : `${readableNumber(values.units)} unidades vendidas`;
+    return { title: lead(`la disponibilidad de ${productSubject(product)}`), metrics: [amount, `${readablePercent(metrics.topShare)} ${usesMoney ? "del valor vendido" : "de las unidades vendidas"}`], found: `${productSubject(product, true)} lidera las ventas registradas durante el periodo.`, important: "Mantener disponible un producto con demanda ayuda a evitar ventas que no puedas atender.", action: "Revisa sus existencias y el tiempo de entrega de tu proveedor.", strength };
   }
   const product = metrics.ranked.at(-1)?.[0];
   if (product) {
     const values = metrics.ranked.at(-1)[1];
-    const amount = metrics.rankingBasis === "value" ? `${money.format(values.revenue)} vendidos` : `${readableNumber(values.units)} unidades vendidas`;
+    const amount = metrics.rankingBasis === "value" && hasMonetarySalesEvidence(metrics) ? `${money.format(values.revenue)} vendidos` : `${readableNumber(values.units)} unidades vendidas`;
     return { title: lead(productSubject(product)), metrics: [amount], found: `${productSubject(product, true)} fue el producto con menor movimiento registrado.`, important: "Un producto con poco movimiento puede requerir revisar compras, precio o exhibición.", action: "Confirma sus ventas y existencias antes de hacer una nueva compra.", strength };
   }
   return { title: "Todavía no tenemos información suficiente para decirte qué atender primero.", metrics: [], found: "La información disponible no permite comparar productos o periodos con seguridad.", important: resultQualityCopy(quality), action: "Revisa los datos incompletos indicados arriba y vuelve a realizar el análisis.", strength: "BAJA" };
@@ -2806,7 +2810,9 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
   if (utilityMode !== "amount") utility = utilityWeight ? utilityWeightedValue / utilityWeight : NaN;
   const customerRate = sales.length ? sales.filter(row => String(row.cliente || "").trim()).length / sales.length : 0;
   const sellerRate = sales.length ? sales.filter(row => String(row.vendedor || "").trim()).length / sales.length : 0;
-  const rankingBasis = valueRate >= .7 ? "value" : quantityRate >= .7 ? "quantity" : valueRows > quantityRows ? "value" : "quantity";
+  const monetaryAvailable = valueRows > 0 && valueRate >= .7;
+  const quantityAvailable = quantityRows > 0 && quantityRate >= .7;
+  const rankingBasis = monetaryAvailable ? "value" : "quantity";
   const basisValue = item => rankingBasis === "value" ? item.revenue : item.units;
   const ranked = Object.entries(byProduct).sort((a, b) => basisValue(b[1]) - basisValue(a[1]));
   const basisTotal = rankingBasis === "value" ? revenue : units;
@@ -2848,7 +2854,7 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
     });
   });
   if (utilityMode !== "amount") for (const [key, weightedValue] of Object.entries(monthlyUtilityWeighted)) if (monthlyUtilityWeights[key]) monthlyUtility[key] = weightedValue / monthlyUtilityWeights[key];
-  const chartBasis = valueRate >= .7 ? "value" : quantityRate >= .7 ? "quantity" : null;
+  const chartBasis = monetaryAvailable ? "value" : quantityAvailable ? "quantity" : null;
   const monthlyMap = chartBasis === "value" ? monthlyValue : chartBasis === "quantity" ? monthlyUnits : {};
   const currentMonth = `${referenceDate.getFullYear()}-${String(referenceDate.getMonth() + 1).padStart(2, "0")}`;
   const allMonthly = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value }));
@@ -2974,7 +2980,7 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
   const hasInventoryPurchases = inv.some(row => Number.isFinite(row.purchases) && row.purchases >= 0);
   const hasInventoryExits = inv.some(row => Number.isFinite(row.exits) && row.exits >= 0);
   return {
-    revenue, units, utility, utilityMode, quantityRows, valueRows, utilityRows, quantityRate, valueRate, utilityRate, customerRate, sellerRate, ranked, rankingBasis, chartBasis, topShare,
+    revenue, units, utility, utilityMode, quantityRows, valueRows, utilityRows, quantityRate, valueRate, monetaryAvailable, quantityAvailable, utilityRate, customerRate, sellerRate, ranked, rankingBasis, chartBasis, topShare,
     monthly, allMonthly, currentMonthExcluded: allMonthly.some(item => item.month === currentMonth),
     lastCompleteMonth: monthly.at(-1)?.month || null,
     monthlyValue: completeMonthlyValue, monthlyUnits: completeMonthlyUnits, monthlyUtility: completeMonthlyUtility,
@@ -2995,6 +3001,14 @@ function calculateMetrics(sales, inventory, period, referenceDate = new Date()) 
 
 function priorityScore({ impact, urgency, reach, confidence }) {
   return Math.round(impact * .35 + urgency * .30 + reach * .20 + confidence * .15);
+}
+
+function hasMonetarySalesEvidence(metrics = {}) {
+  return metrics.monetaryAvailable ?? (metrics.valueRows > 0 && metrics.valueRate >= .7);
+}
+
+function hasQuantitySalesEvidence(metrics = {}) {
+  return metrics.quantityAvailable ?? (metrics.quantityRows > 0 && metrics.quantityRate >= .7);
 }
 
 function scored(finding, factors) {
@@ -3175,11 +3189,13 @@ function salesAnalysisModule({ metrics, scope, evidenceConfidence }) {
       limitaciones: [`El ${utilityMetric} muestra el resultado registrado, pero no explica por sí solo qué decisión lo produjo.`]
     }, { impact: Math.min(100, Math.abs(metrics.utilityPanorama.change) * 240), urgency: utilityUrgency.score, reach: 100, confidence: evidenceConfidence }));
   }
-  if (metrics.ranked[0] && metrics.topShare >= .6) findings.push(scored({
+  if (metrics.ranked[0] && metrics.topShare >= .6) {
+    const usesMoney = metrics.rankingBasis === "value" && hasMonetarySalesEvidence(metrics);
+    findings.push(scored({
     type: "concentration", dominio: "ventas", tipoProblema: "dependencia-producto", title: `Gran parte de tus ventas depende de ${metrics.ranked[0][0]}.`,
     problemaGeneral: "Dependencia de pocos productos", magnitud: metrics.topShare * 100, unidad: "porcentaje de las ventas", periodo: "Periodo completo disponible",
-    reason: `${metrics.ranked[0][0]} representa ${percent(metrics.topShare)} ${metrics.rankingBasis === "value" ? "del valor vendido" : "de las unidades vendidas"}.`,
-    evidence: metrics.rankingBasis === "value" ? `De ${money.format(metrics.revenue)} vendidos, ${money.format(metrics.ranked[0][1].revenue)} provienen de ese producto.` : `De ${metrics.units} unidades vendidas, ${metrics.ranked[0][1].units} corresponden a ese producto.`,
+    reason: `${metrics.ranked[0][0]} representa ${percent(metrics.topShare)} ${usesMoney ? "del valor vendido" : "de las unidades vendidas"}.`,
+    evidence: usesMoney ? `De ${money.format(metrics.revenue)} vendidos, ${money.format(metrics.ranked[0][1].revenue)} provienen de ese producto.` : `De ${metrics.units} unidades vendidas, ${metrics.ranked[0][1].units} corresponden a ese producto.`,
     meaning: "Una reducción en ese producto puede afectar una parte importante de las ventas observadas.", reviewFocus: "Si esta dependencia continúa en otros periodos.",
     indicator: "Porcentaje de las ventas que representa el producto principal.",
     causasObservadas: [`${metrics.ranked[0][0]} concentra ${percent(metrics.topShare)} de las ventas observadas.`],
@@ -3187,6 +3203,7 @@ function salesAnalysisModule({ metrics, scope, evidenceConfidence }) {
     hipotesisPorValidar: ["Preferencia de los clientes.", "Diferencias de disponibilidad, precio o exhibición."],
     limitaciones: ["La concentración describe la distribución de las ventas; no explica por qué los clientes prefieren ese producto."]
   }, { impact: metrics.topShare * 100, urgency: 45, reach: metrics.topShare * 100, confidence: evidenceConfidence }));
+  }
   return findings;
 }
 
@@ -3518,12 +3535,21 @@ function prioritize(metrics, scope) {
   const localRisk = metrics.riskItems.find(item => item.recentSalesShare >= .10);
   if (localRisk) findings.push(scored({ type: "stockout", level: "localized", title: `Podrías quedarte sin ${productSubject(localRisk.producto)}.`, reason: `${productSubject(localRisk.producto, true)} representa ${percent(localRisk.recentSalesShare)} de las unidades vendidas recientemente.`, evidence: `${readableNumber(localRisk.stock)} unidades disponibles frente a ${readableNumber(localRisk.recentSold)} vendidas recientemente.`, meaning: "Si se agota, puede afectar una parte relevante de tus ventas.", action: "Confirma las existencias y el siguiente pedido.", indicator: "Unidades disponibles del producto.", item: localRisk }, { impact: localRisk.recentSalesShare * 100, urgency: 95, reach: localRisk.recentSalesShare * 100, confidence: inventoryConfidence }));
   if (scope.hasSales && concentration) findings.push(concentration);
+  const lowestProduct = metrics.ranked.at(-1);
+  const leadingProduct = metrics.ranked[0];
+  const productMeasureEvidence = values => metrics.rankingBasis === "value" && hasMonetarySalesEvidence(metrics)
+    ? `${money.format(values.revenue)} vendidos`
+    : hasQuantitySalesEvidence(metrics) ? `${readableNumber(values.units)} unidades vendidas` : null;
   const fallbacks = [
     {
       type: "review",
       title: "Hay un producto que merece una revisión comercial.",
-      reason: `${metrics.ranked.at(-1)?.[0] || "El producto con menor movimiento"} aportó el menor valor vendido del periodo.`,
-      evidence: metrics.ranked.at(-1) ? `Registró ${metrics.ranked.at(-1)[1].units} unidades y ${money.format(metrics.ranked.at(-1)[1].revenue)} vendidos.` : "La comparación disponible es limitada.",
+      reason: lowestProduct
+        ? `${lowestProduct[0]} registró ${metrics.rankingBasis === "value" && hasMonetarySalesEvidence(metrics) ? "el menor valor vendido" : "la menor cantidad vendida"} del periodo.`
+        : "La comparación disponible es limitada.",
+      evidence: lowestProduct && productMeasureEvidence(lowestProduct[1])
+        ? `Registró ${productMeasureEvidence(lowestProduct[1])}.`
+        : "La comparación disponible es limitada.",
       meaning: "Un producto con poco movimiento puede requerir una decisión de compra, precio, exhibición o registro.",
       action: "Confirma sus ventas y existencias antes de hacer una nueva compra.",
       indicator: "Unidades vendidas del producto con menor movimiento."
@@ -3531,8 +3557,10 @@ function prioritize(metrics, scope) {
     {
       type: "maintain",
       title: "Protege la disponibilidad de lo que más se vende.",
-      reason: `${metrics.ranked[0]?.[0] || "El producto principal"} lidera las ventas registradas.`,
-      evidence: metrics.ranked[0] ? `${metrics.ranked[0][1].units} unidades y ${money.format(metrics.ranked[0][1].revenue)} vendidos.` : "Se requiere ampliar la información.",
+      reason: `${leadingProduct?.[0] || "El producto principal"} lidera las ventas registradas.`,
+      evidence: leadingProduct && productMeasureEvidence(leadingProduct[1])
+        ? `Registró ${productMeasureEvidence(leadingProduct[1])}.`
+        : "Se requiere ampliar la información.",
       meaning: "Mantenerlo disponible ayuda a no perder ventas que ya muestran demanda.",
       action: "Revisa sus existencias cada semana y considera el tiempo de entrega del proveedor.",
       indicator: "Unidades disponibles del producto con más ventas."
@@ -3794,11 +3822,11 @@ function inventoryActionPlan(finding, diagnosis, timing, products, analysisConte
   const phases = [
     { when: timing.labels[0], objective: isRisk ? "Confirmar qué productos podrían quedarse sin unidades." : noMovement ? "Confirmar las unidades y el tiempo sin movimiento." : "Confirmar cuánto inventario tienes frente a las ventas recientes.", action: firstAction, evidence: causeEvidence, activities: ["Confirma las existencias físicas.", diagnosis.datosDisponibles.ventas ? "Revisa las unidades vendidas recientemente." : "Registra las ventas recientes que todavía no estén en el archivo.", diagnosis.datosDisponibles.compras ? "Confirma compras o pedidos pendientes." : "Confirma manualmente si hay pedidos pendientes."] },
     { when: timing.labels[1], objective: isRisk ? "Reponer únicamente lo que la demanda y la disponibilidad justifican." : "Mover las existencias actuales sin asumir una causa ni regalar margen.", action: secondAction, evidence: isRisk ? "La reposición debe considerar ventas recientes, unidades disponibles y tiempo de entrega." : "No recomendamos descuentos o promociones sin revisar primero la causa y la rentabilidad.", activities: isRisk ? ["Prioriza los productos con más ventas y menos cobertura.", "Confirma cantidades y fecha de entrega con el proveedor.", "Anota qué productos decidiste reponer y por qué."] : [diagnosis.datosDisponibles.clientes ? "Revisa qué clientes compraban estos productos." : "Pregunta a tu equipo qué clientes compraban estos productos.", diagnosis.datosDisponibles.comerciales ? "Revisa oportunidades con los comerciales relacionados." : "Revisa oportunidades con quienes atienden a tus clientes.", "Define una acción específica por producto después de confirmar la causa."] },
-    { when: timing.labels[2], objective: isRisk ? "Comprobar si mejoró la disponibilidad sin acumular unidades innecesarias." : "Comprobar si bajaron las existencias sin afectar la rentabilidad.", action: thirdAction, evidence: "Compara con las unidades disponibles al iniciar el plan.", activities: isRisk ? ["Compara las unidades disponibles.", "Revisa las unidades vendidas y las ventas que no pudiste atender.", "Ajusta la reposición si la disponibilidad no mejoró."] : ["Compara las unidades disponibles con el nivel inicial.", "Compara las unidades y el valor vendido.", diagnosis.datosDisponibles.utilidad ? "Revisa la utilidad y ajusta si no hay mejora." : "Ajusta la acción si no hay mejora."] }
+    { when: timing.labels[2], objective: isRisk ? "Comprobar si mejoró la disponibilidad sin acumular unidades innecesarias." : "Comprobar si bajaron las existencias sin afectar la rentabilidad.", action: thirdAction, evidence: "Compara con las unidades disponibles al iniciar el plan.", activities: isRisk ? ["Compara las unidades disponibles.", "Revisa las unidades vendidas y las ventas que no pudiste atender.", "Ajusta la reposición si la disponibilidad no mejoró."] : ["Compara las unidades disponibles con el nivel inicial.", hasMonetarySalesEvidence(metrics) ? "Compara las unidades y el valor vendido." : "Compara las unidades vendidas.", diagnosis.datosDisponibles.utilidad ? "Revisa la utilidad y ajusta si no hay mejora." : "Ajusta la acción si no hay mejora."] }
   ];
   const indicators = isRisk
     ? [{ name: "Unidades disponibles", comparison: "Compáralas con el nivel inicial y con las ventas recientes." }, { name: "Unidades vendidas", comparison: "Revisa si la disponibilidad permitió atender la demanda." }, { name: "Ventas que no pudiste atender", comparison: "Anota cada caso desde el inicio del plan." }]
-    : [{ name: "Unidades disponibles", comparison: "Compáralas con el nivel registrado al iniciar el plan." }, { name: "Unidades vendidas", comparison: "Compáralas con el periodo reciente equivalente." }, noMovement ? { name: "Días sin movimiento", comparison: "Revisa si los productos volvieron a tener salidas." } : diagnosis.datosDisponibles.utilidad ? { name: "Utilidad", comparison: "Confirma que mover inventario no reduzca la rentabilidad." } : { name: "Valor vendido", comparison: "Compáralo con el periodo reciente equivalente." }];
+    : [{ name: "Unidades disponibles", comparison: "Compáralas con el nivel registrado al iniciar el plan." }, { name: "Unidades vendidas", comparison: "Compáralas con el periodo reciente equivalente." }, noMovement ? { name: "Días sin movimiento", comparison: "Revisa si los productos volvieron a tener salidas." } : diagnosis.datosDisponibles.utilidad ? { name: "Utilidad", comparison: "Confirma que mover inventario no reduzca la rentabilidad." } : hasMonetarySalesEvidence(metrics) ? { name: "Valor vendido", comparison: "Compáralo con el periodo reciente equivalente." } : { name: "Productos con movimiento", comparison: "Cuenta los productos que registraron unidades vendidas en el periodo." }];
   return { phases, indicators: indicators.slice(0, 3), causeEvidence };
 }
 
@@ -3890,6 +3918,8 @@ function opportunityContract(finding, diagnosis, entry) {
 }
 
 function customerActionPlan(opportunity, diagnosis, timing, analysisContext) {
+  const metrics = analysisContext.metrics;
+  const comparisonMeasure = hasMonetarySalesEvidence(metrics) ? "el valor vendido" : hasQuantitySalesEvidence(metrics) ? "las unidades vendidas" : "la misma medida disponible en el diagnóstico";
   const customers = relatedDeclineEntities("", "cliente", analysisContext).slice(0, 8);
   const sellers = diagnosis.datosDisponibles.comerciales ? relatedDeclineEntities(analysisContext.products[0] || "", "vendedor", analysisContext).slice(0, 2) : [];
   const named = opportunity.rawFinding?.driver?.dimension === "cliente" ? [opportunity.rawFinding.driver.product] : customers.map(item => item.name);
@@ -3901,13 +3931,15 @@ function customerActionPlan(opportunity, diagnosis, timing, analysisContext) {
   const phases = [
     { when: timing.labels[0], action: names.length ? `Revisa los ${names.length} clientes que más redujeron la compra de ${product}.` : `Revisa qué cambió en las compras de ${focus}.`, evidence: causeEvidence, activities: ["Compara cuándo compraron por última vez y cuánto compraban antes.", sellers[0] ? `Habla con ${sellers[0].name} y revisen qué cambió con estos clientes.` : "Pregunta a quienes atienden estos clientes qué cambió.", "Anota qué cambio está confirmado y qué todavía es una posibilidad."] },
     { when: timing.labels[1], action: "Trabaja primero con los clientes que más explican la reducción.", evidence: "La acción debe partir de lo que el cliente o el equipo logre confirmar.", activities: ["Contacta a los clientes priorizados y pregunta qué cambió.", "Define una acción concreta para cada causa confirmada.", "Registra quién fue contactado, qué respondió y desde qué fecha actuarás."], questions: ["¿Qué cambió en tus compras?", "¿Tuviste algún problema con el producto o servicio?", "¿Cambió el precio o tu necesidad?"] },
-    { when: timing.labels[2], action: "Comprueba si los clientes priorizados volvieron a comprar.", evidence: "Compara periodos equivalentes y conserva separados los hechos de las explicaciones.", activities: ["Cuenta cuántos clientes volvieron a comprar.", "Compara las unidades o el valor vendido a esos clientes.", "Ajusta la acción si no aparece una mejora verificable."] }
+    { when: timing.labels[2], action: "Comprueba si los clientes priorizados volvieron a comprar.", evidence: "Compara periodos equivalentes y conserva separados los hechos de las explicaciones.", activities: ["Cuenta cuántos clientes volvieron a comprar.", `Compara ${comparisonMeasure} a esos clientes.`, "Ajusta la acción si no aparece una mejora verificable."] }
   ];
   const signals = salesPlanSignals({ ...opportunity.rawFinding, type: "customer-opportunity" }, diagnosis, timing, [], analysisContext);
   return { phases, signals, indicators: signals.map(signal => ({ name: signal.name, comparison: signal.note || "Compáralo con el punto de partida." })), causeEvidence };
 }
 
 function commercialActionPlan(opportunity, diagnosis, timing, analysisContext) {
+  const metrics = analysisContext.metrics;
+  const comparisonMeasure = hasMonetarySalesEvidence(metrics) ? "el valor vendido" : hasQuantitySalesEvidence(metrics) ? "las unidades vendidas" : "la misma medida disponible en el diagnóstico";
   const sellers = relatedDeclineEntities("", "vendedor", analysisContext).slice(0, 5);
   const named = opportunity.rawFinding?.driver?.dimension === "vendedor" ? [opportunity.rawFinding.driver.product] : sellers.map(item => item.name);
   const names = [...new Set(named.filter(Boolean))];
@@ -3916,7 +3948,7 @@ function commercialActionPlan(opportunity, diagnosis, timing, analysisContext) {
   const phases = [
     { when: timing.labels[0], action: `Habla con ${focus} y revisen qué cambió en las ventas atendidas.`, evidence: causeEvidence, activities: ["Compara sus ventas anteriores y recientes usando la misma medida.", "Revisa qué clientes, productos o zonas explican la diferencia.", "No atribuyas la causa al comercial hasta confirmar qué ocurrió."] },
     { when: timing.labels[1], action: "Trabaja sobre las causas confirmadas con el equipo comercial.", evidence: "La evidencia puede señalar dónde ocurrió el cambio, pero no demuestra por sí sola quién lo causó.", activities: ["Define una acción concreta para cada causa confirmada.", "Asigna responsable y fecha sin duplicar actividades de otros planes.", "Registra qué se hizo y con qué clientes o productos."] },
-    { when: timing.labels[2], action: "Comprueba si las ventas atendidas por los comerciales priorizados mejoraron.", evidence: "Usa periodos equivalentes y la misma medida del diagnóstico.", activities: ["Compara unidades o valor vendido.", "Revisa si mejoraron los clientes o productos afectados.", "Ajusta la acción si el cambio no es verificable."] }
+    { when: timing.labels[2], action: "Comprueba si las ventas atendidas por los comerciales priorizados mejoraron.", evidence: "Usa periodos equivalentes y la misma medida del diagnóstico.", activities: [`Compara ${comparisonMeasure}.`, "Revisa si mejoraron los clientes o productos afectados.", "Ajusta la acción si el cambio no es verificable."] }
   ];
   const salesSignals = salesPlanSignals({ ...opportunity.rawFinding, type: "commercial-opportunity" }, diagnosis, timing, [], analysisContext).filter(signal => signal.name !== "Clientes que volvieron a comprar");
   const teamSignal = names.length ? { name: "Comerciales con ventas recuperadas", today: `0 de ${names.length}`, target: `${Math.max(1, Math.ceil(names.length / 2))} de ${names.length}`, note: "Verificar una recuperación parcial en el periodo de revisión." } : null;
@@ -3926,10 +3958,11 @@ function commercialActionPlan(opportunity, diagnosis, timing, analysisContext) {
 
 function concentrationActionPlan(opportunity, diagnosis, timing, analysisContext) {
   const metrics = analysisContext.metrics;
+  const usesMoney = metrics.rankingBasis === "value" && hasMonetarySalesEvidence(metrics);
   const leaders = (metrics.ranked || []).slice(0, 2).map(item => productSubject(item[0], false, analysisContext.dataset));
   const focus = leaders.join(" y ") || "los productos que concentran las ventas";
-  const total = metrics.rankingBasis === "value" ? metrics.revenue : metrics.units;
-  const leadingValue = (metrics.ranked || []).slice(0, 2).reduce((sum, item) => sum + (metrics.rankingBasis === "value" ? item[1].revenue : item[1].units), 0);
+  const total = usesMoney ? metrics.revenue : metrics.units;
+  const leadingValue = (metrics.ranked || []).slice(0, 2).reduce((sum, item) => sum + (usesMoney ? item[1].revenue : item[1].units), 0);
   const share = total ? leadingValue / total : metrics.topShare || 0;
   const targetShare = Math.max(0, share - .08);
   const causeEvidence = opportunity.observedCauses[0] || opportunity.priorityFocus[0]?.evidencia || opportunity.evidence[0];

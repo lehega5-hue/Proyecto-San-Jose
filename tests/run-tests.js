@@ -1643,6 +1643,94 @@ test("PDF 2: genera un archivo PDF A4 real con logo y varias páginas legibles",
   }
 });
 
+const unsupportedMoneyPattern = /\$\s*0|menor valor vendido|mayor valor vendido/i;
+
+test("REGLA MONETARIA 1: ventas con cantidad y sin valor generan oportunidades únicamente en unidades", () => {
+  const result = setStageThree({ sales: stageThreeSales({ value: false }), inventory: [] });
+  const resultCopy = resultsScreen();
+  const opportunityCopy = JSON.stringify(result.priorities);
+  assert.equal(result.metrics.monetaryAvailable, false);
+  assert.equal(result.metrics.quantityAvailable, true);
+  assert.equal(result.metrics.rankingBasis, "quantity");
+  assert.ok(resultCopy.includes("No pudimos calcularlo"));
+  assert.ok(resultCopy.includes("Porcentaje de unidades vendidas"));
+  assert.ok(!resultCopy.includes("Porcentaje del unidades vendidas"));
+  assert.ok(!unsupportedMoneyPattern.test(opportunityCopy), opportunityCopy);
+  assert.ok(!/valor vendido/i.test(opportunityCopy), opportunityCopy);
+});
+
+test("REGLA MONETARIA 2: un valor monetario real igual a cero conserva el cero como dato válido", () => {
+  const sales = stageThreeSales().map(row => ({ ...row, valorTotal: 0 }));
+  const result = setStageThree({ sales, inventory: [] });
+  const model = executiveSummaryModel();
+  assert.equal(result.metrics.valueRate, 1);
+  assert.equal(result.metrics.valueRows, sales.length);
+  assert.equal(result.metrics.monetaryAvailable, true);
+  assert.equal(result.metrics.revenue, 0);
+  assert.equal(result.metrics.rankingBasis, "value");
+  assert.notEqual(model.cards[0].value, "No pudimos calcularlo");
+  assert.match(model.cards[0].value, /0/);
+});
+
+test("REGLA MONETARIA 3: valores parciales o vacíos no se convierten en evidencia monetaria", () => {
+  const sales = stageThreeSales();
+  const missingValues = [undefined, null, ""];
+  sales.forEach((row, index) => { if (index % 2) row.valorTotal = missingValues[index % missingValues.length]; });
+  const result = setStageThree({ sales, inventory: [] });
+  const modelCopy = JSON.stringify(executiveSummaryModel());
+  assert.equal(result.metrics.valueRate, .5);
+  assert.equal(result.metrics.monetaryAvailable, false);
+  assert.equal(result.metrics.chartBasis, "quantity");
+  assert.ok(!unsupportedMoneyPattern.test(JSON.stringify(result.priorities)));
+  assert.ok(!/valor vendido/i.test(modelCopy), modelCopy);
+});
+
+test("REGLA MONETARIA 4: oportunidades y planes sin dinero conservan únicamente la medida disponible", () => {
+  const result = setStageThree({ sales: stageThreeSales({ value: false }), inventory: [] });
+  beginAnalysisCycle();
+  app.step = 7;
+  assert.ok(result.priorities.length > 0);
+  result.priorities.forEach((finding, index) => {
+    startOpportunity(index);
+    const planCopy = JSON.stringify(getActionPlan());
+    assert.ok(!unsupportedMoneyPattern.test(planCopy), `${finding.type}: ${planCopy}`);
+    assert.ok(!/valor vendido/i.test(planCopy), `${finding.type}: ${planCopy}`);
+  });
+});
+
+test("REGLA MONETARIA 5: resumen final y PDF no heredan afirmaciones monetarias ausentes", async () => {
+  const result = setStageThree({ sales: stageThreeSales({ value: false }), inventory: [] });
+  const modelCopy = JSON.stringify(executiveSummaryModel());
+  assert.ok(!unsupportedMoneyPattern.test(modelCopy), modelCopy);
+  assert.ok(!/valor vendido/i.test(modelCopy), modelCopy);
+  app.currentAnalysisCycleId = "ciclo-sin-dinero";
+  app.opportunityHistory = result.priorities.map((finding, index) => ({
+    cicloAnalisisId: app.currentAnalysisCycleId,
+    oportunidadIndice: index,
+    retroalimentacion: { comentarioUsuario: "Revisamos la oportunidad con la información disponible." },
+    evidencia: [finding.evidence],
+    problemaOriginal: finding.title,
+    oportunidadAtendida: finding.title,
+    estadoFinal: "Revisada"
+  }));
+  const finalCopy = cycleSummaryScreen();
+  assert.ok(!unsupportedMoneyPattern.test(finalCopy), finalCopy);
+  assert.ok(!/valor vendido/i.test(finalCopy), finalCopy);
+  const logo = fs.readFileSync(path.join(__dirname, "..", "assets", "logo-san-jose-azul.png"));
+  const bytes = await buildExecutiveSummaryPdf(logo);
+  assert.equal(Buffer.from(bytes).subarray(0, 5).toString("ascii"), "%PDF-");
+});
+
+test("REGLA MONETARIA 6: una oportunidad basada en unidades sigue disponible sin dinero", () => {
+  const result = setStageThree({ sales: stageThreeSales({ value: false, products: ["A", "A", "A", "B"] }), inventory: [] });
+  const concentration = result.priorities.find(finding => finding.type === "concentration");
+  assert.ok(concentration);
+  const presentation = priorityPresentation(concentration);
+  assert.ok(presentation.metrics.some(item => item.includes("unidades vendidas")));
+  assert.ok(concentration.reason.includes("unidades vendidas"));
+  assert.ok(!/valor vendido/i.test(JSON.stringify({ concentration, presentation })));
+});
+
 test("ETAPA 3 FINAL L: sin inventario no genera análisis de existencias", () => {
   const result = setStageThree({ sales: stageThreeSales(), inventory: [] });
   assert.equal(result.metrics.inv.length, 0);
