@@ -188,15 +188,34 @@ function resetInterpretation(tables) {
   app.step = 3;
 }
 
-test("LANDING 1: elimina referencias anteriores y presenta un único acceso simple", () => {
+test("LANDING 1: presenta la narrativa completa y conserva un único acceso simple", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
-  assert.ok(html.includes("MVP · Orientación basada en datos"));
-  assert.ok(html.includes("Tus datos te muestran qué atender primero."));
-  assert.ok(html.includes("Entra a San José"));
+  const motion = fs.readFileSync(path.join(__dirname, "..", "landing-motion.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "..", "overrides.css"), "utf8");
+  assert.ok(html.includes("Cuando todo parece urgente,"));
+  assert.ok(html.includes("Quiero saber qué atender primero →"));
+  assert.ok(html.includes('href="#como-funciona"'));
+  assert.ok(html.includes("De la información de tu negocio a una prioridad clara."));
+  assert.ok(html.includes("Cuéntanos un poco de tu negocio"));
+  assert.ok(html.includes("Estoy listo para empezar →"));
+  assert.ok(html.includes('href="#acceso"'));
+  assert.ok(html.includes("¿Listo para saber qué atender primero?"));
+  assert.ok(!html.includes("Empieza con lo que ya tienes."));
+  assert.ok(!html.includes("No necesitas preparar un archivo especial."));
   assert.ok(html.includes('name="email"'));
   assert.ok(html.includes('name="password"'));
-  assert.ok(html.includes("Entrar y continuar →"));
+  assert.ok(html.includes("Entrar a San José →"));
+  assert.equal((html.match(/id="demo-login-form"/g) || []).length, 1);
   assert.ok(html.includes("assets/logo-san-jose-azul.png"));
+  assert.ok(!html.includes("MVP · Orientación basada en datos"));
+  assert.ok(html.includes("landing-motion.js"));
+  assert.ok(motion.includes("IntersectionObserver"));
+  assert.ok(motion.includes("ENTER_RATIO = 0.18"));
+  assert.ok(motion.includes("EXIT_RATIO = 0.02"));
+  assert.ok(motion.includes('rootMargin: "-34% 0px -10% 0px"'));
+  assert.ok(motion.includes('classList.remove("is-revealed")'));
+  assert.ok(motion.includes("prefers-reduced-motion: reduce"));
+  assert.ok(styles.includes("@media (prefers-reduced-motion: reduce)"));
   assert.ok(!/acad[eé]mic/i.test(html));
   assert.ok(!html.includes("demo@sanjose.com"));
   ["Crear cuenta", "Registrarse", "Recuperar contraseña"].forEach((copy) => assert.ok(!html.includes(copy)));

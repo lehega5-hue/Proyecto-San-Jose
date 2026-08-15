@@ -6,36 +6,58 @@
   <meta name="description" content="San José revisa tus ventas e inventario y te muestra qué atender primero.">
   <title>San José – Transformación Estratégica</title>
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="overrides.css?v=14">
+  <link rel="stylesheet" href="overrides.css?v=18">
 </head>
 <body>
-  <div id="welcome-view" class="institutional-welcome">
-    <section class="welcome-brand">
-      <div class="welcome-copy">
-        <span>MVP · Orientación basada en datos</span>
-        <h1>Tus datos te muestran qué atender primero.</h1>
-        <p>San José revisa la información que ya utiliza tu negocio y te muestra qué merece atención primero, por qué y qué puedes hacer.</p>
-        <p class="welcome-secondary">Empieza con tus ventas e inventario. Si la información no es suficiente, te diremos qué hace falta antes de recomendar.</p>
+  <div id="welcome-view" class="landing-page">
+    <section class="institutional-welcome" aria-labelledby="landing-title">
+      <div class="welcome-brand">
+        <div class="welcome-copy">
+          <h1 id="landing-title"><span>Cuando todo parece urgente,</span> <span>necesitas saber qué va primero.</span></h1>
+          <p>San José te ayuda a identificar qué necesita atención en tu negocio y a enfocar allí tus próximos 15 días.</p>
+          <a class="button gold landing-primary-cta" href="#como-funciona">Quiero saber qué atender primero →</a>
+          <img class="welcome-lead-logo" src="assets/logo-san-jose-azul.png" alt="San José – Transformación Estratégica. Hacemos simple lo complejo.">
+        </div>
+      </div>
+      <aside class="welcome-proof" aria-label="San José – Transformación Estratégica">
+        <img class="welcome-logo" src="assets/logo-san-jose-azul.png" alt="San José – Transformación Estratégica. Hacemos simple lo complejo.">
+      </aside>
+      <div class="landing-thread landing-thread--hero" aria-hidden="true"><span></span></div>
+    </section>
+
+    <section id="como-funciona" class="landing-method" aria-labelledby="method-title">
+      <div class="landing-container">
+        <header class="landing-section-heading">
+          <h2 id="method-title">De la información de tu negocio a una prioridad clara.</h2>
+          <p>Empieza con la información que ya tienes. San José te acompaña paso a paso para entender qué merece atención primero.</p>
+        </header>
+        <ol class="landing-steps">
+          <li><div class="landing-step-content"><span class="step-number">01</span><h3>Cuéntanos un poco de tu negocio</h3><p>Tres preguntas cortas nos ayudan a entender mejor tu contexto.</p></div></li>
+          <li><div class="landing-step-content"><span class="step-number">02</span><h3>Sube la información que ya tienes</h3><p>Puedes comenzar con tus ventas, tu inventario o ambos.</p></div></li>
+          <li><div class="landing-step-content"><span class="step-number">03</span><h3>Mira qué atender primero</h3><p>San José identifica las situaciones más importantes y te explica por qué merecen atención.</p></div></li>
+          <li><div class="landing-step-content"><span class="step-number">04</span><h3>Enfoca tus próximos 15 días</h3><p>Trabaja una prioridad con un plan sencillo y revisa qué pasó.</p></div></li>
+        </ol>
+        <a class="button gold landing-method-cta" href="#acceso">Estoy listo para empezar →</a>
+        <div class="landing-thread landing-thread--method" aria-hidden="true"><span></span></div>
+      </div>
+    </section>
+
+    <section id="acceso" class="landing-access" aria-labelledby="access-title">
+      <div class="landing-container access-layout">
+        <header>
+          <h2 id="access-title">¿Listo para saber qué atender primero?</h2>
+          <p>Ingresa a San José y continúa con la información y el progreso de tu negocio.</p>
+        </header>
         <form id="demo-login-form" class="demo-access" novalidate>
-          <h2>Entra a San José</h2>
-          <p>Ingresa para continuar con la información y el progreso de tu negocio.</p>
           <label for="demo-email">Correo</label>
           <input id="demo-email" name="email" type="email" autocomplete="username" required>
           <label for="demo-password">Contraseña</label>
           <input id="demo-password" name="password" type="password" autocomplete="current-password" required>
-          <button class="button gold" type="submit">Entrar y continuar →</button>
+          <button class="button gold" type="submit">Entrar a San José →</button>
           <p id="demo-login-message" class="demo-login-message" role="alert" aria-live="polite"></p>
         </form>
       </div>
     </section>
-    <aside class="welcome-proof">
-      <img class="welcome-logo" src="assets/logo-san-jose-azul.png" alt="San José – Transformación Estratégica. Hacemos simple lo complejo.">
-      <p class="eyebrow">No te damos más datos</p>
-      <h2>Primero entendemos tus datos.<br>Luego te mostramos qué atender.</h2>
-      <ol><li>Cuéntanos lo esencial</li><li>Sube tu información</li><li>Mira qué atender primero</li><li>Sigue un plan sencillo</li></ol>
-      <p class="truth-principle">San José no inventa respuestas. Si los datos no permiten concluir algo con suficiente confianza, lo indica antes de recomendar.</p>
-      <small>Esta versión utiliza información ficticia o anonimizada y ha sido desarrollada para validar el modelo de solución.</small>
-    </aside>
   </div>
 
   <div id="app-view" class="app-view hidden">
@@ -57,6 +79,7 @@
   </dialog>
   <script src="assets/xlsx.full.min.js"></script>
   <script src="assets/pdf-lib.min.js"></script>
+  <script src="landing-motion.js?v=1"></script>
   <script src="ai-interpreter.js?v=4"></script>
   <script src="app.js?v=14"></script>
 </body>
