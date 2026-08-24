@@ -5,8 +5,8 @@
 GitHub Pages aloja únicamente el frontend estático. Ninguna API key, token, contraseña o secreto debe incluirse en HTML, JavaScript, archivos de configuración públicos, historial de Git ni variables accesibles desde el navegador.
 
 ```text
-Frontend de San José
-  ↓ metadatos y muestra mínima anonimizada
+Frontend de ConsultorIA
+  ↓ señales estructurales no identificables
 Función serverless propia
   ↓ credencial en una variable de entorno privada
 Proveedor de IA
@@ -38,17 +38,14 @@ La URL pública del servicio no es un secreto. La credencial del proveedor debe 
 
 ## Solicitud permitida
 
-El navegador puede enviar:
+El navegador puede enviar únicamente:
 
-- nombre de archivo y hoja sin datos identificables;
-- cantidad de registros;
-- encabezados;
-- tipos inferidos;
-- máximo tres filas de muestra previamente anonimizadas;
-- respuestas de contexto empresarial no sensibles;
-- alcance permitido: ventas e inventario.
+- cantidad de registros y columnas;
+- identificadores efímeros de columnas, sin el encabezado original;
+- patrones estructurales permitidos y tipos inferidos;
+- señales semánticas derivadas de un vocabulario cerrado para Ventas e Inventario.
 
-El servicio debe aplicar validación de origen, límite de tamaño, rate limiting, timeout, eliminación de muestras en logs y respuesta JSON estricta.
+No se envían filas, muestras, valores, nombres de archivo, nombres de hoja, encabezados originales ni respuestas de contexto empresarial. El servicio debe aplicar validación de origen, límite de tamaño, rate limiting, timeout, logs sin cuerpo empresarial y respuesta JSON estricta.
 
 ## Respuesta estricta
 
@@ -57,10 +54,10 @@ El servicio debe aplicar validación de origen, límite de tamaño, rate limitin
   "sheet_type": "sales",
   "confidence": "high",
   "columns": {
-    "product": { "source": "Descripción", "confidence": "high" },
-    "quantity": { "source": "Und", "confidence": "medium" },
-    "sale_value": { "source": "Vr Neto", "confidence": "high" },
-    "date": { "source": "Fecha Fact", "confidence": "high" }
+    "product": { "source": "column_1", "confidence": "high" },
+    "quantity": { "source": "column_2", "confidence": "medium" },
+    "sale_value": { "source": "column_3", "confidence": "high" },
+    "date": { "source": "column_4", "confidence": "high" }
   }
 }
 ```
@@ -72,6 +69,8 @@ Valores admitidos:
 - cada columna incluye `source` y `confidence`.
 
 Una respuesta diferente, error de red, URL no HTTPS o timeout activa automáticamente `local-fallback`.
+
+La respuesta remota se valida sobre una copia independiente. Si es parcial, incompatible, cambia el dominio sin sustento o utiliza identificadores desconocidos, se descarta y se recupera exactamente el resultado local original. `semanticMode` refleja siempre el modo finalmente utilizado.
 
 ## Separación de responsabilidades
 

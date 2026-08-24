@@ -56,8 +56,8 @@ const appPath = path.join(__dirname, "..", "app.js");
 const source = fs.readFileSync(appPath, "utf8") + `
 ;globalThis.__test = {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
-  demoCredentialsValid, demoStateSnapshot, persistDemoProgress, restoreDemoProgress,
-  setupSpeechRecognition, voiceState: () => ({ isListening }), contextScreen, contextProgress, dataScreen, semanticRoles, FIELD_CONFIG,
+  demoCredentialsValid, demoStateSnapshot, persistDemoProgress, restoreDemoProgress, startAnonymousExplore, restartCurrentExperience,
+  setupSpeechRecognition, voiceState: () => ({ isListening }), welcome, contextScreen, contextProgress, dataScreen, productPathHtml, productPlansHtml, domainRoadmapHtml, dataSourcesHtml, commercialDialogHtml, visibleOpportunityLimit, semanticRoles, FIELD_CONFIG,
   inferInterpretation, localClassifyTable, buildClassifiedTable, repairStoredClassifiedDomains, setTableDomain, columnProfile, readUploads, buildCanonicalDataset, interpretedScope,
   handleInterpretationAction, selectRoleColumn, interpretationRow,
   columnChooser, columnOptionValue, columnDataQuality, columnIdentification,
@@ -76,8 +76,8 @@ vm.runInContext(source, sandbox, { filename: appPath });
 
 const {
   app, datasets, analyze, priorityScore, requiredMappingIssues,
-  demoCredentialsValid, demoStateSnapshot, persistDemoProgress, restoreDemoProgress,
-  setupSpeechRecognition, voiceState, contextScreen, contextProgress, dataScreen, semanticRoles, FIELD_CONFIG, inferInterpretation, localClassifyTable, buildClassifiedTable, repairStoredClassifiedDomains, setTableDomain, columnProfile, readUploads,
+  demoCredentialsValid, demoStateSnapshot, persistDemoProgress, restoreDemoProgress, startAnonymousExplore, restartCurrentExperience,
+  setupSpeechRecognition, voiceState, welcome, contextScreen, contextProgress, dataScreen, productPathHtml, productPlansHtml, domainRoadmapHtml, dataSourcesHtml, commercialDialogHtml, visibleOpportunityLimit, semanticRoles, FIELD_CONFIG, inferInterpretation, localClassifyTable, buildClassifiedTable, repairStoredClassifiedDomains, setTableDomain, columnProfile, readUploads,
   buildCanonicalDataset, interpretedScope, handleInterpretationAction,
   selectRoleColumn, interpretationRow, columnChooser, columnOptionValue,
   columnDataQuality, columnIdentification, roleDisplayLabel,
@@ -188,23 +188,26 @@ function resetInterpretation(tables) {
   app.step = 3;
 }
 
-test("LANDING 1: presenta la narrativa completa y conserva un único acceso simple", () => {
+test("LANDING 1: presenta ConsultorIA, el Job principal y un acceso simple", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
   const motion = fs.readFileSync(path.join(__dirname, "..", "landing-motion.js"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "..", "overrides.css"), "utf8");
-  assert.ok(html.includes("Cuando todo parece urgente,"));
-  assert.ok(html.includes("Quiero saber qué atender primero →"));
-  assert.ok(html.includes('href="#como-funciona"'));
+  assert.ok(html.includes('<p class="hero-product-name">ConsultorIA</p>'));
+  assert.ok(html.includes("Decide qué atender primero."));
+  assert.ok(html.includes("Centra tu tiempo y atención donde genera más valor."));
+  assert.ok(html.includes("ConsultorIA analiza la información de tu negocio, identifica la prioridad más relevante y te muestra un plan claro para empezar."));
+  assert.equal((html.match(/data-start-explora/g) || []).length, 2);
+  assert.ok(html.includes('href="#explora" data-start-explora>Probar gratis</a>'));
+  assert.ok(html.includes('href="#acceso">Iniciar sesión</a>'));
   assert.ok(html.includes("De la información de tu negocio a una prioridad clara."));
   assert.ok(html.includes("Cuéntanos un poco de tu negocio"));
-  assert.ok(html.includes("Estoy listo para empezar →"));
   assert.ok(html.includes('href="#acceso"'));
-  assert.ok(html.includes("¿Listo para saber qué atender primero?"));
+  assert.ok(html.includes("Inicia sesión"));
   assert.ok(!html.includes("Empieza con lo que ya tienes."));
   assert.ok(!html.includes("No necesitas preparar un archivo especial."));
   assert.ok(html.includes('name="email"'));
   assert.ok(html.includes('name="password"'));
-  assert.ok(html.includes("Entrar a San José →"));
+  assert.ok(html.includes("Entrar a ConsultorIA →"));
   assert.equal((html.match(/id="demo-login-form"/g) || []).length, 1);
   assert.ok(html.includes("assets/logo-san-jose-azul.png"));
   assert.ok(!html.includes("MVP · Orientación basada en datos"));
@@ -218,6 +221,10 @@ test("LANDING 1: presenta la narrativa completa y conserva un único acceso simp
   assert.ok(styles.includes("@media (prefers-reduced-motion: reduce)"));
   assert.ok(!/acad[eé]mic/i.test(html));
   assert.ok(!html.includes("demo@sanjose.com"));
+  ["Explora", "Enfoque", "Gestión", "Dirección"].forEach(level => assert.ok(html.includes(level)));
+  assert.ok(html.includes("COP 180.000"));
+  assert.ok(html.includes("COP 300.000"));
+  assert.ok(html.includes("COP 500.000"));
   ["Crear cuenta", "Registrarse", "Recuperar contraseña"].forEach((copy) => assert.ok(!html.includes(copy)));
 });
 
@@ -266,6 +273,126 @@ test("LANDING 3: guarda y recupera progreso bajo la clave exclusiva del usuario 
   app.analysisCycles = [];
   app.currentAnalysisCycleId = null;
   localStorage.clear();
+});
+
+test("LANDING 4: Probar gratis entra a Explora sin login y no toca la memoria del usuario existente", () => {
+  localStorage.clear();
+  localStorage.setItem("sanJose.users.demo-san-jose", JSON.stringify({ marcador: "historial existente" }));
+  app.userId = "demo-san-jose";
+  app.context = { actividad: "Contexto anterior" };
+  app.analysisCycles = [{ cycleId: "anterior" }];
+  startAnonymousExplore({ preventDefault: noop });
+  assert.equal(app.userId, null);
+  assert.equal(app.productTier, "explora");
+  assert.equal(app.step, 2);
+  assert.deepEqual({ ...app.context }, {});
+  assert.equal(app.analysisCycles.length, 0);
+  assert.equal(persistDemoProgress(), false);
+  assert.deepEqual(JSON.parse(localStorage.getItem("sanJose.users.demo-san-jose")), { marcador: "historial existente" });
+  localStorage.clear();
+});
+
+test("LANDING 5: el login demo existente continúa validando su acceso separado", async () => {
+  assert.equal(await demoCredentialsValid("demo@sanjose.com", "SanJose2026"), true);
+  assert.equal(await demoCredentialsValid("demo@sanjose.com", "incorrecta"), false);
+});
+
+test("LANDING 6: Reiniciar Explora anónimo no borra el historial autenticado", () => {
+  localStorage.clear();
+  localStorage.setItem("sanJose.users.demo-san-jose", JSON.stringify({ marcador: "conservar" }));
+  app.userId = null;
+  restartCurrentExperience();
+  assert.deepEqual(JSON.parse(localStorage.getItem("sanJose.users.demo-san-jose")), { marcador: "conservar" });
+  localStorage.clear();
+});
+
+test("PRODUCTO 1: distingue la firma San José del producto ConsultorIA", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  assert.ok(html.includes("ConsultorIA"));
+  assert.ok(html.includes("Un producto de San José – Transformación Estratégica"));
+  assert.ok(html.includes("Decide qué atender primero."));
+  assert.ok(html.includes("Centra tu tiempo y atención donde genera más valor."));
+  assert.ok(!html.toLowerCase().includes("plataforma de ia"));
+  assert.ok(!html.toLowerCase().includes("dashboard"));
+});
+
+test("PRODUCTO 2: muestra los cuatro niveles con precios y estado comercial honestos", () => {
+  const html = `${productPathHtml()}${productPlansHtml()}${commercialDialogHtml()}`;
+  ["Explora", "Enfoque", "Gestión", "Dirección"].forEach(level => assert.ok(html.includes(level)));
+  ["COP 180.000", "COP 300.000", "COP 500.000"].forEach(price => assert.ok(html.includes(price)));
+  assert.ok(html.includes("Fase de validación comercial"));
+  assert.ok(html.includes("Próximamente"));
+  assert.ok(html.includes("no realiza cobros ni activa integraciones"));
+});
+
+test("PRODUCTO 2B: la pantalla inicial después del login ubica al usuario en Explora", () => {
+  const html = welcome();
+  assert.ok(html.includes("Tu recorrido en ConsultorIA"));
+  assert.ok(html.includes("Estás usando Explora"));
+  assert.ok(html.includes("Decide qué atender primero."));
+  assert.ok(html.includes("Empezar Explora →"));
+});
+
+test("PRODUCTO 3: Explora limita la experiencia visible a una prioridad sin recortar el análisis interno", () => {
+  const result = setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20], B: [70, 70, 70, 30, 30, 30] }), inventory: [] });
+  app.productTier = "explora";
+  app.currentAnalysisCycleId = null;
+  beginAnalysisCycle();
+  assert.equal(visibleOpportunityLimit(), 1);
+  assert.equal(cycleOpportunityEntries().length, 1);
+  assert.ok(result.priorities.length >= 1);
+});
+
+test("PRODUCTO 4: Enfoque limita la experiencia visible a dos prioridades", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20], B: [70, 70, 70, 30, 30, 30] }), inventory: [] });
+  app.productTier = "enfoque";
+  app.currentAnalysisCycleId = null;
+  beginAnalysisCycle();
+  assert.equal(visibleOpportunityLimit(), 2);
+  assert.equal(cycleOpportunityEntries().length, Math.min(2, app.analysis.priorities.length));
+});
+
+test("PRODUCTO 5: Excel está disponible y ERP, POS y API se presentan como futuras", () => {
+  const html = dataSourcesHtml();
+  assert.ok(html.includes("Excel / CSV"));
+  assert.ok(html.includes("Disponible ahora"));
+  assert.ok(html.includes("ERP / POS"));
+  assert.ok(html.includes("API"));
+  assert.equal((html.match(/Disponible en Gestión/g) || []).length, 2);
+  assert.ok(html.includes("integraciones personalizadas se cotizan"));
+});
+
+test("PRODUCTO 6: el roadmap habilita solo Ventas e Inventario", () => {
+  const html = domainRoadmapHtml();
+  ["Ventas", "Inventario"].forEach(domain => assert.ok(html.includes(`<span>${domain}</span><strong>Disponible</strong>`)));
+  ["Cartera de clientes", "Cuentas por pagar a proveedores", "Gastos", "Caja"].forEach(domain => assert.ok(html.includes(`<span>${domain}</span><strong>Próximamente</strong>`)));
+});
+
+test("PRODUCTO 7: Explora termina con una conversión clara y sin simular compra", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  app.productTier = "explora";
+  app.userId = null;
+  const html = cycleSummaryScreen();
+  assert.ok(html.includes("Ya identificaste qué atender primero."));
+  assert.ok(html.includes("Tu prueba gratuita ha finalizado."));
+  assert.ok(html.includes("Continuar con Enfoque"));
+  assert.ok(html.includes("Ver planes"));
+  assert.ok(html.includes("Conserva lo que ya avanzaste"));
+  assert.ok(!html.includes("Pagar"));
+});
+
+test("PRODUCTO 8: un ciclo antiguo con tres oportunidades respeta el límite visible del nivel actual", () => {
+  setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20], B: [70, 70, 70, 30, 30, 30] }), inventory: [] });
+  app.productTier = "explora";
+  beginAnalysisCycle();
+  const cycle = currentAnalysisCycle();
+  cycle.cycleOpportunities = [0, 1, 2].map(index => ({ id: `antigua-${index}`, index, sourceIndex: index }));
+  app.opportunityHistory = [0, 1, 2].map(index => ({ cicloAnalisisId: app.currentAnalysisCycleId, oportunidadIndice: index, oportunidadAtendida: `Oportunidad antigua ${index + 1}`, retroalimentacion: { mejoraPercibida: "Sí" }, estadoFinal: "Mejoró suficientemente" }));
+  assert.equal(cycleOpportunityEntries().length, 1);
+  const html = cycleSummaryScreen();
+  assert.ok(html.includes("Oportunidad antigua 1"));
+  assert.ok(!html.includes("Oportunidad antigua 2"));
+  assert.ok(!html.includes("Oportunidad antigua 3"));
 });
 
 test("VOZ 1: el dictado continuo reinicia si el navegador termina la escucha", async () => {
@@ -359,14 +486,17 @@ test("ETAPA 2 CLARIDAD: muestra solo los seis datos básicos sin bloquear la car
   app.dataset = null;
   app.semanticPending = false;
   const html = dataScreen();
-  assert.ok(html.includes("Usa los archivos que ya tienes"));
+  assert.ok(html.includes("Carga la información de tu negocio"));
+  assert.ok(html.includes("Usaremos estos datos para identificar qué merece tu atención primero."));
   assert.ok(html.includes("Puedes subir ventas, inventario o ambos. Pueden estar en un mismo Excel, en hojas diferentes, o en archivos separados."));
   assert.ok(html.includes("Antes de subirlos, revisa que tengas estos datos"));
   ["Fecha de venta", "Producto o referencia", "Cantidad vendida", "Valor de la venta", "Unidades disponibles"].forEach(text => assert.ok(html.includes(text), `falta ${text}`));
   assert.equal((html.match(/Producto o referencia/g) || []).length, 2);
   assert.equal((html.match(/minimum-data-grid/g) || []).length, 1);
-  assert.ok(html.includes("Si te falta alguno, puedes subir el archivo igualmente. San José te dirá qué puede analizar con la información disponible."));
-  assert.ok(html.includes("No importa cómo se llamen las columnas en tu archivo. San José intentará reconocerlas."));
+  assert.ok(html.includes("Si te falta alguno, puedes subir el archivo igualmente. ConsultorIA te dirá qué puede analizar con la información disponible."));
+  assert.ok(html.includes("No importa cómo se llamen las columnas en tu archivo. ConsultorIA intentará reconocerlas."));
+  assert.ok(html.includes("¿Cómo quieres traer tu información?"));
+  assert.ok(html.includes("Disponible en Gestión"));
   assert.ok(html.includes("Arrastra aquí tus archivos de ventas o inventario"));
   assert.ok(html.includes('type="file" multiple'));
   assert.ok(html.includes(".xlsx,.xls,.csv"));
@@ -395,6 +525,25 @@ test("La calidad de cualquier análisis parcial permanece limitada", () => {
   const result = analyze(datasets.ejemploVentas);
   assert.ok(result.quality.score < 85);
   assert.notEqual(result.quality.level, "ALTA");
+});
+
+test("PERIODO: cuenta los días de forma inclusiva y usa el singular correcto", () => {
+  const oneDay = analyze({
+    sales: [{ fecha: "2026-01-01", producto: "A", cantidad: 1, valorTotal: 1000 }],
+    inventory: []
+  });
+  assert.equal(oneDay.metrics.period, 1);
+  assert.ok(oneDay.quality.facts.some(fact => fact.text.includes("cubren 1 día.")));
+
+  const twoDays = analyze({
+    sales: [
+      { fecha: "2026-01-01", producto: "A", cantidad: 1, valorTotal: 1000 },
+      { fecha: "2026-01-02", producto: "B", cantidad: 1, valorTotal: 1000 }
+    ],
+    inventory: []
+  });
+  assert.equal(twoDays.metrics.period, 2);
+  assert.ok(twoDays.quality.facts.some(fact => fact.text.includes("cubren 2 días.")));
 });
 
 test("La puntuación conserva la fórmula determinística de cuatro factores", () => {
@@ -1412,6 +1561,7 @@ function stageThreeSales({ months = 6, rowsPerMonth = 4, products = ["A", "B", "
 }
 
 function setStageThree(data, referenceDate = new Date("2026-08-08T12:00:00Z"), context = {}) {
+  app.productTier = "explora";
   app.context = context;
   app.dataset = data;
   app.analysis = analyze(data, referenceDate);
@@ -1443,13 +1593,12 @@ test("ETAPA 3 A: ventas, cantidades e inventario completos producen resumen, cal
   assert.ok(html.indexOf("Calidad de la información") < html.indexOf("Lo que pasó con tus ventas"));
   assert.ok(html.indexOf("Lo que pasó con tus ventas") < html.indexOf("id=\"priority-title\""));
   assert.ok(html.indexOf("id=\"priority-title\"") < html.indexOf("id=\"priority-evidence\""));
-  assert.ok(html.indexOf("id=\"priority-evidence\"") < html.indexOf("Ver mi plan de 3 acciones"));
-  assert.ok(html.indexOf("Ver evidencia") < html.indexOf("Ver mi plan de 3 acciones"));
-  assert.ok(html.indexOf("Ver mi plan de 3 acciones") < html.indexOf("También encontramos"));
-  assert.ok(html.indexOf("También encontramos") < html.indexOf("Ver detalle del análisis"));
+  assert.ok(html.indexOf("id=\"priority-evidence\"") < html.indexOf("Ver mi plan de acción"));
+  assert.ok(html.indexOf("Ver evidencia") < html.indexOf("Ver mi plan de acción"));
+  assert.ok(!html.includes("También encontramos"));
   assert.equal((html.match(/class="result-chart(?: chart|\")/g) || []).length, 2);
   assert.equal((html.match(/class="result-stat"/g) || []).length, 4);
-  assert.ok(html.includes("Ver mi plan de 3 acciones"));
+  assert.ok(html.includes("Ver mi plan de acción"));
   assert.ok(html.includes("Ver detalle del análisis"));
   assert.ok(html.includes("Resumen para tomar decisiones"));
   assert.ok(html.includes("Lo que todavía no podemos saber"));
@@ -1643,7 +1792,7 @@ test("PDF 1: el modelo conserva contenido gerencial, calidad, limitaciones y res
   assert.ok(model.cards.length >= 4);
   assert.ok(model.monthly.length >= 2);
   assert.ok(model.unknown.some(item => item.includes("inventario")));
-  assert.ok(model.responsibility.includes("San José no toma decisiones por la empresa"));
+  assert.ok(model.responsibility.includes("ConsultorIA y San José no toman decisiones por la empresa"));
 });
 
 test("PDF 2: genera un archivo PDF A4 real con logo y varias páginas legibles", async () => {
@@ -1655,7 +1804,7 @@ test("PDF 2: genera un archivo PDF A4 real con logo y varias páginas legibles",
   assert.ok(document.getPageCount() >= 2);
   assert.equal(Math.round(document.getPage(0).getWidth()), 595);
   assert.equal(Math.round(document.getPage(0).getHeight()), 842);
-  assert.equal(document.getTitle(), "Resumen para tomar decisiones - San José");
+  assert.equal(document.getTitle(), "Resumen para tomar decisiones - ConsultorIA");
   if (process.env.SAN_JOSE_PDF_QA_PATH) {
     fs.mkdirSync(path.dirname(process.env.SAN_JOSE_PDF_QA_PATH), { recursive: true });
     fs.writeFileSync(process.env.SAN_JOSE_PDF_QA_PATH, bytes);
@@ -1878,7 +2027,7 @@ test("CONTEXTO 1: conecta un cliente mencionado con evidencia real sin inventar 
   assert.ok(diagnosis.evidenciaContextual[0].includes("Cliente Norte dejó de registrar compras"));
   const html = resultsScreen();
   assert.ok(html.includes("Tuvimos en cuenta lo que nos contaste"));
-  assert.ok(html.includes("Cliente Norte"));
+  assert.ok(html.toLowerCase().includes("cliente norte"));
   assert.ok(html.indexOf("Tuvimos en cuenta lo que nos contaste") < html.indexOf("Ver evidencia"));
   assert.ok(!html.includes("bajaron porque"));
 });
@@ -2052,30 +2201,31 @@ test("DIAGNÓSTICO 8: un margen porcentual no se suma ni se presenta como dinero
   assert.equal(main.magnitudDetalle.valorDejadoDeGenerar, null);
 });
 
-test("ETAPA 4 RESUMEN A: presenta primero las tres oportunidades sin desarrollar el plan", () => {
+test("ETAPA 4 RESUMEN A: Explora presenta una prioridad sin desarrollar el plan", () => {
   setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20], B: [40, 40, 40, 30, 30, 30] }), inventory: [] });
   const html = planScreen();
-  assert.ok(html.includes("Tus 3 oportunidades de mejora"));
-  assert.ok(html.includes("Vamos a avanzar uno por uno"));
-  assert.equal((html.match(/class="opportunity-card/g) || []).length, 3);
+  assert.ok(html.includes("Tu prioridad principal"));
+  assert.ok(html.includes("Explora incluye esta prioridad"));
+  assert.equal((html.match(/class="opportunity-card/g) || []).length, 1);
   assert.ok(html.includes("Atender primero"));
-  assert.ok(html.includes("Atender después"));
-  assert.ok(html.includes("Mantener en observación"));
+  assert.ok(!html.includes("Atender después"));
+  assert.ok(!html.includes("Mantener en observación"));
   assert.equal((html.match(/id="open-plan-detail"/g) || []).length, 1);
   assert.equal((html.match(/Trabajar esta oportunidad →/g) || []).length, 1);
-  assert.equal((html.match(/La veremos después/g) || []).length, 2);
+  assert.equal((html.match(/La veremos después/g) || []).length, 0);
   assert.ok(html.includes("¿Cómo vamos a trabajar esto?"));
   assert.ok(html.includes("Entender qué cambió") && html.includes("Actuar") && html.includes("Comprobar si mejoró"));
   assert.ok(!html.includes("class=\"plan-phases\""));
 });
 
-test("ETAPA 4 RESUMEN B: muestra solo oportunidades sustentadas y explica la faltante", () => {
+test("ETAPA 4 RESUMEN B: Enfoque muestra hasta dos prioridades sustentadas", () => {
   setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
+  app.productTier = "enfoque";
   app.analysis.priorities = app.analysis.priorities.slice(0, 2);
   const html = planScreen();
-  assert.ok(html.includes("Tus 2 oportunidades de mejora"));
+  assert.ok(html.includes("Tus 2 prioridades"));
+  assert.ok(html.includes("Enfoque incluye hasta 2 prioridades"));
   assert.equal((html.match(/class="opportunity-card/g) || []).length, 2);
-  assert.ok(html.includes("No pudimos construir una tercera oportunidad porque falta información suficiente"));
   assert.equal((html.match(/id="open-plan-detail"/g) || []).length, 1);
 });
 
@@ -2372,18 +2522,16 @@ test("DESPUÉS DEL PLAN D: evita lenguaje técnico frente al usuario", () => {
 
 test("CICLO 1: cada oportunidad construye su propio diagnóstico y plan", () => {
   setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20], B: [60, 60, 60, 30, 30, 30] }), inventory: [] });
+  app.productTier = "enfoque";
   app.datasetName = "Ciclo de prueba";
   beginAnalysisCycle();
   const first = getActionPlan();
-  app.activeOpportunityIndex = 1;
-  app.activePriority = 1;
-  app.currentOpportunityKey = null;
-  app.actionPlan = null;
+  startOpportunity(1);
   const second = getActionPlan();
   assert.notEqual(first.problemGeneral, second.problemGeneral);
   assert.notEqual(first.phases[0].action, second.phases[0].action);
   assert.equal(app.analysisCycles.length, 1);
-  assert.equal(currentAnalysisCycle().prioridades.length, Math.min(3, app.analysis.priorities.length));
+  assert.equal(currentAnalysisCycle().prioridades.length, Math.min(2, app.analysis.priorities.length));
 });
 
 test("CICLO 2: clasifica percepción suficiente, parcial, sin mejora y sin información", () => {
@@ -2396,6 +2544,7 @@ test("CICLO 2: clasifica percepción suficiente, parcial, sin mejora y sin infor
 
 test("CICLO 3: la transición avanza, repite o cierra según el resultado y las oportunidades disponibles", () => {
   setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20], B: [60, 60, 60, 30, 30, 30] }), inventory: [] });
+  app.productTier = "enfoque";
   app.lastOpportunityDecision = { next: true, state: "Mejoró suficientemente", key: "improved" };
   let html = nextScreen();
   assert.ok(html.includes("Esta oportunidad muestra una mejora."));
@@ -2406,8 +2555,7 @@ test("CICLO 3: la transición avanza, repite o cierra según el resultado y las 
   assert.ok(html.includes("Esta oportunidad todavía necesita atención."));
   assert.ok(html.includes("Probar otro plan para esta oportunidad"));
   assert.ok(html.includes("Revisar la siguiente oportunidad"));
-  app.activeOpportunityIndex = app.analysis.priorities.length - 1;
-  app.lastOpportunityDecision = { next: true, state: "Mejoró suficientemente", key: "improved" };
+  app.lastOpportunityDecision = { next: true, state: "Mejoró suficientemente", key: "improved", completedOpportunityIndex: 1 };
   html = nextScreen();
   assert.ok(html.includes("Ver resumen de esta revisión →"));
   assert.ok(!html.includes("Trabajar siguiente oportunidad →"));
@@ -2456,7 +2604,7 @@ test("CICLO 5: conserva la historia y contrasta un nuevo análisis sin convertir
   assert.ok(currentAnalysisCycle().hipotesis.every(item => typeof item === "string"));
 });
 
-test("CICLO 6: el cierre resume oportunidades, datos y voz del usuario y ofrece nuevos datos", () => {
+test("CICLO 6: el cierre de Explora resume el trabajo y presenta la continuidad comercial", () => {
   setStageThree({ sales: businessRows({ A: [100, 100, 100, 20, 20, 20] }), inventory: [] });
   app.datasetName = "Cierre";
   beginAnalysisCycle();
@@ -2468,7 +2616,10 @@ test("CICLO 6: el cierre resume oportunidades, datos y voz del usuario y ofrece 
   assert.ok(html.includes("Nos contaste que:"));
   assert.ok(html.includes("Lo que resultó más fácil"));
   assert.ok(html.includes("Lo que resultó más difícil"));
-  assert.ok(html.includes("Cargar nuevos datos →"));
+  assert.ok(html.includes("Tu prueba gratuita ha finalizado."));
+  assert.ok(html.includes("Continuar con Enfoque"));
+  assert.ok(html.includes("Ver planes"));
+  assert.ok(!html.includes("Cargar nuevos datos →"));
 });
 
 function setIndependentOpportunityCycle() {
@@ -2481,6 +2632,7 @@ function setIndependentOpportunityCycle() {
   }
   const inventory = [{ producto: "4", referencia: "4", nombreProducto: "Café Tradicional 500 g", stock: 900 }, { producto: "B", stock: 10 }];
   setStageThree({ sales, inventory });
+  app.productTier = "enfoque";
   const common = { level: "general", nivelUrgencia: "Importante", magnitud: 40, periodo: "Dos periodos de tres meses", limitaciones: [], hipotesisPorValidar: [] };
   app.analysis.priorities = [
     { ...common, type: "business-decline", dominio: "ventas", problemaGeneral: "Caída general de ventas", title: "Las ventas bajaron", reason: "Las ventas bajaron 40 %.", evidence: "La Referencia 4 explica la mayor parte de la reducción.", causasObservadas: ["La Referencia 4 vendió menos."], focosPrioritarios: [{ evidencia: "La Referencia 4 explica 60 % de la reducción." }], driver: { dimension: "producto", product: "4" } },
@@ -2492,12 +2644,12 @@ function setIndependentOpportunityCycle() {
   app.step = 7;
 }
 
-test("CICLO CORREGIDO 1: ventas, utilidad e inventario conservan planes, metas y progreso independientes", () => {
+test("CICLO CORREGIDO 1: las dos prioridades de Enfoque conservan planes, metas y progreso independientes", () => {
   setIndependentOpportunityCycle();
   const plans = [];
   const signalSets = [];
-  const comments = ["Comentario de ventas", "Comentario de utilidad", "Comentario de inventario"];
-  for (let index = 0; index < 3; index += 1) {
+  const comments = ["Comentario de ventas", "Comentario de utilidad"];
+  for (let index = 0; index < 2; index += 1) {
     startOpportunity(index);
     const html = planScreen();
     const plan = getActionPlan();
@@ -2510,18 +2662,17 @@ test("CICLO CORREGIDO 1: ventas, utilidad e inventario conservan planes, metas y
     const feedback = buildFeedbackRecord({ planCompletado: "En parte", mejoraPercibida: "Sí", comentarioUsuario: comments[index] }, new Date(`2026-08-0${index + 1}T12:00:00Z`));
     recordOpportunityReview(feedback);
   }
-  assert.equal(new Set(plans).size, 3);
-  assert.equal(new Set(signalSets).size, 3);
+  assert.equal(new Set(plans).size, 2);
+  assert.equal(new Set(signalSets).size, 2);
   assert.ok(signalSets[0].includes("Unidades vendidas") || signalSets[0].includes("Valor vendido"));
   assert.ok(signalSets[1].toLowerCase().includes("utilidad"));
   assert.ok(!signalSets[1].includes("Clientes que volvieron a comprar"));
-  assert.ok(signalSets[2].includes("Unidades disponibles"));
   const records = app.opportunityHistory.filter(item => item.cicloAnalisisId === app.currentAnalysisCycleId);
-  assert.equal(new Set(records.map(item => item.opportunityId)).size, 3);
+  assert.equal(new Set(records.map(item => item.opportunityId)).size, 2);
   assert.deepEqual(Array.from(records.map(item => item.retroalimentacion.comentarioUsuario)), comments);
 });
 
-test("CICLO CORREGIDO 2: las transiciones son 1 a 2, 2 a 3 y 3 a cierre", () => {
+test("CICLO CORREGIDO 2: las transiciones de Enfoque son 1 a 2 y 2 a cierre", () => {
   setIndependentOpportunityCycle();
   app.lastOpportunityDecision = { next: true, state: "Mejoró suficientemente", key: "improved", completedOpportunityIndex: 0 };
   let html = nextScreen();
@@ -2530,11 +2681,6 @@ test("CICLO CORREGIDO 2: las transiciones son 1 a 2, 2 a 3 y 3 a cierre", () => 
   app.lastOpportunityDecision = { next: true, state: "Mejoró suficientemente", key: "improved", completedOpportunityIndex: 1 };
   html = nextScreen();
   assert.ok(html.includes("Oportunidad trabajada · 2"));
-  assert.ok(html.includes("Siguiente oportunidad · 3"));
-  assert.ok(!html.includes("Siguiente oportunidad · 2"));
-  app.lastOpportunityDecision = { next: true, state: "Mejoró suficientemente", key: "improved", completedOpportunityIndex: 2 };
-  html = nextScreen();
-  assert.ok(html.includes("Oportunidad trabajada · 3"));
   assert.ok(html.includes("Terminamos las oportunidades principales de esta revisión."));
   assert.ok(!html.includes("Siguiente oportunidad ·"));
   assert.ok(html.includes("Ver resumen de esta revisión →"));
@@ -2558,14 +2704,9 @@ test("PLAN DINÁMICO 1: cada oportunidad recibe objetos de plan y fases con refe
   const salesPlan = getActionPlan();
   startOpportunity(1);
   const profitPlan = getActionPlan();
-  startOpportunity(2);
-  const inventoryPlan = getActionPlan();
   assert.notStrictEqual(salesPlan, profitPlan);
-  assert.notStrictEqual(profitPlan, inventoryPlan);
   assert.notStrictEqual(salesPlan.phases, profitPlan.phases);
-  assert.notStrictEqual(profitPlan.phases, inventoryPlan.phases);
   assert.notDeepEqual(Array.from(salesPlan.phases, phase => phase.action), Array.from(profitPlan.phases, phase => phase.action));
-  assert.notDeepEqual(Array.from(profitPlan.phases, phase => phase.action), Array.from(inventoryPlan.phases, phase => phase.action));
   startOpportunity(0);
   assert.strictEqual(getActionPlan(), salesPlan);
 });

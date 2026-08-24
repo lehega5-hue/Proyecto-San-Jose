@@ -21,6 +21,7 @@ function readableNumber(value) {
 
 const app = {
   userId: null,
+  productTier: "explora",
   step: 2,
   start: null,
   context: {},
@@ -91,7 +92,7 @@ const datasets = {
   ejemploVentas: {
     name: "Ejemplo de ventas",
     expected: "Continuar sin inventario y priorizar una caída reciente sostenida.",
-    description: "Usa este ejemplo si todavía no tienes un archivo para probar San José.",
+    description: "Usa este ejemplo si todavía no tienes un archivo para probar ConsultorIA.",
     sales: [
       ["2026-01-10", "Producto A", 6, 100000], ["2026-01-20", "Producto B", 4, 100000],
       ["2026-02-10", "Producto A", 6, 100000], ["2026-02-20", "Producto B", 4, 100000],
@@ -199,7 +200,7 @@ const DEMO_USER = Object.freeze({
 });
 const DEMO_STORAGE_KEY = `sanJose.users.${DEMO_USER.id}`;
 const PERSISTED_APP_FIELDS = [
-  "step", "start", "context", "dataset", "datasetName", "expected", "source", "analysis", "tables", "classified",
+  "productTier", "step", "start", "context", "dataset", "datasetName", "expected", "source", "analysis", "tables", "classified",
   "semanticMode", "semanticPending", "clarifications", "additionalSections", "tasks", "actionPlan", "opportunityPlans", "opportunityHistory",
   "analysisCycles", "currentAnalysisCycleId", "newCyclePending", "currentOpportunityKey", "activeOpportunityId", "activeOpportunityIndex",
   "opportunityAttempt", "lastOpportunityDecision", "cycleSummaryOpen", "planDetailOpen", "activePriority", "feedback", "completed"
@@ -270,6 +271,11 @@ function resetDemoProgress() {
   location.reload();
 }
 
+function restartCurrentExperience() {
+  if (app.userId === DEMO_USER.id) resetDemoProgress();
+  else location.reload();
+}
+
 function startDemo(restored = false) {
   $("#welcome-view").classList.add("hidden");
   $("#app-view").classList.remove("hidden");
@@ -277,6 +283,19 @@ function startDemo(restored = false) {
   app.completed.start = true;
   if (restored) render();
   else go(2);
+}
+
+function startAnonymousExplore(event) {
+  event?.preventDefault?.();
+  Object.assign(app, {
+    userId: null, productTier: "explora", step: 2, start: Date.now(), context: {}, dataset: null, datasetName: "", expected: "", source: "",
+    analysis: null, files: [], tables: [], classified: [], semanticMode: "local-fallback", semanticPending: false, clarifications: {}, additionalSections: {},
+    tasks: [], actionPlan: null, opportunityPlans: {}, opportunityHistory: [], analysisCycles: [], currentAnalysisCycleId: null, newCyclePending: false,
+    currentOpportunityKey: null, activeOpportunityId: null, activeOpportunityIndex: 0, opportunityAttempt: 1, lastOpportunityDecision: null,
+    cycleSummaryOpen: false, planDetailOpen: false, activePriority: 0, feedback: {},
+    completed: { start: true, form: false, data: false, quality: false, priority: false, plan: false, feedback: false }
+  });
+  startDemo(false);
 }
 
 async function submitDemoAccess(event) {
@@ -296,7 +315,8 @@ async function submitDemoAccess(event) {
 }
 
 $("#demo-login-form").addEventListener("submit", submitDemoAccess);
-$("#restart-button").addEventListener("click", resetDemoProgress);
+document.querySelectorAll("[data-start-explora]").forEach(link => link.addEventListener("click", startAnonymousExplore));
+$("#restart-button").addEventListener("click", restartCurrentExperience);
 $("#test-summary-button").addEventListener("click", showTestSummary);
 $(".dialog-close").addEventListener("click", () => $("#test-dialog").close());
 
@@ -330,8 +350,8 @@ function stableOpportunityId(cycleId, finding, index) {
 
 function cycleOpportunityEntries() {
   const cycle = currentAnalysisCycle();
-  if (cycle?.cycleOpportunities?.length) return cycle.cycleOpportunities;
-  return (app.analysis?.priorities || []).slice(0, 3).map((finding, index) => ({
+  if (cycle?.cycleOpportunities?.length) return cycle.cycleOpportunities.slice(0, visibleOpportunityLimit());
+  return (app.analysis?.priorities || []).slice(0, visibleOpportunityLimit()).map((finding, index) => ({
     id: stableOpportunityId(cycle?.cycleId || "revision-actual", finding, index),
     index,
     sourceIndex: index,
@@ -339,6 +359,10 @@ function cycleOpportunityEntries() {
     domain: opportunityDomain(finding),
     title: finding.problemaGeneral || finding.title || `Oportunidad ${index + 1}`
   }));
+}
+
+function visibleOpportunityLimit() {
+  return app.productTier === "enfoque" ? 2 : 1;
 }
 
 function currentOpportunityEntry() {
@@ -401,8 +425,8 @@ function beginAnalysisCycle() {
       calidad: app.analysis.resultQuality?.score ?? null,
       cambioVentas: app.analysis.metrics?.panorama?.reliable ? app.analysis.metrics.panorama.change : null
     },
-    prioridades: (app.analysis.priorities || []).slice(0, 3).map((item, index) => ({ indice: index, tipo: item.type, nombre: item.problemaGeneral || item.title, evidencia: item.evidence || item.reason, estado: "pendiente" })),
-    cycleOpportunities: (app.analysis.priorities || []).slice(0, 3).map((item, index) => ({
+    prioridades: (app.analysis.priorities || []).slice(0, visibleOpportunityLimit()).map((item, index) => ({ indice: index, tipo: item.type, nombre: item.problemaGeneral || item.title, evidencia: item.evidence || item.reason, estado: "pendiente" })),
+    cycleOpportunities: (app.analysis.priorities || []).slice(0, visibleOpportunityLimit()).map((item, index) => ({
       id: stableOpportunityId(`ciclo-${app.analysisCycles.length + 1}`, item, index),
       index,
       sourceIndex: index,
@@ -411,7 +435,7 @@ function beginAnalysisCycle() {
       title: item.problemaGeneral || item.title || `Oportunidad ${index + 1}`
     })),
     causasObservadas: [...(app.analysis.diagnostico?.causasObservadas || [])],
-    hechos: (app.analysis.priorities || []).slice(0, 3).map(item => item.evidence || item.reason).filter(Boolean),
+    hechos: (app.analysis.priorities || []).slice(0, visibleOpportunityLimit()).map(item => item.evidence || item.reason).filter(Boolean),
     hipotesis: [...(app.analysis.diagnostico?.hipotesisPorValidar || [])],
     planes: [],
     actividadesRealizadas: [],
@@ -446,9 +470,9 @@ function beginAnalysisCycle() {
 function refreshCurrentAnalysisCycle() {
   const cycle = currentAnalysisCycle();
   if (!cycle || !app.analysis) return;
-  cycle.prioridades = (app.analysis.priorities || []).slice(0, 3).map((item, index) => ({ indice: index, tipo: item.type, nombre: item.problemaGeneral || item.title, evidencia: item.evidence || item.reason, estado: cycle.prioridades?.[index]?.estado || "pendiente" }));
+  cycle.prioridades = (app.analysis.priorities || []).slice(0, visibleOpportunityLimit()).map((item, index) => ({ indice: index, tipo: item.type, nombre: item.problemaGeneral || item.title, evidencia: item.evidence || item.reason, estado: cycle.prioridades?.[index]?.estado || "pendiente" }));
   cycle.causasObservadas = [...(app.analysis.diagnostico?.causasObservadas || [])];
-  cycle.hechos = (app.analysis.priorities || []).slice(0, 3).map(item => item.evidence || item.reason).filter(Boolean);
+  cycle.hechos = (app.analysis.priorities || []).slice(0, visibleOpportunityLimit()).map(item => item.evidence || item.reason).filter(Boolean);
   cycle.hipotesis = [...(app.analysis.diagnostico?.hipotesisPorValidar || [])];
 }
 
@@ -486,12 +510,55 @@ function nav(back, next, label = "Continuar") {
   </div>`;
 }
 
+function productPathHtml() {
+  const levels = [
+    ["Explora", "Prueba gratis", "Activo"],
+    ["Enfoque", "Prioriza y actúa", "COP 180.000 / ciclo"],
+    ["Gestión", "Sigue la evolución", "COP 300.000 / mes"],
+    ["Dirección", "Acompañamiento gerencial", "COP 500.000 / mes"]
+  ];
+  return `<section class="product-path" aria-labelledby="product-path-title"><div><p class="eyebrow">Tu recorrido en ConsultorIA</p><h2 id="product-path-title">Estás usando Explora</h2><p>Una prueba gratuita para identificar una prioridad y trabajar un plan de acción.</p></div><ol>${levels.map(([name, description, status], index) => `<li class="${index === 0 ? "active" : "future"}"><span>${name}</span><strong>${description}</strong><small>${status}</small></li>`).join("")}</ol></section>`;
+}
+
+function productPlansHtml() {
+  const plans = [
+    { name: "Explora", price: "Gratis", period: "Prueba única", items: ["1 prioridad", "1 plan de acción", "Carga manual"], status: "Disponible ahora" },
+    { name: "Enfoque", price: "COP 180.000", period: "por ciclo", items: ["Hasta 2 prioridades", "Hasta 2 planes", "Seguimiento, cierre y memoria entre ciclos"], status: "Fase de validación comercial" },
+    { name: "Gestión", price: "COP 300.000", period: "al mes", items: ["Todo Enfoque y 2 ciclos al mes", "Memoria persistente, tableros, indicadores y alertas", "ERP, POS y API estándar"], status: "Próximamente" },
+    { name: "Dirección", price: "COP 500.000", period: "al mes", items: ["Todo Gestión", "Conversa con ConsultorIA usando datos, decisiones y resultados como contexto", "Análisis multidominio y memoria ampliada", "Bolsa mensual de IA; créditos adicionales por separado", "Orquestación de implementaciones en una fase futura"], status: "Próximamente" }
+  ];
+  return `<div class="product-plan-grid">${plans.map((plan, index) => `<article class="product-plan-card ${index === 0 ? "active" : "future"}"><span>${plan.name}</span><h3>${plan.price}</h3><p>${plan.period}</p><ul>${plan.items.map(item => `<li>${item}</li>`).join("")}</ul><b>${plan.status}</b></article>`).join("")}</div>`;
+}
+
+function domainRoadmapHtml() {
+  const domains = [
+    ["Ventas", "Disponible"],
+    ["Inventario", "Disponible"],
+    ["Cartera de clientes", "Próximamente"],
+    ["Cuentas por pagar a proveedores", "Próximamente"],
+    ["Gastos", "Próximamente"],
+    ["Caja", "Próximamente"]
+  ];
+  return `<section class="domain-roadmap" aria-labelledby="domain-roadmap-title"><p class="eyebrow">Áreas de análisis</p><h3 id="domain-roadmap-title">Lo que ConsultorIA puede revisar</h3><ul>${domains.map(([name, status]) => `<li class="${status === "Disponible" ? "available" : "future"}"><span>${name}</span><strong>${status}</strong></li>`).join("")}</ul></section>`;
+}
+
+function commercialDialogHtml() {
+  const memoryNote = app.userId === DEMO_USER.id
+    ? "Tu acceso de demostración conserva el progreso solamente en este navegador."
+    : "Conserva lo que ya avanzaste: la creación de acceso para transferir esta prueba se habilitará con el flujo comercial de Enfoque.";
+  return `<dialog id="commercial-dialog" class="commercial-dialog" aria-labelledby="commercial-dialog-title"><button class="commercial-dialog-close" type="button" aria-label="Cerrar">×</button><p class="eyebrow">Evolución de ConsultorIA</p><h2 id="commercial-dialog-title">Funcionalidad comercial en fase de validación</h2><p>Esta demostración no realiza cobros ni activa integraciones. Puedes revisar qué incluye cada nivel.</p>${productPlansHtml()}${domainRoadmapHtml()}<p class="commercial-note">${memoryNote} Gestión y Dirección requieren infraestructura adicional antes de operar con empresas reales.</p></dialog>`;
+}
+
+function dataSourcesHtml() {
+  return `<section class="data-source-options" aria-labelledby="data-source-title"><div><p class="eyebrow">Fuente de información</p><h2 id="data-source-title">¿Cómo quieres traer tu información?</h2><p>Para esta prueba puedes usar archivos. Las conexiones automáticas forman parte de Gestión.</p></div><div class="data-source-grid"><article class="available"><span>Excel / CSV</span><strong>Disponible ahora</strong><p>Sube los archivos que ya utilizas.</p></article><article><span>ERP / POS</span><strong>Disponible en Gestión</strong><p>Conectores estándar previstos para una siguiente fase.</p></article><article><span>API</span><strong>Disponible en Gestión</strong><p>Conexión programada para sistemas compatibles.</p></article></div><details class="integration-details"><summary>Ver integraciones</summary><p>Los conectores estándar estarán disponibles en Gestión. Las integraciones personalizadas se cotizan según complejidad.</p></details></section>`;
+}
+
 function welcome() {
-  return `<section class="hero-screen"><div><p class="eyebrow">MVP · Orientación basada en datos</p><h1>Tus datos te muestran qué atender primero.</h1><p>No te damos más datos. Te ayudamos a saber qué hacer con los que ya tienes.</p><button class="button gold" type="button" data-go="2">Empezar análisis →</button></div></section>`;
+  return `${productPathHtml()}<section class="hero-screen"><div><p class="eyebrow">Explora · Prueba gratuita</p><h1>Decide qué atender primero.</h1><p>ConsultorIA convierte la información de tu negocio en una prioridad clara y un plan de acción.</p><button class="button gold" type="button" data-go="2">Empezar Explora →</button></div></section>`;
 }
 
 function contextScreen() {
-  return `<p class="eyebrow">Conozcamos tu negocio</p>
+  return `${productPathHtml()}<p class="eyebrow">Conozcamos tu negocio</p>
     <h1 class="screen-title">Cuéntanos un poco de tu negocio</h1>
     <p class="screen-intro">Responde tres preguntas cortas. Esto nos ayuda a entender mejor tus datos.</p>
     <form id="context-form" class="panel compact-form">
@@ -561,16 +628,18 @@ function dataScreen() {
     ? `<ul class="file-list">${app.files.map(file => `<li><span>${safe(file.name)}</span><small>${formatBytes(file.size)}</small></li>`).join("")}</ul>`
     : "";
   return `<p class="eyebrow">Sube tu información</p>
-    <h1 class="screen-title">Usa los archivos que ya tienes</h1>
+    <h1 class="screen-title">Carga la información de tu negocio</h1>
+    <p class="screen-intro">Usaremos estos datos para identificar qué merece tu atención primero.</p>
     <p class="screen-intro">Puedes subir ventas, inventario o ambos. Pueden estar en un mismo Excel, en hojas diferentes, o en archivos separados.</p>
+    ${dataSourcesHtml()}
     <section class="minimum-data" aria-labelledby="minimum-data-title">
       <h2 id="minimum-data-title">Antes de subirlos, revisa que tengas estos datos</h2>
       <div class="minimum-data-grid">
         <article><h3>Ventas</h3><ul><li>Fecha de venta</li><li>Producto o referencia</li><li>Cantidad vendida</li><li>Valor de la venta</li></ul></article>
         <article><h3>Inventario</h3><ul><li>Producto o referencia</li><li>Unidades disponibles</li></ul></article>
       </div>
-      <p class="missing-data-note">Si te falta alguno, puedes subir el archivo igualmente. San José te dirá qué puede analizar con la información disponible.</p>
-      <p class="column-name-note">No importa cómo se llamen las columnas en tu archivo. San José intentará reconocerlas.</p>
+      <p class="missing-data-note">Si te falta alguno, puedes subir el archivo igualmente. ConsultorIA te dirá qué puede analizar con la información disponible.</p>
+      <p class="column-name-note">No importa cómo se llamen las columnas en tu archivo. ConsultorIA intentará reconocerlas.</p>
     </section>
     <section class="panel unified-upload">
       <label id="drop-zone" class="drop-zone">
@@ -584,7 +653,7 @@ function dataScreen() {
     </section>
     <div class="case-divider"><span>Probar con un ejemplo</span></div>
     <section class="single-example">
-      <div><span class="case-tag">Ejemplo de ventas</span><h2>Ejemplo de ventas</h2><p>Usa este ejemplo si todavía no tienes un archivo para probar San José.</p></div>
+      <div><span class="case-tag">Ejemplo de ventas</span><h2>Ejemplo de ventas</h2><p>Usa este ejemplo si todavía no tienes un archivo para probar ConsultorIA.</p></div>
       <button class="button secondary" type="button" data-dataset="ejemploVentas">Probar con ejemplo de ventas</button>
     </section>
     ${app.semanticPending ? interpretationPanel() : app.dataset ? datasetScopePanel() : nav(2, null)}`;
@@ -629,11 +698,11 @@ function interpretationPanel() {
   return `<section class="panel interpretation-panel">
     <p class="eyebrow">Revisión de tus datos</p>
     <h2>Esto es lo que entendimos</h2>
-    <p>San José hizo una primera interpretación. Confirma o corrige cada dato principal.</p>
+    <p>ConsultorIA hizo una primera interpretación. Confirma o corrige cada dato principal.</p>
     <ul class="found-list">${found}</ul>
-    ${additional.length ? `<p class="optional-note">También encontramos ${countText(additional.length, "una hoja", "hojas")} con información adicional. Esta versión de San José se concentra únicamente en ventas e inventario.</p>` : ""}
+    ${additional.length ? `<p class="optional-note">También encontramos ${countText(additional.length, "una hoja", "hojas")} con información adicional. Esta versión de ConsultorIA se concentra únicamente en ventas e inventario.</p>` : ""}
     ${unknown.length ? `<p class="optional-note">No logramos reconocer ${countText(unknown.length, "una hoja", "hojas")}. Puedes continuar si ya encontramos ventas o inventario.</p>` : ""}
-    <div class="review-progress"><div><h2>Revisa tus datos principales</h2><p>San José propone. Tú confirmas o corriges.</p></div><strong>${reviewProgressText(review)}</strong></div>
+    <div class="review-progress"><div><h2>Revisa tus datos principales</h2><p>ConsultorIA propone. Tú confirmas o corriges.</p></div><strong>${reviewProgressText(review)}</strong></div>
     <div class="sheet-mappings">
       ${relevant.map(item => mappingCard(item.table, item.index)).join("")}
     </div>
@@ -877,7 +946,7 @@ function availabilitySummary() {
     let status = roleAvailability(type, role);
     const calculated = type === "sales" && role === "valorTotal" && status !== "available" && roleAvailability("sales", "cantidad") === "available" && roleAvailability("sales", "precio") === "available";
     if (calculated) status = "available";
-    return `<li class="${status}"><b>${status === "available" ? "✓" : status === "review" ? "!" : "○"}</b> ${safe(label)}${calculated ? " — San José lo calculará con cantidad × precio" : status === "missing" ? " no encontrado" : ""}</li>`;
+    return `<li class="${status}"><b>${status === "available" ? "✓" : status === "review" ? "!" : "○"}</b> ${safe(label)}${calculated ? " — ConsultorIA lo calculará con cantidad × precio" : status === "missing" ? " no encontrado" : ""}</li>`;
   };
   const hasSales = app.classified.some(table => table.type === "sales");
   const hasInventory = app.classified.some(table => table.type === "inventory");
@@ -1182,7 +1251,8 @@ function resultEvidenceHtml(presentation, finding) {
 }
 
 function stageThreeSecondaryFindings() {
-  return (app.analysis.priorities || []).slice(1, 3).filter(finding => finding.type !== "data").map(finding => ({
+  if (app.productTier === "explora") return [];
+  return (app.analysis.priorities || []).slice(1, visibleOpportunityLimit()).filter(finding => finding.type !== "data").map(finding => ({
     key: finding.type,
     sentence: finding.summary || finding.reason || finding.title
   }));
@@ -1279,7 +1349,7 @@ function resultsScreen() {
     <section class="result-section" aria-labelledby="summary-title"><h2 id="summary-title">Tus datos en pocas palabras</h2><div class="result-stats">${summaryCardsHtml()}</div></section>
     ${resultQualityHtml()}
     <section class="result-section" aria-labelledby="charts-title"><h2 id="charts-title">Lo que pasó con tus ventas</h2><div class="result-charts">${trendChartHtml()}${productChartHtml()}</div></section>
-    ${insufficient ? `<section class="insufficient-priority"><p class="section-kicker">Resultado del análisis</p><h2>Todavía no tenemos información suficiente para decirte qué atender primero.</h2><p>${safe(quality.reasons[0] || "No encontramos suficientes datos utilizables para comparar productos o periodos.")}</p></section>` : `<section class="result-section priority-section" aria-labelledby="priority-title"><p class="section-kicker">Atiende esto primero</p><article class="main-priority"><h2 id="priority-title">${safe(presentation.title)}</h2><div class="priority-metrics">${presentation.metrics.slice(0, 4).map(metric => `<span>${safe(metric)}</span>`).join("")}</div><p class="quality-notice">${presentation.strength === "MEDIA" ? `Este diagnóstico utiliza información con ${quality.score} % de calidad. Ten en cuenta las limitaciones indicadas.` : presentation.strength === "BAJA" ? `Este diagnóstico se basa en información con ${quality.score} % de calidad y debe tomarse como una señal inicial.` : `Basado en información con ${quality.score} % de calidad.`}</p></article></section>${resultEvidenceHtml(presentation, main)}<div class="priority-actions"><button class="button secondary" type="button" data-priority="0" data-go="6">Ver evidencia</button><button class="button gold priority-next" type="button" data-go="7">Ver mi plan de 3 acciones →</button></div>`}
+    ${insufficient ? `<section class="insufficient-priority"><p class="section-kicker">Resultado del análisis</p><h2>Todavía no tenemos información suficiente para decirte qué atender primero.</h2><p>${safe(quality.reasons[0] || "No encontramos suficientes datos utilizables para comparar productos o periodos.")}</p></section>${contextualDiagnosisHtml()}` : `<section class="result-section priority-section" aria-labelledby="priority-title"><p class="section-kicker">Atiende esto primero</p><article class="main-priority"><h2 id="priority-title">${safe(presentation.title)}</h2><div class="priority-metrics">${presentation.metrics.slice(0, 4).map(metric => `<span>${safe(metric)}</span>`).join("")}</div><p class="quality-notice">${presentation.strength === "MEDIA" ? `Este diagnóstico utiliza información con ${quality.score} % de calidad. Ten en cuenta las limitaciones indicadas.` : presentation.strength === "BAJA" ? `Este diagnóstico se basa en información con ${quality.score} % de calidad y debe tomarse como una señal inicial.` : `Basado en información con ${quality.score} % de calidad.`}</p></article></section>${resultEvidenceHtml(presentation, main)}<div class="priority-actions"><button class="button secondary" type="button" data-priority="0" data-go="6">Ver evidencia</button><button class="button gold priority-next" type="button" data-go="7">Ver mi plan de acción →</button></div>`}
     ${secondary.length ? `<section class="result-section also-found"><h2>También encontramos</h2><div class="secondary-findings">${secondary.map(item => `<article class="secondary-finding"><p>${safe(item.sentence)}</p></article>`).join("")}</div></section>` : ""}
     <details class="analysis-details"><summary>Ver detalle del análisis</summary>${managementDetailHtml(main, presentation, insufficient)}</details>
     <div class="download-summary-action"><button id="download-summary" class="button secondary" type="button" ${insufficient ? "disabled" : ""}>Descargar resumen ejecutivo</button>${insufficient ? "<p>Podrás descargarlo cuando exista información suficiente para sustentar una conclusión.</p>" : ""}</div>
@@ -1296,7 +1366,7 @@ function evidenceScreen() {
       <section class="panel"><h2>Qué significa</h2><p>${safe(finding.meaning)}</p></section>
       <section class="panel"><h2>Qué conviene investigar</h2><p>${safe(diagnosticReviewText(finding))}</p><p><strong>Qué observar:</strong> ${safe(finding.indicator)}</p></section>
     </div>
-    <div class="actions"><button class="button secondary" type="button" data-go="5">← Volver al resultado</button>${app.activePriority === 0 ? '<button class="button gold" type="button" data-go="7">Crear plan de 3 acciones →</button>' : ""}</div>`;
+    <div class="actions"><button class="button secondary" type="button" data-go="5">← Volver al resultado</button>${app.activePriority === 0 ? '<button class="button gold" type="button" data-go="7">Crear plan de acción →</button>' : ""}</div>`;
 }
 
 function planScreen() {
@@ -1325,15 +1395,16 @@ function opportunitiesSummaryScreen() {
     const presentation = priorityPresentation(finding);
     const title = finding.problemaGeneral || finding.title || presentation.title;
     const explanation = finding.evidence || finding.reason || presentation.found;
-    const defaultLabels = ["Atender primero", "Atender después", "Mantener en observación"];
+    const defaultLabels = ["Atender primero", "Atender después"];
     const savedState = cycle?.prioridades?.[index]?.estado;
     const rawLabel = savedState && savedState !== "pendiente" ? savedState : defaultLabels[index];
     const label = rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1);
     const isCurrent = index === app.activeOpportunityIndex;
     return `<article class="opportunity-card ${isCurrent ? "primary" : "pending"}"><header><span>Oportunidad ${index + 1}</span><b>${safe(label)}</b></header><h2>${safe(title)}</h2><p>${safe(explanation)}</p>${presentation.metrics?.length ? `<ul>${presentation.metrics.slice(0, 2).map(metric => `<li>${safe(metric)}</li>`).join("")}</ul>` : ""}${isCurrent ? `<button id="open-plan-detail" class="button gold" type="button">${index ? "Continuar esta oportunidad" : "Trabajar esta oportunidad"} →</button>` : `<span class="opportunity-later">${index < app.activeOpportunityIndex ? "Ya la trabajamos" : "La veremos después"}</span>`}</article>`;
   }).join("");
-  const missing = Math.max(0, 3 - count);
-  return `<section class="opportunities-summary"><p class="eyebrow">Primero mira el panorama</p><h1 class="screen-title">${count ? `Tus ${count} oportunidades de mejora` : "Oportunidades de mejora"}</h1><p class="screen-intro">${count ? `San José encontró ${count === 1 ? "un tema" : `${count} temas`} que conviene trabajar. Vamos a avanzar uno por uno, empezando por el más importante.` : "Todavía no encontramos una oportunidad con información suficiente para sustentarla."}</p>${count ? `<p class="opportunities-order">Primero verás ${count === 1 ? "la oportunidad disponible" : `las ${count} oportunidades`}. Luego entraremos a la primera para trabajarla en 3 fases.</p>` : ""}<div class="opportunity-grid">${cards}</div>${missing ? `<aside class="opportunity-missing">${missing === 1 ? "No pudimos construir una tercera oportunidad" : "No pudimos construir las otras oportunidades"} porque falta información suficiente para sustentarlas.</aside>` : ""}${count ? `<aside class="opportunity-method"><h2>¿Cómo vamos a trabajar esto?</h2><p>San José te mostrará primero la oportunidad más importante.</p><ol><li>Entender qué cambió</li><li>Actuar</li><li>Comprobar si mejoró</li></ol></aside>` : ""}${nav(6, null)}</section>`;
+  const limit = visibleOpportunityLimit();
+  const missing = Math.max(0, limit - count);
+  return `<section class="opportunities-summary"><p class="eyebrow">Primero mira el panorama</p><h1 class="screen-title">${count === 1 ? "Tu prioridad principal" : count ? `Tus ${count} prioridades` : "Prioridades"}</h1><p class="screen-intro">${count ? `ConsultorIA encontró ${count === 1 ? "el tema" : `${count} temas`} que conviene trabajar. Vamos a avanzar uno por uno, empezando por el más importante.` : "Todavía no encontramos una prioridad con información suficiente para sustentarla."}</p>${count ? `<p class="opportunities-order">${count === 1 ? "Explora incluye esta prioridad y un plan de acción." : `Enfoque incluye hasta ${limit} prioridades por ciclo.`} Empezaremos por la primera y la trabajaremos en 3 fases.</p>` : ""}<div class="opportunity-grid">${cards}</div>${missing ? `<aside class="opportunity-missing">No pudimos construir ${missing === 1 ? "la otra prioridad" : "las otras prioridades"} porque falta información suficiente para sustentarla.</aside>` : ""}${count ? `<aside class="opportunity-method"><h2>¿Cómo vamos a trabajar esto?</h2><p>ConsultorIA te mostrará primero la prioridad más importante.</p><ol><li>Entender qué cambió</li><li>Actuar</li><li>Comprobar si mejoró</li></ol></aside>` : ""}${nav(6, null)}</section>`;
 }
 
 function stageFourPlanChecklist() {
@@ -1368,7 +1439,7 @@ function stageFourPlanChecklist() {
       }).join("")}</div>${phase.questions?.length ? `<aside class="client-questions"><strong>Preguntas que pueden ayudarte</strong><ul>${phase.questions.map(question => `<li>${safe(question)}</li>`).join("")}</ul></aside>` : ""}</article>`;
     }).join("")}</div>
     <section class="plan-measures stage-four-signals"><span>¿Cómo sabremos si mejoró?</span><h2>Compara estas señales al terminar la tercera fase</h2>${signals}</section>
-    <p class="plan-responsibility">San José te ayuda a identificar prioridades y posibles acciones a partir de tus datos. La decisión final y su ejecución corresponden al empresario.</p>`;
+    <p class="plan-responsibility">ConsultorIA es una herramienta de apoyo de San José. La decisión final y su ejecución corresponden al empresario.</p>`;
 }
 
 function currentOpportunityFinding() {
@@ -1469,7 +1540,7 @@ function feedbackScreen() {
         <div class="feedback-examples"><strong>Puedes contarnos, por ejemplo:</strong><ul><li>qué mejoró;</li><li>qué no funcionó;</li><li>qué fue difícil;</li><li>si pasó algo nuevo;</li><li>cualquier cosa que creas importante.</li></ul><p>Ejemplo: logramos hablar con tres clientes, dos volvieron a comprar, pero seguimos teniendo problemas para conseguir un producto.</p></div>
         <small class="feedback-privacy">Solo usamos lo que escribas o dictemos como texto para esta revisión.</small>
       </section>
-      <section class="feedback-next"><h2>Esto nos ayudará a revisar qué sigue</h2><p>San José tendrá en cuenta lo que hiciste, lo que pasó y los nuevos cambios de tu negocio antes de mostrarte la siguiente prioridad.</p></section>
+      <section class="feedback-next"><h2>Esto nos ayudará a revisar qué sigue</h2><p>ConsultorIA tendrá en cuenta lo que hiciste, lo que pasó y los nuevos cambios de tu negocio antes de mostrarte la siguiente prioridad.</p></section>
       <div class="actions"><button class="button secondary" type="button" data-go="7">← Volver al plan</button><button class="button gold" type="submit">Guardar y revisar qué sigue →</button></div>
     </form>`;
 }
@@ -1496,7 +1567,14 @@ function reviewedOpportunities() {
   const cycleEntries = app.opportunityHistory.filter(item => item.cicloAnalisisId === app.currentAnalysisCycleId && item.retroalimentacion);
   const latestByOpportunity = new Map();
   cycleEntries.forEach(item => latestByOpportunity.set(item.oportunidadIndice, item));
-  return [...latestByOpportunity.values()].sort((a, b) => a.oportunidadIndice - b.oportunidadIndice);
+  return [...latestByOpportunity.values()].sort((a, b) => a.oportunidadIndice - b.oportunidadIndice).slice(0, visibleOpportunityLimit());
+}
+
+function cycleClosingHtml() {
+  if (app.productTier === "explora") {
+    return `<section class="explora-conversion"><p class="eyebrow">Explora completado</p><h2>Ya identificaste qué atender primero.</h2><p><strong>Tu prueba gratuita ha finalizado.</strong></p><p>Continúa con Enfoque para analizar hasta dos prioridades por ciclo, hacer seguimiento y conservar memoria de lo que ya has trabajado.</p><div class="conversion-actions"><button class="button gold" type="button" data-open-commercial>Continuar con Enfoque</button><button class="button secondary" type="button" data-open-commercial>Ver planes</button></div></section>${commercialDialogHtml()}`;
+  }
+  return `<section class="cycle-new-data"><h2>¿Qué quieres hacer ahora?</h2><p>Enfoque conserva la memoria local de esta revisión y permite iniciar un nuevo ciclo con información actualizada.</p><div class="conversion-actions"><button id="load-new-cycle" class="button gold" type="button">Iniciar nuevo ciclo</button><button class="button secondary" type="button" data-open-commercial>Pasar a Gestión</button><button id="finish-cycle" class="button secondary" type="button">Finalizar</button></div></section>${commercialDialogHtml()}`;
 }
 
 function cycleSummaryScreen() {
@@ -1507,12 +1585,12 @@ function cycleSummaryScreen() {
   const easy = userComments.find(comment => /(facil|sencill|logr|pudimos|funcion)/.test(normalize(comment)));
   const difficult = userComments.find(comment => /(dificil|cost|no pud|problema|bloque|falta)/.test(normalize(comment)));
   if (cycle) cycle.estadoFinal = "revisión terminada";
-  return `<section class="cycle-summary"><p class="eyebrow">Cierre de esta revisión</p><h1 class="screen-title">Terminamos esta revisión</h1><p class="screen-intro">Trabajamos las principales oportunidades que encontramos con la información que compartiste.</p>
+  return `<section class="cycle-summary"><p class="eyebrow">Cierre de esta revisión</p><h1 class="screen-title">Terminamos esta revisión</h1><p class="screen-intro">Trabajamos ${app.productTier === "explora" ? "la prioridad principal" : "las principales prioridades"} que encontramos con la información que compartiste.</p>
     <div class="cycle-opportunities">${reviewed.map((item, index) => `<article><span>Oportunidad ${index + 1}</span><h2>${safe(item.oportunidadAtendida)}</h2><p><strong>Resultado:</strong> ${safe(item.estadoFinal)}.</p></article>`).join("")}</div>
     <section class="cycle-learning"><h2>Lo que aprendimos en esta revisión</h2>${dataFacts.slice(0, 2).map(fact => `<p><strong>Los datos muestran:</strong> ${safe(fact)}</p>`).join("")}${userComments.slice(0, 2).map(comment => `<p><strong>Nos contaste que:</strong> ${safe(comment)}</p>`).join("")}${!dataFacts.length && !userComments.length ? "<p>Todavía no tenemos información adicional para resumir.</p>" : ""}</section>
     ${easy || difficult ? `<div class="cycle-experience">${easy ? `<article><span>Lo que resultó más fácil</span><p>${safe(easy)}</p></article>` : ""}${difficult ? `<article><span>Lo que resultó más difícil</span><p>${safe(difficult)}</p></article>` : ""}</div>` : ""}
-    <section class="cycle-new-data"><h2>Revisa cómo está tu negocio ahora</h2><p>Para revisar cómo está tu negocio ahora, carga información actualizada.</p><button id="load-new-cycle" class="button gold" type="button">Cargar nuevos datos →</button></section>
-    <p class="plan-responsibility">San José te ayuda a identificar prioridades y posibles acciones a partir de tus datos. La decisión final y su ejecución corresponden al empresario.</p></section>`;
+    ${cycleClosingHtml()}
+    <p class="plan-responsibility">ConsultorIA es una herramienta de apoyo de San José. La decisión final y su ejecución corresponden al empresario.</p></section>`;
 }
 
 function radioQuestion(name, label, options) {
@@ -1542,7 +1620,7 @@ function nextScreen() {
   return `<section class="opportunity-transition"><p class="eyebrow">Decidir qué sigue</p>${transitionCopy}
     <div class="continuity-grid"><article class="completion"><span>Oportunidad trabajada · ${completedOpportunityIndex + 1}</span><h2>${safe(current?.problemaGeneral || current?.title || "Oportunidad actual")}</h2><p><strong>Resultado:</strong> ${safe(decision.state)}.</p></article>${next ? `<article class="panel"><span>Siguiente oportunidad · ${nextOpportunityIndex + 1}</span><h3>${safe(next.problemaGeneral || next.title)}</h3><p>${safe(next.evidence || next.reason || "")}</p></article>` : ""}</div>
     <div class="final-actions">${actionButtons}</div>
-    <p class="plan-responsibility">San José te ayuda a identificar prioridades y posibles acciones a partir de tus datos. La decisión final y su ejecución corresponden al empresario.</p></section>`;
+    <p class="plan-responsibility">ConsultorIA es una herramienta de apoyo de San José. La decisión final y su ejecución corresponden al empresario.</p></section>`;
 }
 
 function missingState() {
@@ -1576,6 +1654,9 @@ function bindScreen() {
   $("#retry-opportunity")?.addEventListener("click", () => startOpportunity(app.activeOpportunityIndex, true));
   $("#show-cycle-summary")?.addEventListener("click", () => { app.cycleSummaryOpen = true; render(); window.scrollTo({ top: 0, behavior: "smooth" }); });
   $("#load-new-cycle")?.addEventListener("click", prepareNewDataCycle);
+  document.querySelectorAll("[data-open-commercial]").forEach(button => button.addEventListener("click", () => $("#commercial-dialog")?.showModal()));
+  $(".commercial-dialog-close")?.addEventListener("click", () => $("#commercial-dialog")?.close());
+  $("#finish-cycle")?.addEventListener("click", () => location.reload());
 
   if (app.step === 2) {
     const contextForm = $("#context-form");
@@ -2330,7 +2411,7 @@ function requiredMappingIssues() {
     if (relevant("sales").length) issues.push({
       title: "Necesitamos entender mejor las ventas",
       message: "Necesitamos fecha, producto y al menos cantidad o valor total de la venta.",
-      help: "Confirma o corrige los datos principales. Si no existen, San José adaptará el alcance."
+      help: "Confirma o corrige los datos principales. Si no existen, ConsultorIA adaptará el alcance."
     });
     if (relevant("inventory").length) issues.push({
       title: "Necesitamos entender mejor el inventario",
@@ -2610,7 +2691,7 @@ function analyze(data, referenceDate = new Date()) {
   const completeness = essentialValid / essentialTotal;
   const negativeCount = sales.filter(row => numericValue(row.cantidad) < 0 || saleValue(row) < 0).length + inventory.filter(row => numericValue(row.stock) < 0).length;
   const dates = sales.map(row => new Date(row.fecha)).filter(date => !Number.isNaN(date.getTime()));
-  const period = dates.length > 1 ? Math.round((Math.max(...dates) - Math.min(...dates)) / 86400000) : 0;
+  const period = dates.length > 1 ? Math.round((Math.max(...dates) - Math.min(...dates)) / 86400000) + 1 : dates.length;
   const saleProducts = new Set(sales.map(row => normalize(row.producto)).filter(Boolean));
   const inventoryProducts = new Set(inventory.map(row => normalize(row.producto)).filter(Boolean));
   const matches = [...saleProducts].filter(product => inventoryProducts.has(product)).length;
@@ -2624,7 +2705,7 @@ function analyze(data, referenceDate = new Date()) {
   const enoughInventory = hasInventory && inventory.length >= 2 && validInventory / inventory.length >= .7;
   const facts = [];
   if (hasSales) {
-    facts.push({ ok: sales.length >= 5, text: `Encontramos ${sales.length} registros de ventas que cubren ${period} días.` });
+    facts.push({ ok: sales.length >= 5, text: `Encontramos ${sales.length} registros de ventas que cubren ${countText(period, "día", "días")}.` });
     facts.push({ ok: validProductSales === sales.length, text: `${percent(validProductSales / Math.max(1, sales.length))} de las ventas tiene producto.` });
     facts.push({ ok: validDateSales === sales.length, text: `${percent(validDateSales / Math.max(1, sales.length))} de las ventas tiene fecha válida.` });
     facts.push({ ok: validMeasureSales === sales.length, text: `${percent(validMeasureSales / Math.max(1, sales.length))} de las ventas tiene cantidad o valor utilizable.` });
@@ -3811,7 +3892,7 @@ function inventoryActionPlan(finding, diagnosis, timing, products, analysisConte
     causeEvidence,
     phases: [
       { when: timing.labels[0], objective: "Conseguir la información necesaria para comparar existencias y ventas.", action: "Ubica dónde registras las ventas de tu negocio.", evidence: "Hoy solo tenemos una fotografía de inventario y no podemos afirmar si hay exceso o falta de existencias.", activities: ["Busca fecha, producto y cantidad vendida.", "Incluye valor vendido si lo tienes.", "Confirma que los productos usan nombres o referencias reconocibles."] },
-      { when: timing.labels[1], objective: "Preparar un archivo que San José pueda revisar.", action: "Organiza o exporta los registros de ventas en Excel o CSV.", evidence: "No necesitas cambiar los nombres originales de las columnas.", activities: ["Incluye varios meses completos si están disponibles.", "Revisa que las fechas sean válidas.", "Guarda una copia antes de hacer cambios."] },
+      { when: timing.labels[1], objective: "Preparar un archivo que ConsultorIA pueda revisar.", action: "Organiza o exporta los registros de ventas en Excel o CSV.", evidence: "No necesitas cambiar los nombres originales de las columnas.", activities: ["Incluye varios meses completos si están disponibles.", "Revisa que las fechas sean válidas.", "Guarda una copia antes de hacer cambios."] },
       { when: timing.labels[2], objective: "Obtener un diagnóstico conjunto sin inventar relaciones.", action: "Vuelve a analizar ventas e inventario juntos.", evidence: "Solo compararemos productos que podamos relacionar con suficiente claridad.", activities: ["Carga los dos archivos.", "Confirma las columnas identificadas.", "Revisa el nuevo resultado y define un punto de partida."] }
     ],
     indicators: [{ name: "Meses de ventas disponibles", comparison: "Busca al menos seis meses completos cuando sea posible." }, { name: "Productos relacionados", comparison: "Revisa cuántas referencias aparecen tanto en ventas como en inventario." }]
@@ -4264,7 +4345,7 @@ function showTestSummary() {
     ["Información interpretada", app.completed.data],
     ["Calidad evaluada", app.completed.quality],
     ["Oportunidad principal generada", app.completed.priority],
-    ["Plan de 3 acciones generado", app.completed.plan],
+    ["Plan de acción generado", app.completed.plan],
     ["Avance registrado", app.completed.feedback]
   ];
   const count = steps.filter(([, completed]) => completed).length;
@@ -4275,7 +4356,7 @@ function showTestSummary() {
     <h3>${count}/7 pasos completados exitosamente</h3>
     <div class="step-results">${steps.map(([label, completed]) => `<div class="step-row"><span>${label}</span><b>${completed ? "Completado" : "Pendiente"}</b></div>`).join("")}</div>
     <dl class="test-evidence">
-      <div><dt>Dataset</dt><dd>${safe(app.datasetName || "Sin elegir")}</dd></div>
+      <div><dt>Archivo</dt><dd>${safe(app.datasetName || "Sin elegir")}</dd></div>
       <div><dt>Resultado esperado</dt><dd>${safe(app.expected || "Sin definir")}</dd></div>
       <div><dt>Resultado obtenido</dt><dd>${safe(obtained)}</dd></div>
       <div><dt>Evaluación</dt><dd>${app.analysis?.quality.level ? `Calidad de los datos: ${safe(app.analysis.quality.level[0] + app.analysis.quality.level.slice(1).toLowerCase())}` : "Calidad de los datos: No evaluada"}</dd></div>
@@ -4285,7 +4366,7 @@ function showTestSummary() {
   $("#test-dialog").showModal();
 }
 
-const executiveResponsibilityNote = "Este informe presenta orientaciones y recomendaciones basadas en la información suministrada. San José no toma decisiones por la empresa. La revisión, interpretación final y ejecución de acciones son responsabilidad exclusiva de los propietarios, administradores o responsables del negocio.";
+const executiveResponsibilityNote = "Este informe presenta orientaciones y recomendaciones basadas en la información suministrada. ConsultorIA y San José no toman decisiones por la empresa. La revisión, interpretación final y ejecución de acciones son responsabilidad exclusiva de los propietarios, administradores o responsables del negocio.";
 
 function executiveSummaryModel() {
   if (!app.analysis) return null;
@@ -4351,7 +4432,7 @@ async function buildExecutiveSummaryPdf(logoBytes) {
   if (!model || !globalThis.PDFLib) throw new Error("No fue posible preparar el resumen en PDF.");
   const { PDFDocument, StandardFonts, PageSizes, rgb } = globalThis.PDFLib;
   const pdf = await PDFDocument.create();
-  pdf.setTitle("Resumen para tomar decisiones - San José");
+  pdf.setTitle("Resumen para tomar decisiones - ConsultorIA");
   pdf.setAuthor("San José - Transformación Estratégica");
   pdf.setSubject("Orientación empresarial basada en la información suministrada");
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
